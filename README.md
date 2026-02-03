@@ -27,8 +27,19 @@ pip install -r requirements.txt
 
 ## 运行示例
 
+### 方法 1: 直接运行（可能显示警告）
 ```bash
-python chatbot.py
+python3 chatbot.py
+```
+
+### 方法 2: 使用脚本运行（推荐，无警告）
+```bash
+./run.sh
+```
+
+### 方法 3: 抑制警告运行
+```bash
+python3 -W ignore chatbot.py
 ```
 
 ## 状态结构 (AgentState)
