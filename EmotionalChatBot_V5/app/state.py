@@ -129,6 +129,24 @@ class MoodState(TypedDict):
 
 
 # ==========================================
+# 3.5 拟人化行为表现层 (Behavioral Layer)
+# ==========================================
+
+class TimelineSegment(TypedDict):
+    """用于前端/客户端的拟人化时间线片段。"""
+    content: str
+    delay: float   # 发送该段之前等待的时间（秒）
+    action: str    # e.g. "typing"
+
+
+class HumanizedOutput(TypedDict):
+    """Processor 节点输出：包含分段与延迟的拟人化结果。"""
+    total_latency_simulated: float
+    segments: List[TimelineSegment]
+    latency_breakdown: Dict[str, float]
+
+
+# ==========================================
 # 4. 主状态定义 (Main Agent State)
 # ==========================================
 
@@ -218,3 +236,7 @@ class AgentState(TypedDict, total=False):
     retry_count: Optional[int]  # 重试次数
     final_segments: Optional[List[str]]  # 最终分段
     final_delay: Optional[float]  # 最终延迟
+
+    # --- Behavioral Layer Output (Processor) ---
+    # 更细粒度的“拟人化输出”，供客户端按 delay 播放打字/气泡
+    humanized_output: Optional[HumanizedOutput]
