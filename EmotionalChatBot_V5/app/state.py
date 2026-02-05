@@ -180,6 +180,10 @@ class AgentState(TypedDict, total=False):
     # Analyzer 输出的属性变化值 (Deltas)
     relationship_deltas: Optional[Dict[str, float]]
     
+    # --- Detection Result (偏离检测) ---
+    # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY
+    detection_result: Optional[str]
+    
     # --- Output Drivers (The 12 Dimensions) ---
     # 这里的 Key 对应 12 维输出定义
     # Strategy 维度:

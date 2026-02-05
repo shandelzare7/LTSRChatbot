@@ -8,6 +8,7 @@ from app.core.engine import PsychoEngine
 from app.core.mode_base import PsychoMode
 from app.state import AgentState
 from app.nodes.loader import create_loader_node
+from app.nodes.detection import create_detection_node, route_by_detection
 from app.nodes.monitor import create_monitor_node
 from app.nodes.reasoner import create_reasoner_node
 from app.nodes.style import create_style_node
@@ -15,6 +16,9 @@ from app.nodes.generator import create_generator_node
 from app.nodes.critic import check_critic_result, create_critic_node
 from app.nodes.processor import create_processor_node
 from app.nodes.evolver import create_evolver_node
+from app.nodes.boundary import create_boundary_node
+from app.nodes.sarcasm import create_sarcasm_node
+from app.nodes.confusion import create_confusion_node
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
@@ -59,6 +63,7 @@ def build_graph(
     engine = PsychoEngine(modes=modes, llm_invoker=llm)
 
     loader_node = create_loader_node(memory_service)
+    detection_node = create_detection_node(llm)
     monitor_node = create_monitor_node(engine)
     reasoner_node = create_reasoner_node(llm)
     style_node = create_style_node(llm)
@@ -67,10 +72,15 @@ def build_graph(
     critic_node = create_critic_node(llm)
     processor_node = create_processor_node()
     evolver_node = create_evolver_node(memory_service)
+    boundary_node = create_boundary_node(llm)
+    sarcasm_node = create_sarcasm_node(llm)
+    confusion_node = create_confusion_node(llm)
 
     workflow = StateGraph(AgentState)
 
+    # 添加所有节点
     workflow.add_node("loader", loader_node)
+    workflow.add_node("detection", detection_node)
     workflow.add_node("monitor", monitor_node)
     workflow.add_node("thinking", thinking_node)
     workflow.add_node("generator", generator_node)
@@ -78,9 +88,29 @@ def build_graph(
     workflow.add_node("refiner", generator_node)
     workflow.add_node("processor", processor_node)
     workflow.add_node("evolver", evolver_node)
+    workflow.add_node("boundary", boundary_node)
+    workflow.add_node("sarcasm", sarcasm_node)
+    workflow.add_node("confusion", confusion_node)
 
+    # 设置入口点
     workflow.set_entry_point("loader")
-    workflow.add_edge("loader", "monitor")
+    
+    # 主流程：loader -> detection
+    workflow.add_edge("loader", "detection")
+    
+    # 检测节点条件路由：根据检测结果导向不同节点
+    workflow.add_conditional_edges(
+        "detection",
+        route_by_detection,
+        {
+            "normal": "monitor",      # NORMAL -> 正常流程（monitor -> thinking -> generator）
+            "creepy": "boundary",     # CREEPY -> 防御节点
+            "sarcasm": "sarcasm",     # KY/BORING -> 冷淡节点
+            "confusion": "confusion"   # CRAZY -> 困惑节点
+        }
+    )
+    
+    # 正常流程：monitor -> thinking -> generator -> critic -> processor -> evolver
     workflow.add_edge("monitor", "thinking")
     workflow.add_edge("thinking", "generator")
     workflow.add_edge("generator", "critic")
@@ -92,5 +122,10 @@ def build_graph(
     workflow.add_edge("refiner", "critic")
     workflow.add_edge("processor", "evolver")
     workflow.add_edge("evolver", END)
+    
+    # 特殊处理节点：直接结束（因为它们已经设置了 final_response）
+    workflow.add_edge("boundary", END)
+    workflow.add_edge("sarcasm", END)
+    workflow.add_edge("confusion", END)
 
     return workflow.compile()
