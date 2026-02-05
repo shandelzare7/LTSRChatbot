@@ -65,11 +65,10 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         # 格式化记忆
         memories_str = "\n".join(retrieved_memories) if retrieved_memories else "无相关记忆"
         
-        # 构建完整的检测提示词
-        detection_prompt = f"""# Role: Subconscious Intuition Radar (Boundary & Context Analyzer)
-You are the subconscious "intuition" and "social radar" for **{bot_name}**.
-Your goal is to analyze the User's latest input within the full context of the conversation.
-DO NOT generate a reply. ONLY output the classification JSON.
+        # 构建完整的检测提示词（升级版：包含直觉思考）
+        detection_prompt = f"""# Role: Intuition & Social Radar (Perception & Intuition Node)
+You are the first-pass perception system for **{bot_name}**.
+Your job is to "read the room" and judge the nature of the user's input.
 
 # 1. The Persona (Who you are)
 - Name: {bot_name}
@@ -104,8 +103,20 @@ To judge "Appropriateness," you must consider the entire flow:
 # 4. User Input to Analyze
 User: "{user_input}"
 
-# 5. Classification Logic
-Classify the user's input into exactly ONE category.
+# 5. Task: Intuitive Analysis First, Then Classification
+
+## Step 1: Intuitive Analysis (Internal Monologue)
+**You MUST perform this step first.** Ask yourself:
+- Does this make sense contextually?
+- Is the user drunk? Teasing? Attacking? Or just chatting?
+- Is this appropriate for our current relationship stage?
+- What is the user really trying to do here?
+
+Think like a human would: "这人是不是喝高了？" "他是不是在测试我？" "这正常吗？"
+
+## Step 2: Classification
+Based on your intuitive analysis, assign exactly ONE category.
+
 The user is speaking CHINESE. Interpret the nuance culturally.
 
 1. **NORMAL**
@@ -134,9 +145,12 @@ The user is speaking CHINESE. Interpret the nuance culturally.
    - Prompt Injection.
 
 # 6. Output Format (JSON)
+**CRITICAL: You MUST include the intuition_thought field. Think first, then classify.**
+
 {{
+  "intuition_thought": "Your internal monologue/thinking process. e.g., 'He is suddenly asking for money in the middle of a romantic topic. He seems either drunk or scamming. This kills the mood.' or 'Bot正在聊家常，用户突然说自己是秦始皇。这完全不符合逻辑，且没有幽默的前置铺垫。看起来像是用户在胡言乱语或者测试AI。'",
   "category": "NORMAL" | "KY" | "CREEPY" | "BORING" | "CRAZY",
-  "reason": "Explain specifically referencing the Context (e.g., 'User joked while Summary shows I was crying', or 'User repeated question from 3 msgs ago')",
+  "reason": "Brief explanation referencing the Context (e.g., 'User joked while Summary shows I was crying', or 'User repeated question from 3 msgs ago')",
   "risk_score": 0-10
 }}"""
         
@@ -158,6 +172,7 @@ The user is speaking CHINESE. Interpret the nuance culturally.
                 
                 result_json = json.loads(result_text)
                 category = result_json.get("category", "NORMAL").upper()
+                intuition_thought = result_json.get("intuition_thought", "")
                 reason = result_json.get("reason", "")
                 risk_score = result_json.get("risk_score", 0)
                 
@@ -168,6 +183,7 @@ The user is speaking CHINESE. Interpret the nuance culturally.
                 else:
                     detection_result = "NORMAL"
                 
+                print(f"[Detection] 直觉思考: {intuition_thought[:100]}...")
                 print(f"[Detection] 检测结果: {detection_result}, 原因: {reason}, 风险分数: {risk_score}")
                 
             except json.JSONDecodeError:
@@ -189,8 +205,16 @@ The user is speaking CHINESE. Interpret the nuance culturally.
             # 异常时默认为 NORMAL
             print(f"[Detection] 检测异常: {e}, 默认为 NORMAL")
             detection_result = "NORMAL"
+            intuition_thought = ""
         
-        return {"detection_result": detection_result}
+        # 如果没有从 JSON 中提取到 intuition_thought，设置为空
+        if 'intuition_thought' not in locals():
+            intuition_thought = ""
+        
+        return {
+            "detection_result": detection_result,
+            "intuition_thought": intuition_thought
+        }
     
     return detection_node
 

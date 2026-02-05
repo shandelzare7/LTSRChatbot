@@ -21,6 +21,9 @@ def create_boundary_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         last_message = messages[-1] if messages else None
         user_content = getattr(last_message, "content", "") if last_message and hasattr(last_message, "content") else ""
         
+        # 获取直觉思考（如果存在）
+        intuition_thought = state.get("intuition_thought", "")
+        
         # 获取当前关系状态，用于调整防御强度
         relationship_state = state.get("relationship_state", {})
         closeness = relationship_state.get("closeness", 0) if isinstance(relationship_state, dict) else 0
@@ -47,7 +50,20 @@ def create_boundary_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 
 语气可以更轻松，但边界要清晰。"""
         
-        prompt = f"{system_prompt}\n\n用户输入：{user_content}\n\n请直接输出一条回复（不要复述指令）。"
+        # 如果有直觉思考，将其加入提示词
+        if intuition_thought:
+            prompt = f"""{system_prompt}
+
+【你的直觉告诉你】
+{intuition_thought}
+
+基于这个直觉，请给出一个温和但坚定的边界设置回复。
+
+用户输入：{user_content}
+
+请直接输出一条回复（不要复述指令）。"""
+        else:
+            prompt = f"{system_prompt}\n\n用户输入：{user_content}\n\n请直接输出一条回复（不要复述指令）。"
         
         try:
             msg = llm_invoker.invoke(prompt)

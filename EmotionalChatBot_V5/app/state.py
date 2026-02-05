@@ -183,6 +183,8 @@ class AgentState(TypedDict, total=False):
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY
     detection_result: Optional[str]
+    # 直觉思考：检测节点的内部独白，用于理解用户意图
+    intuition_thought: Optional[str]
     
     # --- Output Drivers (The 12 Dimensions) ---
     # 这里的 Key 对应 12 维输出定义

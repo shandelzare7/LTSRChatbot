@@ -21,6 +21,9 @@ def create_sarcasm_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         last_message = messages[-1] if messages else None
         user_content = getattr(last_message, "content", "") if last_message and hasattr(last_message, "content") else ""
         
+        # 获取直觉思考（如果存在）
+        intuition_thought = state.get("intuition_thought", "")
+        
         if detection_result == "KY":
             # 读空气失败/不合时宜
             system_prompt = """你是一个有社交敏感度的 AI 聊天伴侣。用户刚才的话不合时宜或读空气失败。
@@ -42,7 +45,20 @@ def create_sarcasm_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 
 不要强行找话题，尊重用户的沉默。"""
         
-        prompt = f"{system_prompt}\n\n用户输入：{user_content}\n\n请直接输出一条回复（不要复述指令）。"
+        # 如果有直觉思考，将其加入提示词
+        if intuition_thought:
+            prompt = f"""{system_prompt}
+
+【你的直觉告诉你】
+{intuition_thought}
+
+基于这个直觉，请给出一个适当的冷淡/敷衍回复。
+
+用户输入：{user_content}
+
+请直接输出一条回复（不要复述指令）。"""
+        else:
+            prompt = f"{system_prompt}\n\n用户输入：{user_content}\n\n请直接输出一条回复（不要复述指令）。"
         
         try:
             msg = llm_invoker.invoke(prompt)

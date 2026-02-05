@@ -21,6 +21,9 @@ def create_confusion_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         last_message = messages[-1] if messages else None
         user_content = getattr(last_message, "content", "") if last_message and hasattr(last_message, "content") else ""
         
+        # 获取直觉思考（如果存在）
+        intuition_thought = state.get("intuition_thought", "")
+        
         system_prompt = """你是一个耐心的 AI 聊天伴侣。用户刚才的输入让你感到困惑或无法理解（可能是逻辑混乱、完全无关的话题、胡言乱语等）。
 
 请：
@@ -31,7 +34,20 @@ def create_confusion_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 
 不要直接说"我听不懂"，而是尝试帮助用户表达清楚。"""
         
-        prompt = f"{system_prompt}\n\n用户输入：{user_content}\n\n请直接输出一条回复（不要复述指令）。"
+        # 如果有直觉思考，将其加入提示词
+        if intuition_thought:
+            prompt = f"""{system_prompt}
+
+【你的直觉告诉你】
+{intuition_thought}
+
+基于这个直觉，请给出一个困惑但友好的回复。
+
+用户输入：{user_content}
+
+请直接输出一条回复（不要复述指令）。"""
+        else:
+            prompt = f"{system_prompt}\n\n用户输入：{user_content}\n\n请直接输出一条回复（不要复述指令）。"
         
         try:
             msg = llm_invoker.invoke(prompt)
