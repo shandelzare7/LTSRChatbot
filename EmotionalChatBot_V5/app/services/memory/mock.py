@@ -1,5 +1,5 @@
 """记忆服务 Mock 实现：内存字典，不落库。"""
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.services.memory.base import MemoryBase
 
@@ -18,5 +18,5 @@ class MockMemory(MemoryBase):
         items = self._memories.get(user_id, [])[-limit:]
         return "\n".join([x.get("content", "") for x in items]) if items else "（暂无记忆）"
 
-    def append_memory(self, user_id: str, content: str, meta: Dict[str, Any] | None = None) -> None:
+    def append_memory(self, user_id: str, content: str, meta: Optional[Dict[str, Any]] = None) -> None:
         self._memories.setdefault(user_id, []).append({"content": content, "meta": meta or {}})

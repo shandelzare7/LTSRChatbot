@@ -183,6 +183,8 @@ class AgentState(TypedDict, total=False):
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY
     detection_result: Optional[str]
+    # detection_category: detection_result 的语义化别名（推荐使用）
+    detection_category: Optional[str]
     # 直觉思考：检测节点的内部独白，用于理解用户意图
     intuition_thought: Optional[str]
     

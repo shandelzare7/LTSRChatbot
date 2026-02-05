@@ -1,6 +1,6 @@
 """记忆服务抽象基类。"""
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 class MemoryBase(ABC):
@@ -17,6 +17,6 @@ class MemoryBase(ABC):
         pass
 
     @abstractmethod
-    def append_memory(self, user_id: str, content: str, meta: Dict[str, Any] | None = None) -> None:
+    def append_memory(self, user_id: str, content: str, meta: Optional[Dict[str, Any]] = None) -> None:
         """写入一条记忆（可选落库）。"""
         pass

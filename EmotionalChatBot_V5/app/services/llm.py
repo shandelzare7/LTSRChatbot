@@ -1,6 +1,6 @@
 """LLM 客户端封装：支持普通调用与 Structured Output。"""
 import os
-from typing import Any, Type, TypeVar
+from typing import Any, Optional, Type, TypeVar
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -10,8 +10,8 @@ T = TypeVar("T")
 
 
 def get_llm(
-    model: str | None = None,
-    api_key: str | None = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
     temperature: float = 0.3,
 ) -> BaseChatModel:
     """获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。"""
@@ -46,6 +46,12 @@ class MockLLM(BaseChatModel):
                 s = str(m.content)
                 if "侧写" in s:
                     content = '{"reasoning":"用户语气正常","target_mode_id":"normal_mode"}'
+                    break
+                if "read the room" in s or "Intuition & Social Radar" in s or "intuition_thought" in s:
+                    # 感知节点：给一个可解析的 JSON
+                    content = (
+                        '{"intuition_thought":"语境整体正常，用户只是表达想聊聊。","category":"NORMAL","reason":"与摘要情绪一致，未见越界或胡言乱语","risk_score":1}'
+                    )
                     break
                 if "去死" in s or "滚" in s:
                     content = '{"reasoning":"检测到攻击","target_mode_id":"stress_mode"}'

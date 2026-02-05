@@ -15,6 +15,7 @@ def create_generator_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         messages = state.get("messages", [])
         reasoning = state.get("deep_reasoning_trace") or {}
         style = state.get("style_analysis", "")
+        intuition = state.get("intuition_thought", "")
         critique = state.get("critique_feedback", "")
         retry_count = state.get("retry_count", 0)
         is_refine = bool(critique and retry_count > 0)
@@ -26,6 +27,8 @@ def create_generator_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         if is_refine:
             user_block += f"\n\n【质检未通过，请按以下意见修改】\n{critique}\n\n当前初稿（请重写）：\n{state.get('draft_response', '')}"
         else:
+            if intuition:
+                user_block += f"\n\n直觉判断（仅参考）：\n{intuition}"
             if reasoning.get("reasoning"):
                 user_block += f"\n\n内心思考（仅参考）：\n{reasoning.get('reasoning', '')}"
             if style:

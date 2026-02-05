@@ -1,6 +1,6 @@
 """【编排层】构建 LangGraph：节点与边（含并行思考与 Critic 循环）。"""
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, List, Optional
 
 from langgraph.graph import END, StateGraph
 
@@ -61,7 +61,7 @@ def build_graph(
     *,
     llm: Any = None,
     memory_service: Any = None,
-    modes: list[PsychoMode] | None = None,
+    modes: Optional[List[PsychoMode]] = None,
 ) -> Any:
     """
     构建 LangGraph。

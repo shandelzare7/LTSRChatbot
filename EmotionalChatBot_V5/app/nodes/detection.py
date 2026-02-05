@@ -23,10 +23,11 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         """
         messages = state.get("messages", [])
         if not messages:
-            return {"detection_result": "NORMAL"}
+            return {"detection_category": "NORMAL", "detection_result": "NORMAL", "intuition_thought": ""}
         
         last_message = messages[-1]
-        user_input = getattr(last_message, "content", "") if hasattr(last_message, "content") else str(last_message)
+        # 以 state.user_input 为主，messages 兜底
+        user_input = state.get("user_input") or getattr(last_message, "content", "") if hasattr(last_message, "content") else str(last_message)
         
         # 获取状态信息
         bot_basic_info = state.get("bot_basic_info", {})
@@ -38,7 +39,7 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         relationship_state = state.get("relationship_state", {})
         conversation_summary = state.get("conversation_summary", "")
         retrieved_memories = state.get("retrieved_memories", [])
-        chat_buffer = state.get("chat_buffer", [])
+        chat_buffer = state.get("chat_buffer", []) or messages
         
         # 格式化 chat_buffer
         chat_buffer_str = "\n".join([
@@ -154,6 +155,7 @@ The user is speaking CHINESE. Interpret the nuance culturally.
   "risk_score": 0-10
 }}"""
         
+        intuition_thought = ""
         try:
             msg = llm_invoker.invoke(detection_prompt)
             result_text = getattr(msg, "content", str(msg)).strip()
@@ -172,7 +174,7 @@ The user is speaking CHINESE. Interpret the nuance culturally.
                 
                 result_json = json.loads(result_text)
                 category = result_json.get("category", "NORMAL").upper()
-                intuition_thought = result_json.get("intuition_thought", "")
+                intuition_thought = result_json.get("intuition_thought", "") or ""
                 reason = result_json.get("reason", "")
                 risk_score = result_json.get("risk_score", 0)
                 
@@ -207,13 +209,11 @@ The user is speaking CHINESE. Interpret the nuance culturally.
             detection_result = "NORMAL"
             intuition_thought = ""
         
-        # 如果没有从 JSON 中提取到 intuition_thought，设置为空
-        if 'intuition_thought' not in locals():
-            intuition_thought = ""
-        
+        # 同时写入 detection_category（推荐字段）与 detection_result（兼容旧字段）
         return {
+            "detection_category": detection_result,
             "detection_result": detection_result,
-            "intuition_thought": intuition_thought
+            "intuition_thought": intuition_thought,
         }
     
     return detection_node
@@ -229,7 +229,7 @@ def route_by_detection(state: AgentState) -> str:
     - sarcasm: KY/BORING -> Sarcasm_Node (冷淡/敷衍节点)
     - confusion: CRAZY -> Confusion_Node (困惑/修正节点)
     """
-    detection_result = state.get("detection_result", "NORMAL")
+    detection_result = state.get("detection_category") or state.get("detection_result") or "NORMAL"
     
     if detection_result == "NORMAL":
         return "normal"
