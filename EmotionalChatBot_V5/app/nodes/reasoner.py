@@ -173,8 +173,22 @@ def create_reasoner_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
         safe = _ensure_defaults(state)
         out = reasoner_node(safe, {"configurable": {"llm_model": llm_invoker}})
         # 兼容字段：把心声+策略拼成一段 trace
-        monologue = out.get("inner_monologue", "") or ""
-        strategy = out.get("response_strategy", "") or ""
+        monologue_raw = out.get("inner_monologue", "") or ""
+        strategy_raw = out.get("response_strategy", "") or ""
+
+        def _to_text(x: Any) -> str:
+            if x is None:
+                return ""
+            if isinstance(x, str):
+                return x
+            try:
+                return json.dumps(x, ensure_ascii=False)
+            except Exception:
+                return str(x)
+
+        monologue = _to_text(monologue_raw).strip()
+        strategy = _to_text(strategy_raw).strip()
+
         trace_text = (monologue + ("\n\nStrategy:\n" + strategy if strategy else "")).strip()
         out["deep_reasoning_trace"] = {"reasoning": trace_text, "enabled": bool(trace_text)}
         return out

@@ -5,12 +5,14 @@ EmotionalChatBot V5.0 启动入口
 import os
 from pathlib import Path
 
-# 加载 .env（若存在）
+# 加载 .env（若存在）：优先用 python-dotenv，缺失则使用内置 fallback 解析器
+root = Path(__file__).resolve().parent
 try:
-    from dotenv import load_dotenv
-    root = Path(__file__).resolve().parent
-    load_dotenv(root / ".env")
-except ImportError:
+    from utils.env_loader import load_project_env
+
+    load_project_env(root)
+except Exception:
+    # 即使 env loader 异常，也不阻塞启动（只会影响 tracing/keys）
     pass
 
 from langchain_core.messages import HumanMessage

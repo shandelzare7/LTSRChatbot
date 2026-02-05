@@ -20,7 +20,7 @@ LangSmith 的最佳用法就是：**把每个节点当成一个 run（span）**�
 
 ## 1) 配置环境变量（推荐用 `.env`）
 
-在 `EmotionalChatBot_V5/.env` 里写（你也可以写到 shell 环境变量）：
+在 `EmotionalChatBot_V5/.env` 里写（你也可以写到 shell 环境变量）。如果你不确定格式，可以先复制 `EmotionalChatBot_V5/env.example`：
 
 ```bash
 # LangSmith / LangChain tracing（两套变量都兼容）
