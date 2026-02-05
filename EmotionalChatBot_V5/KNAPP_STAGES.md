@@ -119,14 +119,15 @@ def generator_node(state: AgentState) -> AgentState:
 ### 4. 查询阶段元数据
 
 ```python
-from app.state import KNAPP_STAGES
+from utils.yaml_loader import load_stage_by_id
 
 stage = "initiating"
-metadata = KNAPP_STAGES[stage]
-print(f"阶段名称: {metadata['name']}")
-print(f"阶段编号: {metadata['number']}")
-print(f"所属阶段: {metadata['phase']}")  # coming_together 或 coming_apart
-print(f"描述: {metadata['description']}")
+stage_config = load_stage_by_id(stage)
+print(f"阶段名称: {stage_config['stage_name']}")
+print(f"阶段编号: {stage_config['stage_number']}")
+print(f"所属阶段: {stage_config['phase']}")  # coming_together 或 coming_apart
+print(f"角色: {stage_config['role']}")
+print(f"目标: {stage_config['stage_goal']}")
 ```
 
 ## 📝 YAML 配置文件格式

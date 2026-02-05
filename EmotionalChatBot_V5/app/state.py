@@ -12,6 +12,7 @@ from langgraph.graph.message import add_messages
 # ==========================================
 
 # Knapp 十阶段类型定义
+# 阶段元数据请从 config/stages/*.yaml 文件加载，使用 utils.yaml_loader.load_stage_by_id()
 KnappStage = Literal[
     "initiating",      # Stage 1: 起始
     "experimenting",   # Stage 2: 探索
@@ -24,70 +25,6 @@ KnappStage = Literal[
     "avoiding",        # Stage 9: 回避
     "terminating"      # Stage 10: 结束
 ]
-
-# 阶段元数据：用于快速查询阶段信息
-KNAPP_STAGES: Dict[KnappStage, Dict[str, Any]] = {
-    "initiating": {
-        "number": 1,
-        "name": "起始",
-        "phase": "coming_together",
-        "description": "建立低压力的初次连接，展示非机器的性格魅力"
-    },
-    "experimenting": {
-        "number": 2,
-        "name": "探索",
-        "phase": "coming_together",
-        "description": "寻找共同点并交换表面信息"
-    },
-    "intensifying": {
-        "number": 3,
-        "name": "加深",
-        "phase": "coming_together",
-        "description": "建立私有情感连接，表达共情"
-    },
-    "integrating": {
-        "number": 4,
-        "name": "融合",
-        "phase": "coming_together",
-        "description": "语言与思维的同化，建立'我们'叙事"
-    },
-    "bonding": {
-        "number": 5,
-        "name": "承诺",
-        "phase": "coming_together",
-        "description": "确立长期、排他的心理契约"
-    },
-    "differentiating": {
-        "number": 6,
-        "name": "分化",
-        "phase": "coming_apart",
-        "description": "在维持关系的前提下，通过表达不同观点来确立独立人格"
-    },
-    "circumscribing": {
-        "number": 7,
-        "name": "限缩",
-        "phase": "coming_apart",
-        "description": "适应用户的冷淡，降低互动压力，提供安静的陪伴"
-    },
-    "stagnating": {
-        "number": 8,
-        "name": "停滞",
-        "phase": "coming_apart",
-        "description": "打破互动的死水状态，注入新异刺激"
-    },
-    "avoiding": {
-        "number": 9,
-        "name": "回避",
-        "phase": "coming_apart",
-        "description": "零压力触达，尊重物理/心理隔离"
-    },
-    "terminating": {
-        "number": 10,
-        "name": "结束",
-        "phase": "coming_apart",
-        "description": "体面的告别，认知闭合"
-    }
-}
 
 
 # ==========================================
