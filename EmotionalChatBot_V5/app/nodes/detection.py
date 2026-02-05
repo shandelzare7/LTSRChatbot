@@ -3,26 +3,17 @@ import json
 from typing import Any, Callable, Literal
 
 from app.state import AgentState
+from utils.tracing import trace_if_enabled
 
 DetectionResult = Literal["NORMAL", "CREEPY", "KY", "BORING", "CRAZY"]
-
-try:
-    # LangSmith tracing（可选）
-    from langsmith import traceable
-except Exception:  # pragma: no cover
-    def traceable(*args: Any, **kwargs: Any):  # type: ignore
-        def _decorator(fn):
-            return fn
-
-        return _decorator
 
 
 def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     """创建偏离检测节点"""
     
-    @traceable(
-        run_type="chain",
+    @trace_if_enabled(
         name="Perception/Detection",
+        run_type="chain",
         tags=["node", "perception", "detection"],
         metadata={"state_outputs": ["detection_category", "intuition_thought"]},
     )

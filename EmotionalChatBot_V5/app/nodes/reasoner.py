@@ -3,16 +3,7 @@ from typing import Any, Callable, Dict
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from utils.prompt_helpers import format_mind_rules
-
-# LangSmith tracing（可选）
-try:
-    from langsmith import traceable
-except Exception:  # pragma: no cover
-    def traceable(*args: Any, **kwargs: Any):  # type: ignore
-        def _decorator(fn):
-            return fn
-
-        return _decorator
+from utils.tracing import trace_if_enabled
 
 # 假设已导入你的 State 定义
 # from state import AgentState
@@ -163,9 +154,9 @@ def create_reasoner_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
         s.setdefault("current_stage", "initiating")
         return s
 
-    @traceable(
-        run_type="chain",
+    @trace_if_enabled(
         name="Thinking/Reasoner",
+        run_type="chain",
         tags=["node", "thinking", "reasoner"],
         metadata={"state_outputs": ["response_strategy", "inner_monologue", "deep_reasoning_trace"]},
     )
