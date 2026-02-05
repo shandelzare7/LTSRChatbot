@@ -6,7 +6,7 @@
    T_total = T_read(L_in) + T_cog(P, M, S) + T_type(L_out, P, M)
 
 2) 分段概率模型 (Segmentation Probability Model)
-   在标点处以 sigmoid 概率决定切分
+   在标点处进行 TCU 式切分（由 fragmentation_tendency 决定阈值）
 
 输出：
 - final_segments: List[str]（兼容旧客户端）
@@ -37,10 +37,6 @@ STAGE_DELAY_FACTORS: Dict[str, float] = {
     "avoiding": 3.0,        # 极度拖延
     "terminating": 2.0,     # 结束前的犹豫
 }
-
-
-def _sigmoid(x: float) -> float:
-    return 1.0 / (1.0 + math.exp(-x))
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -98,6 +94,14 @@ def _get_rel(state: AgentState) -> Dict[str, float]:
 def calculate_human_dynamics(state: AgentState) -> Dict[str, float]:
     """
     计算拟人化动态参数（性格、情绪、关系阶段共同作用）。
+
+    Theoretical anchors (for paper):
+    - Walther (1992) SIP Theory: time is a key relational cue in CMC
+    - Big Five in CMC:
+      - Extraversion -> faster response & more fragmented texting
+      - Conscientiousness -> more deliberation, less fragmentation
+      - Neuroticism -> hesitation/noise in timing
+    - Knapp relationship stages -> chronemics strategy factor
     """
     big5 = _get_big5(state)
     mood = _get_mood(state)
@@ -119,11 +123,9 @@ def calculate_human_dynamics(state: AgentState) -> Dict[str, float]:
 
     speed_factor = p_speed * p_caution * m_arousal_boost * m_busyness_drag * r_stage_factor
 
-    fragmentation_tendency = (
-        (big5["extraversion"] * 0.5)
-        + (r_intimacy_frag * 0.5)
-        + (mood["arousal"] * 0.3)
-        - (big5["conscientiousness"] * 0.3)
+    # fragmentation_tendency: higher -> easier to cut (speech-like bursts)
+    fragmentation_tendency = (big5["extraversion"] * 0.5) + (r_intimacy_frag * 0.5) + (
+        mood["arousal"] * 0.3
     )
 
     return {
@@ -134,49 +136,6 @@ def calculate_human_dynamics(state: AgentState) -> Dict[str, float]:
     }
 
 
-def _compute_latency(
-    *,
-    state: AgentState,
-    final_text: str,
-    dynamics: Dict[str, float],
-) -> Tuple[float, float, float]:
-    """
-    延迟模型：
-    - T_read = alpha * len(user_input) + C_base
-    - T_cog  = beta * (1+busyness) * StageFactor * (1 + Neuroticism * rand_eps)
-    - T_type = len(ai_text) / (TypingSpeed * (1 + Extraversion*0.2 + Arousal*0.3))
-    """
-    big5 = _get_big5(state)
-    mood = _get_mood(state)
-
-    user_len = len(state.get("user_input") or "")
-    out_len = len(final_text or "")
-
-    # --- T_read
-    alpha = 0.05
-    c_base = 0.5
-    t_read = c_base + alpha * user_len
-
-    # --- T_cog
-    beta = 0.8
-    eps = random.uniform(-1.0, 1.0)  # random(ε)
-    t_cog = beta * (1.0 + mood["busyness"]) * float(dynamics["stage_factor"]) * (
-        1.0 + (max(0.0, big5["neuroticism"]) * 0.35 * eps)
-    )
-    # 使用输出长度作为 cognitive load 的代理（让长回复更“想得久”）
-    t_cog *= 1.0 + (out_len * 0.002)
-    t_cog = _clamp(t_cog, 0.1, 20.0)
-
-    # --- T_type
-    typing_speed = 5.0  # chars/sec baseline
-    speed_boost = 1.0 + (big5["extraversion"] * 0.2) + (mood["arousal"] * 0.3)
-    speed_boost = max(0.2, speed_boost)
-    t_type = out_len / (typing_speed * speed_boost) if out_len > 0 else 0.0
-    t_type = _clamp(t_type, 0.0, 60.0)
-
-    return t_read, t_cog, t_type
-
-
 def _segment_text(
     *,
     state: AgentState,
@@ -184,60 +143,35 @@ def _segment_text(
     dynamics: Dict[str, float],
 ) -> List[str]:
     """
-    分段概率模型：
-    P(cut_i)=sigmoid(w1*E + w2*Closeness + w3*Arousal - w4*C)
-    只在标点处评估切分。
+    TCU-based segmentation logic (Baron 2008 / Sacks et al. 1974 inspired):
+    - Split by punctuation into Turn-Constructional-Units (TCUs)
+    - Use a dynamic threshold controlled by fragmentation_tendency
     """
     if not text:
         return []
 
-    big5 = _get_big5(state)
-    mood = _get_mood(state)
-    rel = _get_rel(state)
+    # threshold 越低越容易切分
+    split_threshold = 20 - (dynamics["fragmentation_tendency"] * 15)
+    split_threshold = int(_clamp(float(split_threshold), 5.0, 30.0))
 
-    # weights (可在论文中声明为超参)
-    w1, w2, w3, w4 = 1.0, 2.0, 1.2, 1.0
-    closeness_norm = rel["closeness"] / 100.0
-
-    base_logit = (
-        w1 * big5["extraversion"]
-        + w2 * closeness_norm
-        + w3 * mood["arousal"]
-        - w4 * big5["conscientiousness"]
-    )
-    base_p = _sigmoid(base_logit)
-
-    # fallback threshold (fragmentation tendency)
-    split_threshold = 20 - (_clamp(dynamics["fragmentation_tendency"], -1.0, 2.0) * 15)
-    split_threshold = _clamp(split_threshold, 5.0, 30.0)
-
-    parts = re.split(r"([。！？.!?\n]+)", text)
+    segments = re.split(r"([。！？\n]+)", text)
     bubbles: List[str] = []
-    buf = ""
+    current_buf = ""
 
-    for part in parts:
-        if not part:
+    for seg in segments:
+        if not seg:
             continue
-        buf += part
-
-        is_punc = bool(re.fullmatch(r"[。！？.!?\n]+", part))
-        if not is_punc:
+        current_buf += seg
+        is_punctuation = re.match(r"[。！？\n]+", seg)
+        if not is_punctuation:
             continue
+        # 如果是标点，且当前缓冲区长度超过阈值，或者强制分段符(换行)，则切分
+        if len(current_buf) > split_threshold or "\n" in seg:
+            bubbles.append(current_buf.strip())
+            current_buf = ""
 
-        # 强制换行切
-        if "\n" in part:
-            bubbles.append(buf.strip())
-            buf = ""
-            continue
-
-        # 概率切分 + 长度阈值兜底
-        p_cut = _clamp(base_p + random.uniform(-0.08, 0.08), 0.05, 0.95)
-        if len(buf) >= split_threshold and random.random() < p_cut:
-            bubbles.append(buf.strip())
-            buf = ""
-
-    if buf.strip():
-        bubbles.append(buf.strip())
+    if current_buf.strip():
+        bubbles.append(current_buf.strip())
 
     return bubbles
 
@@ -248,37 +182,48 @@ def create_processor_node() -> Callable[[AgentState], dict]:
         final_text = (state.get("final_response") or state.get("draft_response") or "").strip()
         dynamics = calculate_human_dynamics(state)
 
-        # Latency model
-        t_read, t_cog, t_type = _compute_latency(state=state, final_text=final_text, dynamics=dynamics)
+        # --- A. 延迟计算 (Latency Model) ---
+        user_input_len = len(state.get("user_input") or "")
 
-        # Segmentation model
+        # 1) Reading Time (Base Physiology)
+        # 假设平均阅读速度 ~20字/秒 + 0.5s 反应基准
+        t_read = 0.5 + (user_input_len * 0.05)
+
+        # 2) Thinking/Processing Time (Cognitive Load proxy)
+        # 使用 final_response 长度作为认知负荷代理（Hick's Law 变体）
+        cognitive_load = len(final_text) * 0.02
+        t_cog = (1.0 + cognitive_load) * float(dynamics["speed_factor"])
+
+        # Neuroticism hesitation noise (Gaussian)
+        noise = random.gauss(1.0, float(dynamics["noise_level"]))
+        t_cog *= _clamp(noise, 0.5, 2.0)
+
+        # 3) Typing latency（按段计算更真实，这里先给总体估计值）
+        typing_speed_char_per_sec = 5.0 / float(dynamics["speed_factor"])  # 基准打字速度
+        t_type_total_est = (len(final_text) / typing_speed_char_per_sec) if final_text else 0.0
+
+        # --- B. 分段算法 (TCU-based Segmentation) ---
         bubbles = _segment_text(state=state, text=final_text, dynamics=dynamics)
 
-        # Timeline: delay-before-each-bubble
-        initial_delay = t_read + t_cog
-
-        # typing speed depends on speed_factor (more delay => slower)
-        base_typing_speed = 5.0  # chars/sec
-        speed_factor = float(dynamics["speed_factor"])
-        typing_speed_char_per_sec = max(1.0, base_typing_speed / speed_factor)
-
+        # --- C. 构建最终序列 (Scheduling) ---
+        accumulated_delay = t_read + t_cog  # 初始延迟（读+想）
         timeline_segments: List[Dict[str, Any]] = []
-        delays: List[float] = []
-        next_delay = initial_delay
         for bub in bubbles:
-            t_this_type = (len(bub) / typing_speed_char_per_sec) if bub else 0.0
-            t_this_type *= random.uniform(0.9, 1.1)
-            timeline_segments.append({"content": bub, "delay": round(next_delay, 2), "action": "typing"})
-            delays.append(next_delay)
-            # 下一段：上一段“打字时间”作为等待（模拟正在输入下一条）
-            next_delay = _clamp(t_this_type, 0.05, 30.0)
+            t_type = (len(bub) / typing_speed_char_per_sec) if bub else 0.0
+            t_type *= random.uniform(0.9, 1.1)
+            timeline_segments.append(
+                {"content": bub, "delay": round(accumulated_delay, 2), "action": "typing"}
+            )
+            # 下一句的延迟是基于上一句发完之后的（模拟正在打下一句）
+            accumulated_delay = _clamp(t_type, 0.05, 30.0)
 
-        total_latency_simulated = float(initial_delay + sum(_clamp(len(b) / typing_speed_char_per_sec, 0.0, 60.0) for b in bubbles))
+        # total_latency_simulated: 按参考代码定义为 delay 字段求和（用于论文指标）
+        total_latency_simulated = float(sum(s["delay"] for s in timeline_segments)) if timeline_segments else float(t_read + t_cog)
 
         out = {
             # 兼容旧字段
             "final_segments": bubbles,
-            "final_delay": round(initial_delay, 2),
+            "final_delay": round(t_read + t_cog, 2),
             # 新字段：给客户端更细粒度的时间线
             "humanized_output": {
                 "total_latency_simulated": round(total_latency_simulated, 2),
@@ -286,8 +231,8 @@ def create_processor_node() -> Callable[[AgentState], dict]:
                 "latency_breakdown": {
                     "t_read": round(t_read, 3),
                     "t_cog": round(t_cog, 3),
-                    "t_type": round(t_type, 3),
-                    "t_total": round(t_read + t_cog + t_type, 3),
+                    "t_type": round(t_type_total_est, 3),
+                    "t_total": round(t_read + t_cog + t_type_total_est, 3),
                 },
             },
         }
