@@ -8,13 +8,21 @@ from app.core.engine import PsychoEngine
 from app.core.mode_base import PsychoMode
 from app.state import AgentState
 from app.nodes.loader import create_loader_node
-from app.nodes.detection import (
-    create_detection_node,
-    route_by_detection,
-    create_boundary_node,
-    create_sarcasm_node,
-    create_confusion_node,
-)
+from app.nodes.detection.boundary import create_boundary_node
+from app.nodes.detection.sarcasm import create_sarcasm_node
+from app.nodes.detection.confusion import create_confusion_node
+
+# 从 detection.py 文件直接导入（在 nodes/ 目录下，与 detection/ 文件夹同名）
+import importlib.util
+from pathlib import Path
+
+_detection_file = Path(__file__).parent / "nodes" / "detection.py"
+_spec = importlib.util.spec_from_file_location("detection_module", _detection_file)
+_detection_module = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_detection_module)
+
+create_detection_node = _detection_module.create_detection_node
+route_by_detection = _detection_module.route_by_detection
 from app.nodes.monitor import create_monitor_node
 from app.nodes.reasoner import create_reasoner_node
 from app.nodes.style import create_style_node
