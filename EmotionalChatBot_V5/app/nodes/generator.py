@@ -4,6 +4,16 @@ from langchain_core.messages import SystemMessage, HumanMessage, BaseMessage
 from langchain_core.runnables import RunnableConfig
 from utils.prompt_helpers import get_mood_instruction
 
+# LangSmith tracing（可选）
+try:
+    from langsmith import traceable
+except Exception:  # pragma: no cover
+    def traceable(*args: Any, **kwargs: Any):  # type: ignore
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
 # 假设已导入 State
 # from state import AgentState
 
@@ -165,6 +175,12 @@ def create_generator_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
         s.setdefault("mood_state", {"pleasure": 0.0, "arousal": 0.0, "dominance": 0.0})
         return s
 
+    @traceable(
+        run_type="chain",
+        name="Response/Generator",
+        tags=["node", "generator", "response"],
+        metadata={"state_outputs": ["final_response", "draft_response"]},
+    )
     def node(state: Dict[str, Any]) -> dict:
         safe = _ensure_defaults(state)
         try:

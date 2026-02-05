@@ -3,6 +3,16 @@ from typing import Any, Callable, Dict
 from langchain_core.messages import SystemMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 
+# LangSmith tracing（可选）
+try:
+    from langsmith import traceable
+except Exception:  # pragma: no cover
+    def traceable(*args: Any, **kwargs: Any):  # type: ignore
+        def _decorator(fn):
+            return fn
+
+        return _decorator
+
 # 假设已导入 State
 # from state import AgentState
 
@@ -191,6 +201,12 @@ def create_style_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
         s["relationship_state"] = rel
         return s
 
+    @traceable(
+        run_type="chain",
+        name="Thinking/Styler",
+        tags=["node", "thinking", "styler", "style"],
+        metadata={"state_outputs": ["llm_instructions", "style_analysis"]},
+    )
     def node(state: Dict[str, Any]) -> dict:
         safe = _ensure_defaults(state)
         out = styler_node(safe, {"configurable": {"llm_model": llm_invoker}})
