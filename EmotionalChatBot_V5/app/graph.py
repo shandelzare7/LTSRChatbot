@@ -8,7 +8,13 @@ from app.core.engine import PsychoEngine
 from app.core.mode_base import PsychoMode
 from app.state import AgentState
 from app.nodes.loader import create_loader_node
-from app.nodes.detection import create_detection_node, route_by_detection
+from app.nodes.detection import (
+    create_detection_node,
+    route_by_detection,
+    create_boundary_node,
+    create_sarcasm_node,
+    create_confusion_node,
+)
 from app.nodes.monitor import create_monitor_node
 from app.nodes.reasoner import create_reasoner_node
 from app.nodes.style import create_style_node
@@ -16,9 +22,6 @@ from app.nodes.generator import create_generator_node
 from app.nodes.critic import check_critic_result, create_critic_node
 from app.nodes.processor import create_processor_node
 from app.nodes.evolver import create_evolver_node
-from app.nodes.boundary import create_boundary_node
-from app.nodes.sarcasm import create_sarcasm_node
-from app.nodes.confusion import create_confusion_node
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
