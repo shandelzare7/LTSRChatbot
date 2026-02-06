@@ -7,3 +7,4 @@ PyYAML>=6.0
 python-dotenv>=1.0
 urllib3>=1.26.0,<3.0.0
 sqlalchemy>=2.0
+asyncpg>=0.29.0
