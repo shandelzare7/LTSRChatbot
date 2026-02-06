@@ -155,6 +155,25 @@ TimelineSegment = ResponseSegment
 
 
 # ==========================================
+# 3.6 关系资产层 (Monotonic Relationship Assets)
+# ==========================================
+
+class RelationshipAssets(TypedDict):
+    """用于跨回合累积的关系资产（可序列化）。"""
+    topic_history: List[str]      # List of topics discussed (Stored as list for JSON serialization)
+    breadth_score: int            # Count of unique topics
+    max_spt_depth: int            # Highest level reached (1-4)
+    intellectual_capital: int     # Counter of deep conversations
+
+
+class AssetDelta(TypedDict):
+    """仅用于当前回合的 transient flags（供 evolver 做 bonus/触发）。"""
+    is_new_topic: bool
+    is_spt_breakthrough: bool
+    is_intellectually_deep: bool
+
+
+# ==========================================
 # 4. 主状态定义 (Main Agent State)
 # ==========================================
 
@@ -209,6 +228,13 @@ class AgentState(TypedDict, total=False):
     latest_relationship_analysis: Optional[Dict[str, Any]]
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
+
+    # --- Relationship Assets (跨回合累积，不回退) ---
+    relationship_assets: Optional[RelationshipAssets]
+    asset_updates: Optional[AssetDelta]
+
+    # --- Processor extra output (for updater) ---
+    processor_output: Optional[Dict[str, Any]]
     
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY

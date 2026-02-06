@@ -64,6 +64,76 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
+def _infer_topic_category(text: str) -> str:
+    """
+    极简 topic 分类器（不追求完美，只为提供 updater 可用的 processor_output）。
+    """
+    t = (text or "").lower()
+    # 中英关键字混合
+    if any(k in t for k in ["工作", "加班", "老板", "同事", "绩效", "项目", "kpi", "work", "job"]):
+        return "work"
+    if any(k in t for k in ["家", "父母", "妈妈", "爸爸", "孩子", "家庭", "family"]):
+        return "family"
+    if any(k in t for k in ["喜欢", "爱", "暧昧", "分手", "对象", "恋爱", "crush", "love"]):
+        return "love"
+    if any(k in t for k in ["身体", "头疼", "失眠", "焦虑", "抑郁", "生病", "医院", "health"]):
+        return "health"
+    if any(k in t for k in ["学习", "考试", "论文", "作业", "学校", "study", "exam"]):
+        return "study"
+    if any(k in t for k in ["钱", "借", "工资", "房租", "理财", "finance", "money"]):
+        return "finance"
+    if any(k in t for k in ["兴趣", "爱好", "游戏", "运动", "音乐", "电影", "hobby"]):
+        return "hobbies"
+    if any(k in t for k in ["人生", "意义", "目标", "理想", "未来", "life goal", "purpose"]):
+        return "life_goals"
+    return "general"
+
+
+def _infer_spt_level(user_input: str) -> int:
+    """
+    估计自我暴露深度（SPT 1~4）：非常粗略的启发式。
+    """
+    t = (user_input or "").strip()
+    if not t:
+        return 1
+    # 核心/创伤/身份秘密（4）
+    if any(k in t for k in ["创伤", "自杀", "抑郁症", "童年阴影", "秘密", "性侵", "trauma", "abuse"]):
+        return 4
+    # 私密个人信息（3）
+    if any(k in t for k in ["我害怕", "我很难受", "我受不了", "我崩溃", "我想哭", "我失眠", "我焦虑"]):
+        return 3
+    # 偏好/观点（2）
+    if any(k in t for k in ["我觉得", "我认为", "我喜欢", "我讨厌", "我想要", "我不想"]):
+        return 2
+    # 公共闲聊（1）
+    return 1
+
+
+def _infer_is_intellectually_deep(user_input: str) -> bool:
+    """
+    判断是否“智识深度”对话：反思、抽象、价值观、分析推理。
+    """
+    t = (user_input or "").lower()
+    deep_markers = [
+        "为什么",
+        "意义",
+        "本质",
+        "价值观",
+        "逻辑",
+        "分析",
+        "推理",
+        "哲学",
+        "道德",
+        "what is",
+        "why",
+        "meaning",
+        "philosophy",
+        "ethics",
+        "reasoning",
+    ]
+    return any(m in t for m in deep_markers)
+
+
 class HumanizationProcessor:
     def __init__(self, state: AgentState):
         self.state = state
@@ -306,9 +376,16 @@ def humanize_response_node(state: AgentState) -> Dict[str, Any]:
     segs = result.get("segments") or []
     bubbles = [s.get("content", "") for s in segs]
     first_delay = float(segs[0].get("delay", 0.0)) if segs else 0.0
+    user_input = str(state.get("user_input") or "")
+    processor_output = {
+        "topic_category": _infer_topic_category(user_input),
+        "spt_level": _infer_spt_level(user_input),
+        "is_intellectually_deep": _infer_is_intellectually_deep(user_input),
+    }
 
     return {
         "humanized_output": result,
+        "processor_output": processor_output,
         # 兼容旧输出
         "final_segments": bubbles,
         "final_delay": round(first_delay, 2),
