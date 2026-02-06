@@ -34,6 +34,7 @@ from app.nodes.evolver import (
     create_relationship_analyzer_node,
     create_relationship_updater_node,
 )
+from src.nodes.stage_manager import create_stage_manager_node
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
@@ -82,6 +83,7 @@ def build_graph(
     monitor_node = create_monitor_node(engine)
     relationship_analyzer_node = create_relationship_analyzer_node(llm)
     relationship_updater_node = create_relationship_updater_node()
+    stage_manager_node = create_stage_manager_node()
     reasoner_node = create_reasoner_node(llm)
     style_node = create_style_node(llm)
     thinking_node = _thinking_node(reasoner_node, style_node)
@@ -101,6 +103,7 @@ def build_graph(
     workflow.add_node("monitor", monitor_node)
     workflow.add_node("relationship_analyzer", relationship_analyzer_node)
     workflow.add_node("relationship_updater", relationship_updater_node)
+    workflow.add_node("stage_manager", stage_manager_node)
     workflow.add_node("thinking", thinking_node)
     workflow.add_node("generator", generator_node)
     workflow.add_node("critic", critic_node)
@@ -132,7 +135,8 @@ def build_graph(
     # 正常流程：monitor -> relationship_analyzer -> relationship_updater -> thinking -> generator -> critic -> processor -> memory_writer
     workflow.add_edge("monitor", "relationship_analyzer")
     workflow.add_edge("relationship_analyzer", "relationship_updater")
-    workflow.add_edge("relationship_updater", "thinking")
+    workflow.add_edge("relationship_updater", "stage_manager")
+    workflow.add_edge("stage_manager", "thinking")
     workflow.add_edge("thinking", "generator")
     workflow.add_edge("generator", "critic")
     workflow.add_conditional_edges(

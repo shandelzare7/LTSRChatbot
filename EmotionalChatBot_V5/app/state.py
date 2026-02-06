@@ -2,7 +2,7 @@
 【状态层】定义 LangGraph Agent 的全局状态。
 支持高度拟人化的 AI 聊天机器人，包含大五人格、动态人设、6维关系模型和PAD情绪模型。
 """
-from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated, Literal
+from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated, Literal, Set
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
@@ -147,6 +147,24 @@ class HumanizedOutput(TypedDict):
 
 
 # ==========================================
+# 3.2 社会穿透理论状态 (SPT: Social Penetration Theory)
+# ==========================================
+
+class SPTState(TypedDict, total=False):
+    """
+    话题广度/自我暴露深度状态（独立于 6 维关系分数，不要混入 relationship_state）。
+    - current_depth_level: 1=Public, 2=Preferences, 3=Private, 4=Core
+    - max_depth_reached: 历史最高深度（高水位线）
+    - topic_history: 已讨论过的话题类别集合（用于 Breadth）
+    - last_topic_category: 最近一轮话题类别
+    """
+    current_depth_level: int
+    max_depth_reached: int
+    topic_history: Set[str]
+    last_topic_category: str
+
+
+# ==========================================
 # 4. 主状态定义 (Main Agent State)
 # ==========================================
 
@@ -183,6 +201,9 @@ class AgentState(TypedDict, total=False):
     # --- Knapp Relationship Stage ---
     # 当前关系阶段（根据 Knapp 理论模型）
     current_stage: KnappStage
+
+    # --- SPT Metrics (Topic Breadth & Self-disclosure Depth) ---
+    spt_state: Optional[SPTState]
     
     # --- Memory System ---
     # 短期记忆窗口 (最近 10-20 条)
@@ -201,6 +222,12 @@ class AgentState(TypedDict, total=False):
     latest_relationship_analysis: Optional[Dict[str, Any]]
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
+    # Relationship Engine：有效 raw（LLM raw + fuel bonus），用于 StageManager jump 逻辑/调试
+    relationship_deltas_effective: Optional[Dict[str, int]]
+    # Relationship Engine：本轮 Fuel 信息（topic/depth/breadth）
+    relationship_fuel: Optional[Dict[str, Any]]
+    # Stage Manager：阶段迁移记录（可选）
+    stage_transition: Optional[Dict[str, Any]]
     
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY

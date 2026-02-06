@@ -49,6 +49,9 @@ class MockLLM(BaseChatModel):
                     content = (
                         '{"thought_process":"用户表达想聊聊，属于轻度自我暴露与求助信号。总体符合当前阶段。",'
                         '"detected_signals":["展示脆弱性 (在无助时求助)"],'
+                        '"topic_category":"life_goals",'
+                        '"self_disclosure_depth_level":2,'
+                        '"is_intellectually_deep":true,'
                         '"deltas":{"closeness":1,"trust":1,"liking":1,"respect":0,"warmth":1,"power":0}}'
                     )
                     break
