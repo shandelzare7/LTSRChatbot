@@ -23,7 +23,6 @@ _spec.loader.exec_module(_detection_module)
 
 create_detection_node = _detection_module.create_detection_node
 route_by_detection = _detection_module.route_by_detection
-from app.nodes.monitor import create_monitor_node
 from app.nodes.reasoner import create_reasoner_node
 from app.nodes.style import create_style_node
 from app.nodes.generator import create_generator_node
@@ -62,7 +61,6 @@ def build_graph(
 
     loader_node = create_loader_node(memory_service)
     detection_node = create_detection_node(llm)
-    monitor_node = create_monitor_node(engine)
     reasoner_node = create_reasoner_node(llm)
     style_node = create_style_node(llm)
     generator_node = create_generator_node(llm)
@@ -80,7 +78,6 @@ def build_graph(
     # 添加所有节点
     workflow.add_node("loader", loader_node)
     workflow.add_node("detection", detection_node)
-    workflow.add_node("monitor", monitor_node)
     workflow.add_node("reasoner", reasoner_node)
     workflow.add_node("style", style_node)
     workflow.add_node("generator", generator_node)
@@ -105,7 +102,7 @@ def build_graph(
         "detection",
         route_by_detection,
         {
-            "normal": "monitor",      # NORMAL -> 正常流程（monitor -> thinking -> generator）
+            "normal": "reasoner",     # NORMAL -> 正常流程
             "creepy": "boundary",     # CREEPY -> 防御节点
             "sarcasm": "sarcasm",     # KY/BORING -> 冷淡节点
             "confusion": "confusion"   # CRAZY -> 困惑节点
@@ -113,8 +110,7 @@ def build_graph(
     )
     
     # 正常流程：
-    # monitor -> reasoner -> style -> generator -> critic -> processor -> evolver -> memory_writer
-    workflow.add_edge("monitor", "reasoner")
+    # reasoner -> style -> generator -> critic -> processor -> evolver -> stage_manager -> memory_writer
     workflow.add_edge("reasoner", "style")
     workflow.add_edge("style", "generator")
     workflow.add_edge("generator", "critic")
