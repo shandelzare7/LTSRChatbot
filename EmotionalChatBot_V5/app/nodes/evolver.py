@@ -9,11 +9,13 @@
 - Node 1 (Analyzer): LLM 接收完整上下文 + YAML 标准，输出 JSON Deltas
 - Node 2 (Updater): Python 应用阻尼公式（边际收益递减 + 背叛惩罚）更新 relationship_state
 
-同时保留一个末尾 Memory Writer（原 evolver 行为），供 graph 在 processor 之后记录回复文本。
+说明：
+- 本文件对应 LangGraph 节点名：`evolver`（与文件名保持一致）。
+- evolver 节点内部顺序执行：Analyzer -> Updater（强绑定，避免拆成两个节点造成混淆）。
 """
 
 import json
-from typing import TYPE_CHECKING, Any, Callable, Dict
+from typing import Any, Callable, Dict
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -21,9 +23,6 @@ from app.state import AgentState
 from src.schemas import RelationshipAnalysis
 from src.prompts.relationship import build_analyzer_prompt
 from utils.tracing import trace_if_enabled
-
-if TYPE_CHECKING:
-    from app.services.memory.base import MemoryBase
 
 
 REL_DIMS = ("closeness", "trust", "liking", "respect", "warmth", "power")
@@ -203,26 +202,9 @@ def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], 
     return node
 
 
-# -------------------------------------------------------------------
-# Memory Writer（原 evolver 行为）：processor 之后记录最终回复片段
-# -------------------------------------------------------------------
-
-def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentState], dict]:
-    def node(state: AgentState) -> dict:
-        user_id = state.get("user_id") or "default_user"
-        segments = state.get("final_segments", [])
-        final_text = " ".join(segments) if segments else state.get("draft_response", "")
-        if final_text:
-            memory_service.append_memory(
-                user_id,
-                f"Bot 回复: {final_text[:200]}",
-                meta={"source": "memory_writer"},
-            )
-        return {}
-
-    return node
-
-
-# backward-compatible alias (旧 graph 若仍调用 create_evolver_node)
-def create_evolver_node(memory_service: "MemoryBase") -> Callable[[AgentState], dict]:
-    return create_memory_writer_node(memory_service)
+def create_evolver_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
+    """
+    Graph 入口（与文件名一致）：
+    evolver = RelationshipEngine = Analyzer -> Updater
+    """
+    return create_relationship_engine_node(llm_invoker)

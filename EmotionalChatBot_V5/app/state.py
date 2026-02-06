@@ -169,7 +169,7 @@ class AgentState(TypedDict, total=False):
     - Memory: chat_buffer, conversation_summary, retrieved_memories
     - Output: llm_instructions (12维输出驱动), final_response
     """
-    
+
     # --- Input Context ---
     messages: Annotated[List[BaseMessage], add_messages]  # 对话消息列表（LangGraph 自动合并）
     user_input: str
