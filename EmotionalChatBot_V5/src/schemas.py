@@ -26,19 +26,5 @@ class RelationshipAnalysis(BaseModel):
         default_factory=list,
         description="Specific cues found in input (e.g., 'User shared a secret').",
     )
-    topic_category: str = Field(
-        "general",
-        description="A coarse topic label for breadth tracking (e.g., work, family, love, health, hobbies).",
-    )
-    self_disclosure_depth_level: int = Field(
-        1,
-        ge=1,
-        le=4,
-        description="SPT depth level: 1=Public,2=Preferences,3=Private,4=Core",
-    )
-    is_intellectually_deep: bool = Field(
-        False,
-        description="Whether the message shows intellectually deep/reflective content (depth bonus).",
-    )
     deltas: RelationshipDeltas = Field(..., description="The calculated score changes.")
 

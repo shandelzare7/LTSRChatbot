@@ -4,6 +4,7 @@ EmotionalChatBot V5.0 启动入口
 """
 import os
 from pathlib import Path
+from datetime import datetime
 
 # 加载 .env（若存在）：优先用 python-dotenv，缺失则使用内置 fallback 解析器
 root = Path(__file__).resolve().parent
@@ -50,6 +51,8 @@ def run_console_example():
 
     initial_state: AgentState = {
         "messages": [HumanMessage(content="你好，今天心情不太好，想和你聊聊。")],
+        # 为了让宏观门控可控：控制台示例固定在白天，避免“刚好在睡觉”导致长延迟看起来像卡住
+        "current_time": datetime.now().replace(hour=12, minute=0, second=0, microsecond=0).isoformat(),
         "user_id": "user_console_demo",
         "current_mode": default_mode,
         "user_profile": {},

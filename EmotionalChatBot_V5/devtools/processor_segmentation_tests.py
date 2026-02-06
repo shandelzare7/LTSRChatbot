@@ -22,11 +22,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.nodes.behavior_processor import (
-    STAGE_DELAY_FACTORS,
-    calculate_human_dynamics,
-    create_behavior_processor_node,
-)
+from app.nodes.processor import STAGE_DELAY_FACTORS, create_processor_node
 from app.state import AgentState
 
 
@@ -55,6 +51,8 @@ def _mk_state(c: Case) -> AgentState:
     return {
         "messages": [HumanMessage(content=c.user_input)],
         "user_input": c.user_input,
+        # 固定在白天，避免测试被“睡眠宏观延迟”淹没（你也可以按需改成动态）
+        "current_time": "2026-02-07T12:00:00",
         "current_stage": c.stage,  # type: ignore
         "bot_big_five": {
             "openness": 0.0,
@@ -84,9 +82,9 @@ def _mk_state(c: Case) -> AgentState:
 
 
 def _split_threshold_from_dynamics(dyn: Dict[str, float]) -> int:
-    # 与 processor.py 当前实现保持一致：20 - frag*15
-    thr = 20 - (dyn["fragmentation_tendency"] * 15)
-    thr = max(5.0, min(30.0, float(thr)))
+    # 新版 processor：45 - tendency*40 （tendency 0..1）
+    thr = 45 - (float(dyn.get("fragmentation_tendency", 0.0)) * 40)
+    thr = max(5.0, min(60.0, float(thr)))
     return int(thr)
 
 
@@ -108,13 +106,15 @@ def _print_case_result(c: Case, out: dict, dyn: Dict[str, float]) -> None:
     )
     print(f"user_input_len={len(c.user_input)} | response_len={len(c.final_response)}")
     print(
-        "dynamics: "
-        f"speed_factor={dyn['speed_factor']:.3f}, noise_level={dyn['noise_level']:.3f}, "
-        f"frag_tendency={dyn['fragmentation_tendency']:.3f}"
+        "dynamics(approx): "
+        f"speed_factor={float(dyn.get('speed_factor', 0.0)):.3f}, "
+        f"noise_level={float(dyn.get('noise_level', 0.0)):.3f}, "
+        f"frag_tendency={float(dyn.get('fragmentation_tendency', 0.0)):.3f}"
     )
     print(f"split_threshold(chars)={_split_threshold_from_dynamics(dyn)}")
 
-    print("\nlatency_breakdown:", breakdown)
+    print("\nlatency_breakdown(debug):", breakdown)
+    print(f"is_macro_delay={ho.get('is_macro_delay')} | total_latency_seconds={ho.get('total_latency_seconds')}")
     print(f"final_delay(first bubble)={out.get('final_delay')}")
 
     print(f"\nsegments={len(bubbles)}")
@@ -133,7 +133,7 @@ def _print_case_result(c: Case, out: dict, dyn: Dict[str, float]) -> None:
 
 
 def main() -> None:
-    processor = create_behavior_processor_node()
+    processor = create_processor_node()
 
     base_text = (
         "我懂你。今天那种“喘不过气”的感觉，很像是压力一直堆着没地方放。"
@@ -225,7 +225,20 @@ def main() -> None:
     for c in cases:
         random.seed(c.seed)  # 保证每次跑一致（gauss/uniform）
         state = _mk_state(c)
-        dyn = calculate_human_dynamics(state)
+        # 新 processor 内部计算 dynamics；这里用一个近似（用于展示阈值/趋势）
+        stage_factor = float(STAGE_DELAY_FACTORS.get(c.stage, 1.0))
+        p_speed = 1.0 - (c.extraversion * 0.2)
+        p_caution = 1.0 + (c.conscientiousness * 0.3)
+        m_arousal_boost = 1.0 - (c.arousal * 0.3)
+        m_busyness_drag = 1.0 + (c.busyness * 1.5)
+        speed_factor = p_speed * p_caution * m_arousal_boost * m_busyness_drag * stage_factor
+        noise_level = 0.1 + (max(0.0, c.neuroticism) * 0.4)
+        frag = (c.extraversion * 0.4) + ((c.closeness / 100.0) * 0.4) + (c.arousal * 0.2)
+        dyn = {
+            "speed_factor": max(0.2, min(5.0, float(speed_factor))),
+            "noise_level": max(0.05, min(0.8, float(noise_level))),
+            "fragmentation_tendency": max(0.0, min(1.0, float(frag))),
+        }
         out = processor(state)
         _print_case_result(c, out, dyn)
 

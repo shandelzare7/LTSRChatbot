@@ -53,21 +53,11 @@ Analyze the `User Input` below.
 - **Diminishing Returns**: If a dimension is ALREADY High (>80), standard compliments only give +1, not +2.
 - **Betrayal**: If Trust/Closeness is High (>80), negative signals should be penalized heavily (-2 or -3).
 
-### 4.5 SPT & TOPIC TAGGING (Fuel Inputs)
-- You MUST tag the message with a coarse `topic_category` for breadth tracking.
-- You MUST estimate the user's self-disclosure depth (SPT) as `self_disclosure_depth_level`:
-  1=Public small talk, 2=Preferences/opinions, 3=Private personal info, 4=Core/trauma/identity secrets
-- You MUST decide if the message is `is_intellectually_deep` (true/false):
-  - true when it contains reflective reasoning, abstract thinking, moral/intellectual exploration, or deep analysis.
-
 ### 5. OUTPUT FORMAT (STRICT JSON ONLY)
 Return JSON with the following shape:
 {{
   "thought_process": "...",
   "detected_signals": ["...","..."],
-  "topic_category": "general|work|family|love|health|hobbies|finance|study|life_goals|other",
-  "self_disclosure_depth_level": 1,
-  "is_intellectually_deep": false,
   "deltas": {{
     "closeness": 0,
     "trust": 0,

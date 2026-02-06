@@ -2,7 +2,7 @@
 【状态层】定义 LangGraph Agent 的全局状态。
 支持高度拟人化的 AI 聊天机器人，包含大五人格、动态人设、6维关系模型和PAD情绪模型。
 """
-from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated, Literal, Set
+from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated, Literal
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
@@ -132,71 +132,26 @@ class MoodState(TypedDict):
 # 3.5 拟人化行为表现层 (Behavioral Layer)
 # ==========================================
 
-class TimelineSegment(TypedDict):
-    """用于前端/客户端的拟人化时间线片段。"""
+class ResponseSegment(TypedDict):
+    """单个回复气泡的定义（给客户端执行的“剧本”）。"""
     content: str
-    delay: float   # 发送该段之前等待的时间（秒）
-    action: str    # e.g. "typing"
+    delay: float  # 发送该气泡前的等待时间（秒，相对于上一条气泡）
+    action: Literal["typing", "idle"]  # typing=显示“正在输入…”，idle=长离线纯等待
 
 
-class HumanizedOutput(TypedDict):
-    """Processor 节点输出：包含分段与延迟的拟人化结果。"""
+class HumanizedOutput(TypedDict, total=False):
+    """Processor 节点输出：包含分段与延迟的拟人化结果（含宏观长延迟门控）。"""
+    total_latency_seconds: float  # 总响应耗时（秒）
+    segments: List[ResponseSegment]
+    is_macro_delay: bool  # 是否触发宏观长延迟（如睡眠/忙碌/策略性沉默）
+
+    # --- Optional debug/backward-compat fields ---
     total_latency_simulated: float
-    segments: List[TimelineSegment]
     latency_breakdown: Dict[str, float]
 
 
-# ==========================================
-# 3.2 社会穿透理论状态 (SPT: Social Penetration Theory)
-# ==========================================
-
-class SPTState(TypedDict, total=False):
-    """
-    话题广度/自我暴露深度状态（独立于 6 维关系分数，不要混入 relationship_state）。
-    - current_depth_level: 1=Public, 2=Preferences, 3=Private, 4=Core
-    - max_depth_reached: 历史最高深度（高水位线）
-    - topic_history: 已讨论过的话题类别集合（用于 Breadth）
-    - last_topic_category: 最近一轮话题类别
-    """
-    current_depth_level: int
-    max_depth_reached: int
-    topic_history: Set[str]
-    last_topic_category: str
-
-
-# ==========================================
-# 3.3 Pipeline: Relationship Assets & Metrics
-# ==========================================
-
-class RelationshipAssets(TypedDict, total=False):
-    """
-    Relationship Assets（事实资产，单调累积）：
-    - topic_history: 话题集合
-    - breadth_score: 广度（len(topic_history)）
-    - max_spt_depth: 历史最高 SPT 深度（1-4）
-    - intellectual_capital: 深聊计数器
-    """
-    topic_history: Set[str]
-    breadth_score: int
-    max_spt_depth: int
-    intellectual_capital: int
-
-
-class AssetDelta(TypedDict, total=False):
-    """Updater -> Evolver 的本轮 flags（临时态）"""
-    is_new_topic: bool
-    is_spt_breakthrough: bool
-    is_intellectually_deep: bool
-
-
-class ProcessorOutput(TypedDict, total=False):
-    """Processor 输出（给 Updater/Evolver 的输入）"""
-    topic_category: str
-    spt_level: int
-    is_intellectually_deep: bool
-    base_deltas: Dict[str, int]
-    detected_signals: List[str]
-    thought_process: str
+# 兼容旧命名：TimelineSegment（老代码/文档可能引用）
+TimelineSegment = ResponseSegment
 
 
 # ==========================================
@@ -236,17 +191,6 @@ class AgentState(TypedDict, total=False):
     # --- Knapp Relationship Stage ---
     # 当前关系阶段（根据 Knapp 理论模型）
     current_stage: KnappStage
-
-    # --- SPT Metrics (Topic Breadth & Self-disclosure Depth) ---
-    spt_state: Optional[SPTState]
-
-    # --- Strict Pipeline Containers ---
-    # Processor -> Updater -> Evolver -> StageManager
-    processor_output: Optional[ProcessorOutput]
-    relationship_assets: Optional[RelationshipAssets]
-    asset_updates: Optional[AssetDelta]
-    # Relationship Metrics（情感分数，动态波动）：6 维
-    relationship_metrics: Optional[Dict[str, int]]
     
     # --- Memory System ---
     # 短期记忆窗口 (最近 10-20 条)
@@ -265,12 +209,6 @@ class AgentState(TypedDict, total=False):
     latest_relationship_analysis: Optional[Dict[str, Any]]
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
-    # Relationship Engine：有效 raw（LLM raw + fuel bonus），用于 StageManager jump 逻辑/调试
-    relationship_deltas_effective: Optional[Dict[str, int]]
-    # Relationship Engine：本轮 Fuel 信息（topic/depth/breadth）
-    relationship_fuel: Optional[Dict[str, Any]]
-    # Stage Manager：阶段迁移记录（可选）
-    stage_transition: Optional[Dict[str, Any]]
     
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY

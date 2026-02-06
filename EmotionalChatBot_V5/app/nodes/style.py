@@ -136,14 +136,13 @@ For each field, provide a short, specific instruction string (e.g., "High. Use n
     # ==========================================
     
     try:
-        response = llm.invoke(
-            [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content="Configure the style parameters now."),
-            ]
-        )
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content="Configure the style parameters now.")
+        ])
         # 解析 JSON
         instructions = json.loads(response.content)
+        
     except Exception as e:
         print(f"Styler Node Error: {e}")
         # 容错默认值
