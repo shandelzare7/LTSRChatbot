@@ -31,7 +31,7 @@ def _topic_history_count(spt: Dict[str, Any]) -> int:
 def check_transition(
     stage: str,
     scores: Dict[str, Any],
-    spt: Dict[str, Any],
+    assets: Dict[str, Any],
     *,
     deltas_applied: Optional[Dict[str, Any]] = None,
 ) -> str:
@@ -53,10 +53,9 @@ def check_transition(
     warmth = _as_float(scores, "warmth", 0.0)
     power = _as_float(scores, "power", 50.0)
 
-    # spt
-    depth = _as_int(spt, "current_depth_level", 1)
-    max_depth = _as_int(spt, "max_depth_reached", 1)
-    breadth = _topic_history_count(spt)
+    # assets gates
+    max_spt_depth = _as_int(assets, "max_spt_depth", 1)
+    breadth = _as_int(assets, "breadth_score", 0)
 
     # 0) Special "Jump" Logic (Event Driven)
     # Crash: if trust_delta <= -30 (single turn), Jump to Terminating.
@@ -79,19 +78,19 @@ def check_transition(
             return "terminating"  # Early exit: Bad first impression
 
     elif stage == "experimenting":
-        if closeness >= 40 and trust >= 30 and depth >= 2:
+        if closeness >= 40 and trust >= 30 and max_spt_depth >= 2:
             return "intensifying"
         if liking < 10 and breadth > 3:
             return "avoiding"  # Early exit: Boring connection
 
     elif stage == "intensifying":
         power_gap = abs(power - 50) * 2
-        if closeness >= 70 and trust >= 60 and depth >= 3:
+        if closeness >= 70 and trust >= 60 and max_spt_depth >= 3:
             if power_gap <= 40:
                 return "integrating"
 
     elif stage == "integrating":
-        if closeness >= 90 and trust >= 90 and depth == 4:
+        if closeness >= 90 and trust >= 90 and max_spt_depth == 4:
             if respect >= 60:
                 return "bonding"
 
@@ -101,13 +100,11 @@ def check_transition(
             return "differentiating"
 
     elif stage == "differentiating":
-        # spec: trust < 50 OR spt_depth decreasing trend
-        depth_decreasing = depth < max_depth
-        if trust < 50 or depth_decreasing:
+        if trust < 50:
             return "circumscribing"
 
     elif stage == "circumscribing":
-        if warmth < 30 and depth <= 1:
+        if warmth < 30:
             return "stagnating"
 
     elif stage == "stagnating":
@@ -129,15 +126,15 @@ def create_stage_manager_node() -> Callable[[Dict[str, Any]], dict]:
         metadata={"state_outputs": ["current_stage"]},
     )
     def node(state: Dict[str, Any]) -> dict:
-        scores = state.get("relationship_state") or {}
-        spt = state.get("spt_state") or {}
+        scores = state.get("relationship_metrics") or state.get("relationship_state") or {}
+        assets = state.get("relationship_assets") or {}
         stage = state.get("current_stage") or "initiating"
         deltas_applied = state.get("relationship_deltas_applied") or {}
 
         new_stage = check_transition(
             str(stage),
             scores,
-            spt,
+            assets,
             deltas_applied=deltas_applied,
         )
 

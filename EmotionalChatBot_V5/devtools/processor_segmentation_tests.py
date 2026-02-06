@@ -22,7 +22,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.nodes.processor import STAGE_DELAY_FACTORS, calculate_human_dynamics, create_processor_node
+from app.nodes.behavior_processor import (
+    STAGE_DELAY_FACTORS,
+    calculate_human_dynamics,
+    create_behavior_processor_node,
+)
 from app.state import AgentState
 
 
@@ -129,7 +133,7 @@ def _print_case_result(c: Case, out: dict, dyn: Dict[str, float]) -> None:
 
 
 def main() -> None:
-    processor = create_processor_node()
+    processor = create_behavior_processor_node()
 
     base_text = (
         "我懂你。今天那种“喘不过气”的感觉，很像是压力一直堆着没地方放。"

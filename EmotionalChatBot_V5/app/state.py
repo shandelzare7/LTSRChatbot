@@ -165,6 +165,41 @@ class SPTState(TypedDict, total=False):
 
 
 # ==========================================
+# 3.3 Pipeline: Relationship Assets & Metrics
+# ==========================================
+
+class RelationshipAssets(TypedDict, total=False):
+    """
+    Relationship Assets（事实资产，单调累积）：
+    - topic_history: 话题集合
+    - breadth_score: 广度（len(topic_history)）
+    - max_spt_depth: 历史最高 SPT 深度（1-4）
+    - intellectual_capital: 深聊计数器
+    """
+    topic_history: Set[str]
+    breadth_score: int
+    max_spt_depth: int
+    intellectual_capital: int
+
+
+class AssetDelta(TypedDict, total=False):
+    """Updater -> Evolver 的本轮 flags（临时态）"""
+    is_new_topic: bool
+    is_spt_breakthrough: bool
+    is_intellectually_deep: bool
+
+
+class ProcessorOutput(TypedDict, total=False):
+    """Processor 输出（给 Updater/Evolver 的输入）"""
+    topic_category: str
+    spt_level: int
+    is_intellectually_deep: bool
+    base_deltas: Dict[str, int]
+    detected_signals: List[str]
+    thought_process: str
+
+
+# ==========================================
 # 4. 主状态定义 (Main Agent State)
 # ==========================================
 
@@ -204,6 +239,14 @@ class AgentState(TypedDict, total=False):
 
     # --- SPT Metrics (Topic Breadth & Self-disclosure Depth) ---
     spt_state: Optional[SPTState]
+
+    # --- Strict Pipeline Containers ---
+    # Processor -> Updater -> Evolver -> StageManager
+    processor_output: Optional[ProcessorOutput]
+    relationship_assets: Optional[RelationshipAssets]
+    asset_updates: Optional[AssetDelta]
+    # Relationship Metrics（情感分数，动态波动）：6 维
+    relationship_metrics: Optional[Dict[str, int]]
     
     # --- Memory System ---
     # 短期记忆窗口 (最近 10-20 条)
