@@ -29,8 +29,8 @@ from app.nodes.style import create_style_node
 from app.nodes.generator import create_generator_node
 from app.nodes.critic import check_critic_result, create_critic_node
 from app.nodes.processor import create_processor_node
-from app.nodes.updater import create_updater_node
 from app.nodes.evolver import create_evolver_node
+from app.nodes.stage_manager import create_stage_manager_node
 from app.nodes.memory_writer import create_memory_writer_node
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
@@ -68,8 +68,8 @@ def build_graph(
     generator_node = create_generator_node(llm)
     critic_node = create_critic_node(llm)
     processor_node = create_processor_node()
-    updater_node = create_updater_node()
     evolver_node = create_evolver_node(llm)
+    stage_manager_node = create_stage_manager_node()
     memory_writer_node = create_memory_writer_node(memory_service)
     boundary_node = create_boundary_node(llm)
     sarcasm_node = create_sarcasm_node(llm)
@@ -87,8 +87,8 @@ def build_graph(
     workflow.add_node("critic", critic_node)
     workflow.add_node("refiner", generator_node)
     workflow.add_node("processor", processor_node)
-    workflow.add_node("updater", updater_node)
     workflow.add_node("evolver", evolver_node)
+    workflow.add_node("stage_manager", stage_manager_node)
     workflow.add_node("memory_writer", memory_writer_node)
     workflow.add_node("boundary", boundary_node)
     workflow.add_node("sarcasm", sarcasm_node)
@@ -124,9 +124,9 @@ def build_graph(
         {"pass": "processor", "retry": "refiner"},
     )
     workflow.add_edge("refiner", "critic")
-    workflow.add_edge("processor", "updater")
-    workflow.add_edge("updater", "evolver")
-    workflow.add_edge("evolver", "memory_writer")
+    workflow.add_edge("processor", "evolver")
+    workflow.add_edge("evolver", "stage_manager")
+    workflow.add_edge("stage_manager", "memory_writer")
     workflow.add_edge("memory_writer", END)
     
     # 特殊处理节点：直接结束（因为它们已经设置了 final_response）

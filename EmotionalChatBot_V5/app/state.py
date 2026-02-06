@@ -171,6 +171,19 @@ class RelationshipAssets(TypedDict):
 
 
 # ==========================================
+# 3.7 SPT 信息 (Stage Manager 用)
+# ==========================================
+
+class SPTInfo(TypedDict, total=False):
+    """社会穿透理论相关输入（用于阶段门控）。"""
+    depth: int  # 1-4
+    breadth: int  # 话题数量（unique）
+    topic_list: List[str]
+    depth_trend: str  # "stable" | "increasing" | "decreasing"
+    recent_signals: List[str]
+
+
+# ==========================================
 # 4. 主状态定义 (Main Agent State)
 # ==========================================
 
@@ -205,6 +218,11 @@ class AgentState(TypedDict, total=False):
     mood_state: MoodState
     # --- Relationship Assets (长期积累资产，可选) ---
     relationship_assets: Optional[RelationshipAssets]
+    # --- SPT Info (可选，供 stage_manager 判定) ---
+    spt_info: Optional[SPTInfo]
+    # --- Stage Manager 输出（可选） ---
+    stage_narrative: Optional[str]
+    stage_transition: Optional[Dict[str, Any]]
     
     # --- Knapp Relationship Stage ---
     # 当前关系阶段（根据 Knapp 理论模型）

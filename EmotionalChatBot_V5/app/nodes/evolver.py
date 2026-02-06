@@ -189,7 +189,7 @@ def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], 
                 "relationship_state",
             ]
         },
-    )
+            )
     def node(state: AgentState) -> dict:
         out = {}
         out.update(analyzer(state))
