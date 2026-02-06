@@ -155,22 +155,19 @@ TimelineSegment = ResponseSegment
 
 
 # ==========================================
-# 3.6 关系资产层 (Monotonic Relationship Assets)
+# 3.6 关系资产层 (Relationship Assets)
 # ==========================================
 
 class RelationshipAssets(TypedDict):
-    """用于跨回合累积的关系资产（可序列化）。"""
-    topic_history: List[str]      # List of topics discussed (Stored as list for JSON serialization)
-    breadth_score: int            # Count of unique topics
-    max_spt_depth: int            # Highest level reached (1-4)
-    intellectual_capital: int     # Counter of deep conversations
-
-
-class AssetDelta(TypedDict):
-    """仅用于当前回合的 transient flags（供 evolver 做 bonus/触发）。"""
-    is_new_topic: bool
-    is_spt_breakthrough: bool
-    is_intellectually_deep: bool
+    """
+    关系资产（可序列化的长期积累数据）：
+    - topic_history: 话题历史（用 List 存储，便于 JSON 序列化）
+    - breadth_score: 话题广度（unique topic 数量）
+    - max_spt_depth: 历史最高自我暴露深度
+    """
+    topic_history: List[str]
+    breadth_score: int
+    max_spt_depth: int
 
 
 # ==========================================
@@ -206,6 +203,8 @@ class AgentState(TypedDict, total=False):
     # --- Dynamic Core (Read/Write frequently) ---
     relationship_state: RelationshipState
     mood_state: MoodState
+    # --- Relationship Assets (长期积累资产，可选) ---
+    relationship_assets: Optional[RelationshipAssets]
     
     # --- Knapp Relationship Stage ---
     # 当前关系阶段（根据 Knapp 理论模型）
@@ -228,13 +227,6 @@ class AgentState(TypedDict, total=False):
     latest_relationship_analysis: Optional[Dict[str, Any]]
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
-
-    # --- Relationship Assets (跨回合累积，不回退) ---
-    relationship_assets: Optional[RelationshipAssets]
-    asset_updates: Optional[AssetDelta]
-
-    # --- Processor extra output (for updater) ---
-    processor_output: Optional[Dict[str, Any]]
     
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY
