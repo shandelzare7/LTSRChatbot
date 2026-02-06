@@ -34,7 +34,7 @@ from app.nodes.evolver import (
     create_relationship_analyzer_node,
     create_relationship_updater_node,
 )
-from src.nodes.stage_manager import create_stage_manager_node
+from app.nodes.stage_manager import create_stage_manager_node
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
