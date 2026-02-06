@@ -44,6 +44,14 @@ class MockLLM(BaseChatModel):
         for m in messages:
             if hasattr(m, "content") and m.content:
                 s = str(m.content)
+                if "STATIC KNOWLEDGE (The Signal Rubric)" in s or "relationship across 6 dimensions" in s:
+                    # Relationship Analyzer：返回可解析 JSON（含 thought_process / detected_signals / deltas）
+                    content = (
+                        '{"thought_process":"用户表达想聊聊，属于轻度自我暴露与求助信号。总体符合当前阶段。",'
+                        '"detected_signals":["展示脆弱性 (在无助时求助)"],'
+                        '"deltas":{"closeness":1,"trust":1,"liking":1,"respect":0,"warmth":1,"power":0}}'
+                    )
+                    break
                 if "侧写" in s:
                     content = '{"reasoning":"用户语气正常","target_mode_id":"normal_mode"}'
                     break
@@ -88,7 +96,8 @@ class _StructuredMock:
         self.llm = llm
         self.schema = schema
 
-    def invoke(self, prompt: str) -> T:
+    def invoke(self, prompt: Any) -> T:
+        # 支持传入 messages(list[BaseMessage]) 或字符串
         msg = self.llm.invoke(prompt)
         content = getattr(msg, "content", str(msg))
         # 尝试从 content 里解析出 target_mode_id / reasoning

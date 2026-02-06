@@ -197,6 +197,10 @@ class AgentState(TypedDict, total=False):
     user_intent: Optional[str]
     # Analyzer 输出的属性变化值 (Deltas)
     relationship_deltas: Optional[Dict[str, float]]
+    # Relationship Engine：本轮 LLM 分析结果（包含 signals + raw deltas）
+    latest_relationship_analysis: Optional[Dict[str, Any]]
+    # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
+    relationship_deltas_applied: Optional[Dict[str, float]]
     
     # --- Detection Result (偏离检测) ---
     # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY

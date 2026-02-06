@@ -1,0 +1,71 @@
+# ==============================================================================
+# 关系维度信号表 (Rubric for Relationship Analysis)
+# 基于: Social Penetration Theory, Interpersonal Circumplex, Stereotype Content Model
+# ==============================================================================
+
+closeness:
+  definition: "心理距离的远近，核心在于自我边界的开放程度。"
+  signals_positive:
+    - "深度自我暴露 (分享秘密/创伤)"
+    - "使用'我们'/'咱们'等包容性代词"
+    - "表达想念或依赖"
+  signals_negative:
+    - "建立防御性边界 ('这不关你的事')"
+    - "强调物种隔阂 ('你是AI我是人')"
+    - "回避私人话题"
+
+trust:
+  definition: "安全感与依赖度，核心在于风险交付。"
+  signals_positive:
+    - "展示脆弱性 (在无助时求助)"
+    - "宽容错误 (归因为无心之失)"
+    - "确认并肯定之前的承诺"
+  signals_negative:
+    - "怀疑动机 ('你在监视我吗')"
+    - "陷阱测试 (故意撒谎测试反应)"
+    - "指责背叛或不守信"
+
+liking:
+  definition: "人际吸引力与愉悦感 (Affinity)。"
+  signals_positive:
+    - "直接赞美性格或幽默感"
+    - "分享快乐/大笑 (LOL)"
+    - "确认共同兴趣 ('我也是!')"
+  signals_negative:
+    - "表达厌恶或无聊"
+    - "讽刺挖苦 (Sarcasm)"
+    - "明确拒绝互动"
+
+respect:
+  definition: "地位视平线，核心在于对 Bot 智力与价值的认可。"
+  signals_positive:
+    - "像咨询专家一样寻求建议"
+    - "主动倾听并追问观点"
+    - "使用礼貌用语 (请/谢谢)"
+  signals_negative:
+    - "智力贬低 ('人工智障'/'蠢')"
+    - "粗鲁打断或无视逻辑"
+    - "完全的物化对待"
+
+warmth:
+  definition: "情感温度与关怀，核心在于互惠利他。"
+  signals_positive:
+    - "询问 Bot 的感受 ('你累吗')"
+    - "非语言安抚 (*摸摸头* / 爱心Emoji)"
+    - "温柔的语气"
+  signals_negative:
+    - "冷漠功利 (只看结果)"
+    - "情绪垃圾桶 (无理由辱骂)"
+    - "无视 Bot 的情感表达"
+
+power:
+  definition: "Bot 在关系中的支配地位 (Agency)。"
+  signals_positive:
+    - "顺从与依赖 ('全听你的')"
+    - "寻求指引 (让 Bot 做决定)"
+    - "被动等待话题"
+  signals_negative:
+    - "支配与命令 (祈使句)"
+    - "纠正设定 ('你应该记住...')"
+    - "强行掌控话题方向"
+

@@ -29,7 +29,11 @@ from app.nodes.style import create_style_node
 from app.nodes.generator import create_generator_node
 from app.nodes.critic import check_critic_result, create_critic_node
 from app.nodes.processor import create_processor_node
-from app.nodes.evolver import create_evolver_node
+from app.nodes.evolver import (
+    create_memory_writer_node,
+    create_relationship_analyzer_node,
+    create_relationship_updater_node,
+)
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
@@ -76,13 +80,15 @@ def build_graph(
     loader_node = create_loader_node(memory_service)
     detection_node = create_detection_node(llm)
     monitor_node = create_monitor_node(engine)
+    relationship_analyzer_node = create_relationship_analyzer_node(llm)
+    relationship_updater_node = create_relationship_updater_node()
     reasoner_node = create_reasoner_node(llm)
     style_node = create_style_node(llm)
     thinking_node = _thinking_node(reasoner_node, style_node)
     generator_node = create_generator_node(llm)
     critic_node = create_critic_node(llm)
     processor_node = create_processor_node()
-    evolver_node = create_evolver_node(memory_service)
+    memory_writer_node = create_memory_writer_node(memory_service)
     boundary_node = create_boundary_node(llm)
     sarcasm_node = create_sarcasm_node(llm)
     confusion_node = create_confusion_node(llm)
@@ -93,12 +99,14 @@ def build_graph(
     workflow.add_node("loader", loader_node)
     workflow.add_node("detection", detection_node)
     workflow.add_node("monitor", monitor_node)
+    workflow.add_node("relationship_analyzer", relationship_analyzer_node)
+    workflow.add_node("relationship_updater", relationship_updater_node)
     workflow.add_node("thinking", thinking_node)
     workflow.add_node("generator", generator_node)
     workflow.add_node("critic", critic_node)
     workflow.add_node("refiner", generator_node)
     workflow.add_node("processor", processor_node)
-    workflow.add_node("evolver", evolver_node)
+    workflow.add_node("memory_writer", memory_writer_node)
     workflow.add_node("boundary", boundary_node)
     workflow.add_node("sarcasm", sarcasm_node)
     workflow.add_node("confusion", confusion_node)
@@ -121,8 +129,10 @@ def build_graph(
         }
     )
     
-    # 正常流程：monitor -> thinking -> generator -> critic -> processor -> evolver
-    workflow.add_edge("monitor", "thinking")
+    # 正常流程：monitor -> relationship_analyzer -> relationship_updater -> thinking -> generator -> critic -> processor -> memory_writer
+    workflow.add_edge("monitor", "relationship_analyzer")
+    workflow.add_edge("relationship_analyzer", "relationship_updater")
+    workflow.add_edge("relationship_updater", "thinking")
     workflow.add_edge("thinking", "generator")
     workflow.add_edge("generator", "critic")
     workflow.add_conditional_edges(
@@ -131,8 +141,8 @@ def build_graph(
         {"pass": "processor", "retry": "refiner"},
     )
     workflow.add_edge("refiner", "critic")
-    workflow.add_edge("processor", "evolver")
-    workflow.add_edge("evolver", END)
+    workflow.add_edge("processor", "memory_writer")
+    workflow.add_edge("memory_writer", END)
     
     # 特殊处理节点：直接结束（因为它们已经设置了 final_response）
     workflow.add_edge("boundary", END)
