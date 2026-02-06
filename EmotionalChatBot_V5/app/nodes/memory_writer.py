@@ -51,6 +51,18 @@ def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentSt
             _run_async(db.save_turn(str(user_id), str(bot_id), dict(state), new_memory=new_memory))
             return {}
 
+        # local store (default)
+        try:
+            from app.core.local_store import LocalStoreManager
+
+            store = LocalStoreManager()
+            bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"
+            new_memory = state.get("generated_new_memory_text") or state.get("new_memory_content")
+            store.save_turn(str(user_id), str(bot_id), dict(state), new_memory=new_memory)
+            return {}
+        except Exception:
+            pass
+
         # fallback: MockMemory
         if final_text:
             memory_service.append_memory(user_id, f"Bot 回复: {final_text[:200]}", meta={"source": "memory_writer"})

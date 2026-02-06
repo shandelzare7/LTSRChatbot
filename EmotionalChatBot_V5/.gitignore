@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Local persisted chat data (do NOT commit private conversations)
+local_data/
+

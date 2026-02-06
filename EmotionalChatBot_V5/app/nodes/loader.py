@@ -1,4 +1,4 @@
-"""入口加载节点：优先从 DB 读取状态（Load Early），无 DB 时回退 Memory Service。"""
+"""入口加载节点：优先从 DB 读取状态（Load Early），无 DB 时落本地文件（再无则回退内存）。"""
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import os
@@ -80,6 +80,35 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "user_profile": db_data.get("user_inferred_profile") or {},
                 "memories": db_data.get("conversation_summary") or "",
             }
+
+        # local store (default)
+        try:
+            from app.core.local_store import LocalStoreManager
+
+            store = LocalStoreManager()
+            bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"
+            local_data: Dict[str, Any] = store.load_state(str(user_id), str(bot_id))
+            history = local_data.get("chat_buffer") or []
+            merged_buffer = list(history) + [m for m in chat_buffer if m not in history]
+            return {
+                "relationship_state": local_data.get("relationship_state") or {},
+                "mood_state": local_data.get("mood_state") or {},
+                "current_stage": local_data.get("current_stage") or state.get("current_stage") or "initiating",
+                "bot_basic_info": local_data.get("bot_basic_info") or state.get("bot_basic_info") or {},
+                "bot_big_five": local_data.get("bot_big_five") or state.get("bot_big_five") or {},
+                "bot_persona": local_data.get("bot_persona") or state.get("bot_persona") or {},
+                "user_basic_info": local_data.get("user_basic_info") or state.get("user_basic_info") or {},
+                "user_inferred_profile": local_data.get("user_inferred_profile") or state.get("user_inferred_profile") or {},
+                "relationship_assets": local_data.get("relationship_assets") or state.get("relationship_assets") or {},
+                "spt_info": local_data.get("spt_info") or state.get("spt_info") or {},
+                "conversation_summary": local_data.get("conversation_summary") or state.get("conversation_summary") or "",
+                "user_input": user_input,
+                "chat_buffer": merged_buffer,
+                "user_profile": local_data.get("user_inferred_profile") or {},
+                "memories": local_data.get("conversation_summary") or "",
+            }
+        except Exception:
+            pass
 
         # fallback: MockMemory（仅当前进程内存，不落盘）
         profile = memory_service.get_profile(user_id)
