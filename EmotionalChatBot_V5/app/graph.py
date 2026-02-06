@@ -43,21 +43,6 @@ def _load_modes() -> list[PsychoMode]:
     return [PsychoMode.model_validate(m) for m in raw]
 
 
-def _thinking_node(
-    reasoner_fn: Callable[[AgentState], dict],
-    styler_fn: Callable[[AgentState], dict],
-) -> Callable[[AgentState], dict]:
-    """并行思考：合并 Reasoner 与 Styler 的输出（单节点内顺序执行以简化）。"""
-
-    def node(state: AgentState) -> dict:
-        out = {}
-        out.update(reasoner_fn(state))
-        out.update(styler_fn(state))
-        return out
-
-    return node
-
-
 def build_graph(
     *,
     llm: Any = None,
@@ -79,7 +64,6 @@ def build_graph(
     monitor_node = create_monitor_node(engine)
     reasoner_node = create_reasoner_node(llm)
     style_node = create_style_node(llm)
-    thinking_node = _thinking_node(reasoner_node, style_node)
     generator_node = create_generator_node(llm)
     critic_node = create_critic_node(llm)
     processor_node = create_processor_node()
@@ -95,7 +79,8 @@ def build_graph(
     workflow.add_node("loader", loader_node)
     workflow.add_node("detection", detection_node)
     workflow.add_node("monitor", monitor_node)
-    workflow.add_node("thinking", thinking_node)
+    workflow.add_node("reasoner", reasoner_node)
+    workflow.add_node("style", style_node)
     workflow.add_node("generator", generator_node)
     workflow.add_node("critic", critic_node)
     workflow.add_node("refiner", generator_node)
@@ -125,10 +110,10 @@ def build_graph(
     )
     
     # 正常流程：
-    # monitor -> thinking -> generator -> critic -> processor -> relationship_engine -> memory_writer
-    # 说明：relationship_engine 放在 processor 之后，用于更新“下一轮对话”的关系分数，避免影响当前轮生成。
-    workflow.add_edge("monitor", "thinking")
-    workflow.add_edge("thinking", "generator")
+    # monitor -> reasoner -> style -> generator -> critic -> processor -> evolver -> memory_writer
+    workflow.add_edge("monitor", "reasoner")
+    workflow.add_edge("reasoner", "style")
+    workflow.add_edge("style", "generator")
     workflow.add_edge("generator", "critic")
     workflow.add_conditional_edges(
         "critic",
