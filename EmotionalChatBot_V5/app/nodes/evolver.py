@@ -170,6 +170,40 @@ def create_relationship_updater_node() -> Callable[[AgentState], dict]:
 
 
 # -------------------------------------------------------------------
+# Relationship Engine (Analyzer -> Updater) —— 对外只暴露一个节点，避免混淆
+# 位置建议：processor 之后（更新下一轮关系分数，不影响当前轮生成）
+# -------------------------------------------------------------------
+
+def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
+    analyzer = create_relationship_analyzer_node(llm_invoker)
+    updater = create_relationship_updater_node()
+
+    @trace_if_enabled(
+        name="Relationship/Engine",
+        run_type="chain",
+        tags=["node", "relationship", "engine"],
+        metadata={
+            "state_outputs": [
+                "latest_relationship_analysis",
+                "relationship_deltas",
+                "relationship_deltas_applied",
+                "relationship_state",
+            ]
+        },
+    )
+    def node(state: AgentState) -> dict:
+        out = {}
+        out.update(analyzer(state))
+        # Updater 需要读取 analyzer 写入的 deltas / analysis，所以把 state+out 合并后再算
+        merged = dict(state)
+        merged.update(out)
+        out.update(updater(merged))
+        return out
+
+    return node
+
+
+# -------------------------------------------------------------------
 # Memory Writer（原 evolver 行为）：processor 之后记录最终回复片段
 # -------------------------------------------------------------------
 
