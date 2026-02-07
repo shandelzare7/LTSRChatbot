@@ -146,19 +146,17 @@ def create_generator_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
         s = dict(s)
         s.setdefault("user_input", "")
         s.setdefault("chat_buffer", s.get("messages", []) or [])
-        s.setdefault(
-            "bot_basic_info",
-            {
-                "name": "小岚",
-                "gender": "女",
-                "age": 22,
-                "region": "CN",
-                "occupation": "学生",
-                "education": "本科",
-                "native_language": "zh",
-                "speaking_style": "自然、俏皮",
-            },
-        )
+        # 深层补齐：即使 bot_basic_info 存在但缺字段也要补齐
+        bot = dict(s.get("bot_basic_info") or {})
+        bot.setdefault("name", "小岚")
+        bot.setdefault("gender", "女")
+        bot.setdefault("age", 22)
+        bot.setdefault("region", "CN")
+        bot.setdefault("occupation", "学生")
+        bot.setdefault("education", "本科")
+        bot.setdefault("native_language", "zh")
+        bot.setdefault("speaking_style", "自然、俏皮")
+        s["bot_basic_info"] = bot
         s.setdefault("bot_persona", {"attributes": {}})
         s.setdefault("inner_monologue", "我先接住用户的情绪。")
         s.setdefault("response_strategy", "先共情，再问一个轻量问题。")

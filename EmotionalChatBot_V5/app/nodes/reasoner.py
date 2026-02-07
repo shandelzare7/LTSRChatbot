@@ -148,9 +148,27 @@ def create_reasoner_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
     def _ensure_defaults(s: Dict[str, Any]) -> Dict[str, Any]:
         s = dict(s)
         s.setdefault("user_input", "")
-        s.setdefault("bot_basic_info", {"name": "Bot"})
-        s.setdefault("mood_state", {"pleasure": 0.0, "arousal": 0.0, "dominance": 0.0})
-        s.setdefault("relationship_state", {"closeness": 0, "trust": 0, "power": 50})
+        # 深层补齐：即使字典存在但缺字段，也要补上，避免 KeyError
+        bot = dict(s.get("bot_basic_info") or {})
+        bot.setdefault("name", "Bot")
+        s["bot_basic_info"] = bot
+
+        mood = dict(s.get("mood_state") or {})
+        mood.setdefault("pleasure", 0.0)
+        mood.setdefault("arousal", 0.0)
+        mood.setdefault("dominance", 0.0)
+        mood.setdefault("busyness", 0.0)
+        s["mood_state"] = mood
+
+        rel = dict(s.get("relationship_state") or {})
+        rel.setdefault("closeness", 0)
+        rel.setdefault("trust", 0)
+        rel.setdefault("liking", 50)
+        rel.setdefault("respect", 50)
+        rel.setdefault("warmth", 50)
+        rel.setdefault("power", 50)
+        s["relationship_state"] = rel
+
         s.setdefault("current_stage", "initiating")
         return s
 

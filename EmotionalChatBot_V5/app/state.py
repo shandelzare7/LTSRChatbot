@@ -204,6 +204,7 @@ class AgentState(TypedDict, total=False):
     user_input: str
     current_time: str
     user_id: str  # 用户ID，用于数据库查询
+    bot_id: str   # Bot 的外部/固定ID（用于 DB/本地持久化定位同一条关系）
     
     # --- Static/Semi-Static Profiles (Loaded from DB) ---
     bot_basic_info: BotBasicInfo

@@ -54,6 +54,8 @@ def run_console_example():
         # 为了让宏观门控可控：控制台示例固定在白天，避免“刚好在睡觉”导致长延迟看起来像卡住
         "current_time": datetime.now().replace(hour=12, minute=0, second=0, microsecond=0).isoformat(),
         "user_id": "user_console_demo",
+        # 固定 bot_id，保证本地/数据库的关系文件路径稳定一致
+        "bot_id": "default_bot",
         "current_mode": default_mode,
         "user_profile": {},
         "memories": "",

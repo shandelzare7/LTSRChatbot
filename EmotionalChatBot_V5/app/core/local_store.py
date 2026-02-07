@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from utils.yaml_loader import get_project_root
+from app.core.profile_factory import generate_bot_profile, generate_user_profile
 
 
 def _now_iso() -> str:
@@ -91,18 +92,20 @@ class LocalStoreManager:
         if p.relationship_json.exists():
             rel = json.loads(p.relationship_json.read_text(encoding="utf-8") or "{}")
         else:
+            bot_basic_info, bot_big_five, bot_persona = generate_bot_profile(bot_id)
+            user_basic_info, user_inferred_profile = generate_user_profile(user_id)
             rel = {
                 "current_stage": "initiating",
                 "relationship_state": {"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "warmth": 0, "power": 50},
                 "mood_state": {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
-                "user_inferred_profile": {},
+                "user_inferred_profile": user_inferred_profile,
                 "relationship_assets": {"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
                 "spt_info": {},
                 "conversation_summary": "",
-                "bot_basic_info": {},
-                "bot_big_five": {},
-                "bot_persona": {},
-                "user_basic_info": {},
+                "bot_basic_info": bot_basic_info,
+                "bot_big_five": bot_big_five,
+                "bot_persona": bot_persona,
+                "user_basic_info": user_basic_info,
             }
             p.relationship_json.write_text(json.dumps(rel, ensure_ascii=False, indent=2), encoding="utf-8")
 

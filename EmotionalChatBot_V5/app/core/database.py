@@ -33,6 +33,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.core.profile_factory import generate_bot_profile, generate_user_profile
 
 # -----------------------------
 # ORM Base
@@ -190,7 +191,8 @@ class DBManager:
         user = (await session.execute(q)).scalars().first()
         if user:
             return user
-        user = User(external_id=external_id, basic_info={})
+        user_basic_info, _user_inferred = generate_user_profile(external_id)
+        user = User(external_id=external_id, basic_info=user_basic_info)
         session.add(user)
         await session.flush()
         return user
@@ -203,7 +205,14 @@ class DBManager:
             bot = (await session.execute(q)).scalars().first()
             if bot:
                 return bot
-            bot = Bot(id=bot_uuid, name="default_bot", basic_info={}, big_five={}, persona={})
+            bot_basic_info, bot_big_five, bot_persona = generate_bot_profile(str(bot_uuid))
+            bot = Bot(
+                id=bot_uuid,
+                name=str(bot_basic_info.get("name") or "default_bot"),
+                basic_info=bot_basic_info,
+                big_five=bot_big_five,
+                persona=bot_persona,
+            )
             session.add(bot)
             await session.flush()
             return bot
@@ -213,7 +222,13 @@ class DBManager:
         bot = (await session.execute(q)).scalars().first()
         if bot:
             return bot
-        bot = Bot(name=bot_id, basic_info={}, big_five={}, persona={})
+        bot_basic_info, bot_big_five, bot_persona = generate_bot_profile(bot_id)
+        bot = Bot(
+            name=bot_id,
+            basic_info=bot_basic_info,
+            big_five=bot_big_five,
+            persona=bot_persona,
+        )
         session.add(bot)
         await session.flush()
         return bot
@@ -223,14 +238,16 @@ class DBManager:
         rel = (await session.execute(q)).scalars().first()
         if rel:
             return rel
+        # 关系初始化：用生成的 user_inferred_profile
+        _user_basic, user_inferred = generate_user_profile(str(user.external_id or user.id))
         rel = Relationship(
             bot_id=bot.id,
             user_id=user.id,
             current_stage="initiating",
             dimensions={"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "warmth": 0, "power": 50},
             mood_state={"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
-            inferred_profile={},
-            assets={},
+            inferred_profile=user_inferred,
+            assets={"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
             spt_info={},
             conversation_summary="",
         )

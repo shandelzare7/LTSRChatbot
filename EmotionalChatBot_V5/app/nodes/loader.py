@@ -61,6 +61,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             history = db_data.get("chat_buffer") or []
             merged_buffer = list(history) + [m for m in chat_buffer if m not in history]
             return {
+                "bot_id": str(bot_id),
                 # DB state
                 "relationship_state": db_data.get("relationship_state") or {},
                 "mood_state": db_data.get("mood_state") or {},
@@ -86,11 +87,13 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             from app.core.local_store import LocalStoreManager
 
             store = LocalStoreManager()
+            # bot_id 优先使用显式 bot_id；否则用 bot_basic_info.name；都没有则统一用 default_bot
             bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"
             local_data: Dict[str, Any] = store.load_state(str(user_id), str(bot_id))
             history = local_data.get("chat_buffer") or []
             merged_buffer = list(history) + [m for m in chat_buffer if m not in history]
             return {
+                "bot_id": str(bot_id),
                 "relationship_state": local_data.get("relationship_state") or {},
                 "mood_state": local_data.get("mood_state") or {},
                 "current_stage": local_data.get("current_stage") or state.get("current_stage") or "initiating",
