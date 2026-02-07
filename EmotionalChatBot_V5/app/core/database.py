@@ -29,7 +29,7 @@ from sqlalchemy import (
     func,
     select,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID, ENUM
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -77,7 +77,25 @@ class Relationship(Base):
     bot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"))
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"))
 
-    current_stage: Mapped[str] = mapped_column(Text, nullable=False, default="initiating")
+    # DB schema: current_stage is enum type `knapp_stage`
+    current_stage: Mapped[str] = mapped_column(
+        ENUM(
+            "initiating",
+            "experimenting",
+            "intensifying",
+            "integrating",
+            "bonding",
+            "differentiating",
+            "circumscribing",
+            "stagnating",
+            "avoiding",
+            "terminating",
+            name="knapp_stage",
+            create_type=False,
+        ),
+        nullable=False,
+        default="initiating",
+    )
     dimensions: Mapped[Dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
