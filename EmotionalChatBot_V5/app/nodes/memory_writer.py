@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Callable
 
 import os
 import asyncio
+from datetime import datetime, timezone
 
 from app.state import AgentState
 
@@ -45,6 +46,9 @@ def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentSt
         segments = state.get("final_segments", []) or []
         final_text = " ".join(segments) if segments else state.get("final_response") or state.get("draft_response") or ""
         final_text = (final_text or "").strip()
+
+        # 在真正“准备返回给用户前”的时刻打点（用于 DB created_at）
+        state["ai_sent_at"] = datetime.now(timezone.utc).isoformat()
 
         db = _get_db_manager()
         if db:

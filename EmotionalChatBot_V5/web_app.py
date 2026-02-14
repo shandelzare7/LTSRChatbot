@@ -5,7 +5,7 @@ FastAPI Web Application for EmotionalChatBot V5.0
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 import io
 import zipfile
@@ -37,7 +37,7 @@ from app.web.session import (
     generate_user_id_from_request,
 )
 from main import _make_initial_state
-from sqlalchemy import select
+from sqlalchemy import select, case
 from utils.yaml_loader import get_project_root
 import sys
 
@@ -400,14 +400,16 @@ async def chat(
         state.update(db_state)  # 合并数据库状态
         t_state_ms = (time.perf_counter() - t0) * 1000.0
         
-        now_iso = datetime.now().isoformat()
+        # 业务语义：用户消息接收时间（进入流程之前）
+        received_iso = datetime.now(timezone.utc).isoformat()
         state["messages"] = [
             HumanMessage(
                 content=chat_data.message.strip(),
-                additional_kwargs={"timestamp": now_iso},
+                additional_kwargs={"timestamp": received_iso},
             )
         ]
-        state["current_time"] = now_iso
+        state["current_time"] = received_iso
+        state["user_received_at"] = received_iso
         state["user_input"] = chat_data.message.strip()
         state["external_user_text"] = state["user_input"]
         
@@ -558,8 +560,16 @@ async def get_chat_history(
         if not user:
             return {"status": "success", "messages": []}
 
+        role_order = case(
+            (Message.role == "user", 0),
+            (Message.role == "ai", 1),
+            else_=2,
+        )
         result = await db_session.execute(
-            select(Message).where(Message.user_id == user.id).order_by(Message.created_at.asc()).limit(limit)
+            select(Message)
+            .where(Message.user_id == user.id)
+            .order_by(Message.created_at.asc(), role_order.asc(), Message.id.asc())
+            .limit(limit)
         )
         msgs = list(result.scalars().all())
 

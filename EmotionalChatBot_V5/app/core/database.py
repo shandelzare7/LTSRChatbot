@@ -14,7 +14,7 @@ database.py (Async SQLAlchemy)
 
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -23,6 +23,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    case,
     String,
     Text,
     UniqueConstraint,
@@ -604,10 +605,18 @@ class DBManager:
                 user = await self._get_or_create_user(session, bot_id, user_id)
                 bot = await self._get_or_create_bot(session, bot_id)
 
+                # Stable ordering:
+                # In the same DB transaction, Message.created_at (server_default=now()) can be identical for
+                # both user+ai inserts. Order by role to ensure user appears before ai in the reconstructed history.
+                role_order = case(
+                    (Message.role == "user", 0),
+                    (Message.role == "ai", 1),
+                    else_=2,
+                )
                 q = (
                     select(Message.role, Message.content, Message.created_at)
                     .where(Message.user_id == user.id)
-                    .order_by(Message.created_at.desc())
+                    .order_by(Message.created_at.desc(), role_order.desc(), Message.id.desc())
                     .limit(20)
                 )
                 rows = list((await session.execute(q)).all())
@@ -709,6 +718,27 @@ class DBManager:
         """
         Writer：事务写入一轮对话。user 挂在 bot 下；写入 messages 并更新 user 的关系状态与可选 memories。
         """
+
+        def _parse_dt(v: Any) -> Optional[datetime]:
+            if not v:
+                return None
+            try:
+                s = str(v).strip()
+                if not s:
+                    return None
+                # allow Z suffix
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                return datetime.fromisoformat(s)
+            except Exception:
+                return None
+
+        # 业务语义时间戳：
+        # - user_created_at: 收到用户消息、进入流程前
+        # - ai_created_at: 生成完成、准备返回给用户前
+        user_created_at = _parse_dt(state.get("user_received_at")) or _parse_dt(state.get("current_time"))
+        ai_created_at = _parse_dt(state.get("ai_sent_at")) or datetime.now(timezone.utc)
+
         async with self.Session() as session:
             async with session.begin():
                 user = await self._get_or_create_user(session, bot_id, user_id)
@@ -728,9 +758,25 @@ class DBManager:
                 }
 
                 if user_input:
-                    session.add(Message(user_id=user.id, role="user", content=user_input, meta=meta_user))
+                    session.add(
+                        Message(
+                            user_id=user.id,
+                            role="user",
+                            content=user_input,
+                            meta=meta_user,
+                            created_at=user_created_at,
+                        )
+                    )
                 if final_response:
-                    session.add(Message(user_id=user.id, role="ai", content=final_response, meta=meta_ai))
+                    session.add(
+                        Message(
+                            user_id=user.id,
+                            role="ai",
+                            content=final_response,
+                            meta=meta_ai,
+                            created_at=ai_created_at,
+                        )
+                    )
 
                 user.current_stage = str(state.get("current_stage") or user.current_stage or "initiating")
                 # 关系维度：避免“部分字段写入”把其它维度抹掉；并统一到 0-1 量纲 + 单轮跳变截断
