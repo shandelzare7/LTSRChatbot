@@ -72,7 +72,14 @@ def _create_async_engine_from_database_url(database_url: str) -> AsyncEngine:
         connect_args["ssl"] = True
 
     u = u.set(query=query)
-    return create_async_engine(str(u), echo=False, future=True, connect_args=connect_args)
+    # IMPORTANT: `str(URL)` hides password by default ("***"), which will break auth.
+    # Use the full rendered URL string for actual connections.
+    try:
+        url_str = u.render_as_string(hide_password=False)  # type: ignore[attr-defined]
+    except Exception:
+        # Fallback: best-effort; should still work for simple URLs
+        url_str = str(u)
+    return create_async_engine(url_str, echo=False, future=True, connect_args=connect_args)
 
 # -----------------------------
 # ORM Base
