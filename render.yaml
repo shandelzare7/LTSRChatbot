@@ -1,8 +1,14 @@
+databases:
+  - name: ltsrchatbot-db
+    plan: starter
+    databaseName: ltsrchatbot_v5
+    user: ltsrchatbot
+
 services:
   - type: web
     name: ltsrchatbot-web
     env: python
-    plan: free
+    plan: starter
     autoDeploy: true
 
     buildCommand: pip install -r EmotionalChatBot_V5/requirements.txt
@@ -14,11 +20,12 @@ services:
       - key: ENVIRONMENT
         value: production
 
-      # Database URL
-      # Render Free plan typically can't provision Render Postgres without billing verification.
-      # Use an external managed Postgres (e.g. Supabase/Neon) and paste its connection string here.
+      # Inject Render Postgres URL (often starts with `postgres://...`)
+      # Code normalizes it to `postgresql+asyncpg://...` and handles sslmode best-effort.
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: ltsrchatbot-db
+          property: connectionString
 
       # LLM config (set these in Render dashboard after deploy)
       - key: OPENAI_API_KEY
@@ -26,7 +33,7 @@ services:
       - key: OPENAI_BASE_URL
         sync: false
       - key: OPENAI_MODEL
-        sync: false
+        value: gpt-4o
 
       # Optional (uncomment in Render UI if you want perf traces)
       # - key: LTSR_LLM_PERF

@@ -23,12 +23,17 @@ This provisions:
 In `ltsrchatbot-web` → Environment:
 
 - `OPENAI_API_KEY`
-- `OPENAI_BASE_URL` (optional, for OpenAI-compatible providers)
-- `OPENAI_MODEL`
+- `OPENAI_MODEL` (default is `gpt-4o`)
+- `OPENAI_BASE_URL` (optional, only for OpenAI-compatible providers)
 
 `DATABASE_URL` is injected automatically from the Render Postgres service.
 
 ## Provider examples
+
+### OpenAI (default)
+
+- `OPENAI_MODEL=gpt-4o`
+- `OPENAI_API_KEY=<your_openai_key>`
 
 ### Qwen (DashScope OpenAI-compatible)
 
