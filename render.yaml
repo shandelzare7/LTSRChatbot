@@ -17,6 +17,10 @@ services:
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
+      # Render default (new services) is Python 3.14.x which currently breaks parts of LangChain/Pydantic.
+      # Pin to a stable version.
+      - key: PYTHON_VERSION
+        value: "3.12.7"
       - key: ENVIRONMENT
         value: production
 
@@ -25,7 +29,7 @@ services:
       - key: DATABASE_URL
         fromDatabase:
           name: ltsrchatbot-db
-          property: connectionString
+          property: internalConnectionString
 
       # LLM config (set these in Render dashboard after deploy)
       - key: OPENAI_API_KEY

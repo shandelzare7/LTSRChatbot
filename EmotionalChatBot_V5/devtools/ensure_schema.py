@@ -83,7 +83,10 @@ async def _ensure_default_bot(db: DBManager) -> None:
 
 async def main() -> None:
     if not os.getenv("DATABASE_URL"):
-        raise RuntimeError("DATABASE_URL 未设置。请在部署环境设置 Render Postgres 的连接串。")
+        # Render: allow web service to boot even if DB isn't attached yet.
+        # The app can run in no-DB mode (local store), and you can attach Postgres later.
+        print("[ensure_schema] DATABASE_URL not set; skipping schema bootstrap")
+        return
 
     db = DBManager.from_env()
 
