@@ -1,17 +1,18 @@
 databases:
   - name: ltsrchatbot-db
     region: singapore
-    plan: starter
+    # Render 已弃用 legacy Postgres plans（如 starter）。使用新的数据库 plan。
+    plan: basic-1gb
     databaseName: ltsrchatbot_v5
     user: ltsrchatbot
 
 services:
   - type: web
     name: ltsrchatbot-web
-    env: python
+    runtime: python
     region: singapore
     plan: starter
-    autoDeploy: true
+    autoDeployTrigger: commit
 
     buildCommand: pip install -r EmotionalChatBot_V5/requirements.txt
     startCommand: bash EmotionalChatBot_V5/render_start.sh
