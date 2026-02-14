@@ -70,9 +70,10 @@ async function loadAndRenderChatHistory() {
     history.forEach(m => {
         const role = (m && m.role) ? String(m.role) : '';
         const content = (m && m.content) ? String(m.content) : '';
+        const createdAt = (m && m.created_at) ? String(m.created_at) : null;
         if (!content) return;
-        if (role === 'user') addMessage('user', content);
-        else if (role === 'ai') addMessage('bot', content);
+        if (role === 'user') addMessage('user', content, { timestamp: createdAt });
+        else if (role === 'ai') addMessage('bot', content, { timestamp: createdAt });
         // ignore system messages in UI
     });
 
@@ -243,7 +244,8 @@ function initChat() {
         if (!message) return;
         
         // 显示用户消息
-        addMessage('user', message);
+        const localIso = new Date().toISOString();
+        const userMsgId = addMessage('user', message, { timestamp: localIso });
         messageInput.value = '';
         sendBtn.disabled = true;
         
@@ -265,7 +267,11 @@ function initChat() {
             
             const data = await response.json();
             if (data.status === 'success') {
-                addMessage('bot', data.reply);
+                // Best-effort: backfill server timestamps
+                if (userMsgId && data.user_created_at) {
+                    setMessageTimestamp(userMsgId, data.user_created_at);
+                }
+                addMessage('bot', data.reply, { timestamp: data.ai_created_at || new Date().toISOString() });
             } else {
                 addMessage('bot', '回复失败');
             }
@@ -324,10 +330,34 @@ function initChat() {
 
 // 添加消息到聊天界面
 let messageIdCounter = 0;
-function addMessage(role, content, isTemporary = false) {
+function formatTimestamp(isoString) {
+    try {
+        if (!isoString) return '';
+        const d = new Date(isoString);
+        if (Number.isNaN(d.getTime())) return '';
+        // show local time (HH:MM)
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+        return '';
+    }
+}
+
+function setMessageTimestamp(messageId, isoString) {
+    const message = document.getElementById(messageId);
+    if (!message) return;
+    const t = message.querySelector('.message-time');
+    if (!t) return;
+    const s = formatTimestamp(isoString);
+    if (!s) return;
+    t.textContent = s;
+    t.dataset.iso = String(isoString);
+}
+
+function addMessage(role, content, options = {}) {
     const chatMessages = document.getElementById('chat-messages');
     if (!chatMessages) return null;
     
+    const isTemporary = !!options.isTemporary;
     const messageId = isTemporary ? `temp-${Date.now()}` : `msg-${messageIdCounter++}`;
     const messageDiv = document.createElement('div');
     messageDiv.id = messageId;
@@ -337,6 +367,13 @@ function addMessage(role, content, isTemporary = false) {
     contentDiv.className = 'message-content';
     contentDiv.textContent = content;
     messageDiv.appendChild(contentDiv);
+
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    const timeText = formatTimestamp(options.timestamp);
+    timeDiv.textContent = timeText;
+    if (options.timestamp) timeDiv.dataset.iso = String(options.timestamp);
+    messageDiv.appendChild(timeDiv);
     
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;

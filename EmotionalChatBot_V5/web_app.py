@@ -473,7 +473,13 @@ async def chat(
         except Exception as log_error:
             print(f"日志记录失败: {log_error}", file=sys.stderr)
         
-        return {"reply": reply, "status": "success"}
+        return {
+            "reply": reply,
+            "status": "success",
+            # timestamps for UI
+            "user_created_at": received_iso,
+            "ai_created_at": (result.get("ai_sent_at") if isinstance(result, dict) else None),
+        }
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
