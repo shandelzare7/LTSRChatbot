@@ -504,6 +504,83 @@ async def reset_session(
         raise HTTPException(status_code=500, detail=f"重置会话失败: {str(e)}")
 
 
+@app.get("/api/chat/history")
+async def get_chat_history(
+    session_id: Optional[str] = Cookie(None),
+    limit: int = 2000,
+):
+    """获取当前用户在该 bot 下的全部对话历史（按时间升序）。"""
+    if not session_id:
+        raise HTTPException(status_code=401, detail="未找到会话，请先选择bot")
+
+    sess = get_session(session_id)
+    if not sess:
+        raise HTTPException(status_code=401, detail="会话无效或已过期，请重新选择bot")
+
+    bot_id_str = sess["bot_id"]
+    user_external_id = sess["user_id"]
+
+    # guardrails
+    try:
+        limit = int(limit or 0)
+    except Exception:
+        limit = 2000
+    limit = max(1, min(limit, 5000))
+
+    try:
+        db = get_db_manager()
+    except Exception:
+        # no db configured -> no history
+        return {"status": "success", "messages": []}
+
+    async with db.Session() as db_session:
+        # fetch bot
+        bot_uuid = None
+        try:
+            import uuid as uuid_lib
+
+            bot_uuid = uuid_lib.UUID(bot_id_str)
+        except Exception:
+            bot_uuid = None
+
+        if bot_uuid:
+            result = await db_session.execute(select(Bot).where(Bot.id == bot_uuid))
+        else:
+            result = await db_session.execute(select(Bot).where(Bot.name == bot_id_str))
+        bot = result.scalar_one_or_none()
+        if not bot:
+            return {"status": "success", "messages": []}
+
+        # fetch user row without creating new ones
+        result = await db_session.execute(
+            select(User).where(User.bot_id == bot.id, User.external_id == user_external_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            return {"status": "success", "messages": []}
+
+        result = await db_session.execute(
+            select(Message).where(Message.user_id == user.id).order_by(Message.created_at.asc()).limit(limit)
+        )
+        msgs = list(result.scalars().all())
+
+    out = []
+    for m in msgs:
+        role = str(getattr(m, "role", "") or "")
+        if role not in ("user", "ai", "system"):
+            continue
+        out.append(
+            {
+                "role": role,
+                "content": str(getattr(m, "content", "") or ""),
+                "created_at": (
+                    m.created_at.isoformat() if getattr(m, "created_at", None) is not None else None
+                ),
+            }
+        )
+    return {"status": "success", "messages": out}
+
+
 @app.get("/api/session/status")
 async def get_session_status(session_id: Optional[str] = Cookie(None)):
     """获取会话状态"""

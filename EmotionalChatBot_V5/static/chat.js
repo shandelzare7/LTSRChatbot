@@ -42,6 +42,43 @@ async function ensureFirstBotMessage() {
     addMessage('bot', buildFirstBotMessage(status));
 }
 
+async function fetchChatHistory(limit = 2000) {
+    try {
+        const response = await fetch(`/api/chat/history?limit=${encodeURIComponent(limit)}`, {
+            credentials: 'include',
+        });
+        if (!response.ok) return [];
+        const data = await response.json();
+        if (!data || data.status !== 'success' || !Array.isArray(data.messages)) return [];
+        return data.messages;
+    } catch (error) {
+        console.error('获取聊天历史失败:', error);
+        return [];
+    }
+}
+
+async function loadAndRenderChatHistory() {
+    const chatMessages = document.getElementById('chat-messages');
+    if (!chatMessages) return 0;
+
+    const history = await fetchChatHistory(5000);
+    if (!history || history.length === 0) return 0;
+
+    // clear any existing UI messages (should be empty on first load)
+    chatMessages.innerHTML = '';
+
+    history.forEach(m => {
+        const role = (m && m.role) ? String(m.role) : '';
+        const content = (m && m.content) ? String(m.content) : '';
+        if (!content) return;
+        if (role === 'user') addMessage('user', content);
+        else if (role === 'ai') addMessage('bot', content);
+        // ignore system messages in UI
+    });
+
+    return history.length;
+}
+
 // 加载bot列表
 async function loadBots() {
     const botList = document.getElementById('bot-list');
@@ -195,8 +232,10 @@ function initChat() {
     
     if (!messageInput || !sendBtn) return;
 
-    // 开场白：让第一句由 chatbot 发起
-    ensureFirstBotMessage().catch(() => {});
+    // 先加载历史（如果有），再决定是否插入开场白
+    loadAndRenderChatHistory()
+        .then(() => ensureFirstBotMessage())
+        .catch(() => ensureFirstBotMessage().catch(() => {}));
     
     // 发送消息
     const sendMessage = async () => {
