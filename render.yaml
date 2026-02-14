@@ -1,5 +1,6 @@
 databases:
   - name: ltsrchatbot-db
+    region: singapore
     plan: starter
     databaseName: ltsrchatbot_v5
     user: ltsrchatbot
@@ -8,6 +9,7 @@ services:
   - type: web
     name: ltsrchatbot-web
     env: python
+    region: singapore
     plan: starter
     autoDeploy: true
 
