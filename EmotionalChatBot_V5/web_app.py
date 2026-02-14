@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import time
+import io
+import zipfile
 from typing import Optional
 
 # 加载 .env（若存在）
@@ -20,7 +22,7 @@ except Exception:
     pass
 
 from fastapi import FastAPI, Request, Response, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -109,6 +111,56 @@ def log_web_chat(session_id: str, user_id: str, bot_id: str, user_message: str, 
         log_file.flush()
     except Exception as e:
         print(f"日志记录失败: {e}", file=sys.stderr)
+
+
+def _get_log_dir() -> Path:
+    proot = get_project_root()
+    log_dir = proot / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
+def _require_admin(request: Request) -> None:
+    """
+    Minimal admin auth for log download endpoint.
+    Set env var `ADMIN_TOKEN` and pass request header `X-Admin-Token`.
+    """
+    token = (os.getenv("ADMIN_TOKEN") or "").strip()
+    if not token:
+        # Hide the endpoint when not configured
+        raise HTTPException(status_code=404, detail="Not found")
+    got = (request.headers.get("x-admin-token") or "").strip()
+    if got != token:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+@app.get("/api/admin/web_chat_logs_latest.zip")
+async def admin_download_latest_web_chat_logs_zip(request: Request, n: int = 2):
+    """
+    Download latest N web chat logs as a zip file.
+    Note: Render filesystem is ephemeral; files exist only on the running instance.
+    """
+    _require_admin(request)
+    n = max(1, min(int(n or 2), 10))
+
+    log_dir = _get_log_dir()
+    files = sorted(log_dir.glob("web_chat_*.log"), key=lambda x: x.stat().st_mtime, reverse=True)[:n]
+    if not files:
+        raise HTTPException(status_code=404, detail="No logs found")
+
+    mem = io.BytesIO()
+    with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
+        for p in files:
+            z.writestr(p.name, p.read_text(encoding="utf-8", errors="replace"))
+    mem.seek(0)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_name = f"web_chat_latest_{ts}.zip"
+    return StreamingResponse(
+        mem,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{out_name}"'},
+    )
 
 # CORS 配置（支持 Cloudflare 域名）
 app.add_middleware(

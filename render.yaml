@@ -41,6 +41,9 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4o
+      # Admin-only log download (set in Render dashboard)
+      - key: ADMIN_TOKEN
+        sync: false
 
       # Optional (uncomment in Render UI if you want perf traces)
       # - key: LTSR_LLM_PERF
