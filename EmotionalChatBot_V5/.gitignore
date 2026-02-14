@@ -7,3 +7,6 @@ venv/
 # Local persisted chat data (do NOT commit private conversations)
 local_data/
 
+# Session logs (one file per console run, timestamped)
+logs/
+

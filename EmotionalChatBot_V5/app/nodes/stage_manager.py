@@ -31,31 +31,34 @@ logger = logging.getLogger(__name__)
 
 def _safe_check_condition(condition: str, *, closeness: float) -> bool:
     """
-    仅支持极简条件：形如 'closeness > 70' / 'closeness >= 60' 等。
+    仅支持极简条件：形如 'closeness > 0.7' / 'closeness >= 0.7' 等。
     避免使用 eval。
+    注意：closeness 参数和阈值都是 0-1 范围。
     """
     s = (condition or "").strip()
+    closeness_val = max(0.0, min(1.0, float(closeness)))
+    
     for op in (">=", "<=", "==", "!=", ">", "<"):
         if op in s:
             left, right = [x.strip() for x in s.split(op, 1)]
             if left != "closeness":
                 return False
             try:
-                v = float(right)
+                threshold = max(0.0, min(1.0, float(right)))
             except Exception:
                 return False
             if op == ">=":
-                return closeness >= v
+                return closeness_val >= threshold
             if op == "<=":
-                return closeness <= v
+                return closeness_val <= threshold
             if op == "==":
-                return closeness == v
+                return abs(closeness_val - threshold) < 0.01  # 浮点比较容差
             if op == "!=":
-                return closeness != v
+                return abs(closeness_val - threshold) >= 0.01
             if op == ">":
-                return closeness > v
+                return closeness_val > threshold
             if op == "<":
-                return closeness < v
+                return closeness_val < threshold
     return False
 
 
@@ -81,6 +84,7 @@ class KnappStageManager:
         """
         parsed = StageManagerInput.model_validate(state)  # pydantic v2
         scores = parsed.relationship_state.model_dump()
+        user_turns = self._count_user_turns(state)
 
         # deltas：优先用 applied；否则用 raw
         deltas_applied = dict(parsed.relationship_deltas_applied or {})
@@ -97,7 +101,7 @@ class KnappStageManager:
         if decay:
             return decay
 
-        growth = self._check_growth(current_stage, scores, spt)
+        growth = self._check_growth(current_stage, scores, spt, user_turns=user_turns)
         if growth:
             return growth
 
@@ -113,9 +117,33 @@ class KnappStageManager:
             v = float(x)
         except Exception:
             return 0.0
+        # 1) 若已是 0-1 量纲，直接返回
+        if abs(v) <= 1.0:
+            return v
+        # 2) 若是强度档位（-3..3 / -5..5），映射到 0-1（例如 3 -> 0.3）
         if abs(v) <= 5.0:
-            return v * 10.0
-        return v
+            return v / 10.0
+        # 3) 若是旧 points（0-100），归一化
+        if abs(v) <= 100.0:
+            return v / 100.0
+        # 4) 兜底：极端值截断到 [-1, 1]
+        return max(-1.0, min(1.0, v))
+
+    def _count_user_turns(self, state: Dict[str, Any]) -> int:
+        """
+        估算用户轮次：优先从 chat_buffer 中统计 human/user 消息条数。
+        目的：避免 initiating->experimenting 过早升级（至少 3 轮用户输入）。
+        """
+        buf = state.get("chat_buffer") or []
+        n = 0
+        for m in buf:
+            t = getattr(m, "type", "") or ""
+            if "human" in str(t).lower() or "user" in str(t).lower():
+                n += 1
+        # 若本轮 user_input 尚未进入 buffer，也算一轮
+        if str(state.get("user_input") or "").strip():
+            n = max(n, 1)
+        return int(n)
 
     def _check_jumps(
         self,
@@ -124,7 +152,9 @@ class KnappStageManager:
         deltas: Dict[str, Any],
         spt: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
-        threshold = float(self.settings.get("jump_delta_threshold", 25))
+        # 阈值（0-1 范围）
+        threshold = max(0.0, min(1.0, float(self.settings.get("jump_delta_threshold", 0.25))))
+        
         trust_delta = self._normalize_delta_points(deltas.get("trust", 0))
         respect_delta = self._normalize_delta_points(deltas.get("respect", 0))
 
@@ -142,7 +172,8 @@ class KnappStageManager:
             }
 
         if current_stage == "initiating" and int(spt.get("depth", 1) or 1) >= 3:
-            if float(scores.get("liking", 0.0) or 0.0) > 40:
+            liking_score = max(0.0, min(1.0, float(scores.get("liking", 0.0) or 0.0)))
+            if liking_score > 0.4:
                 return {
                     "new_stage": "intensifying",
                     "reason": "Rapid intimacy acceleration.",
@@ -162,28 +193,25 @@ class KnappStageManager:
 
         max_scores = triggers.get("max_scores") or {}
         for dim, limit in (max_scores or {}).items():
-            try:
-                lim = float(limit)
-            except Exception:
-                continue
-            if float(scores.get(dim, 0.0) or 0.0) <= lim:
+            limit_val = max(0.0, min(1.0, float(limit)))
+            score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+            if score_val <= limit_val:
                 return {
                     "new_stage": next_stage,
-                    "reason": f"Score {dim} dropped below {lim}.",
+                    "reason": f"Score {dim} dropped below {limit_val:.2f}.",
                     "transition_type": "DECAY",
                 }
 
         if "conditional_drop" in triggers:
             cd = triggers.get("conditional_drop") or {}
             cond_str = str(cd.get("condition") or "")
-            if _safe_check_condition(cond_str, closeness=float(scores.get("closeness", 0.0) or 0.0)):
+            closeness_raw = float(scores.get("closeness", 0.0) or 0.0)
+            if _safe_check_condition(cond_str, closeness=closeness_raw):
                 sub = cd.get("triggers") or {}
                 for dim, limit in sub.items():
-                    try:
-                        lim = float(limit)
-                    except Exception:
-                        continue
-                    if float(scores.get(dim, 0.0) or 0.0) < lim:
+                    limit_val = max(0.0, min(1.0, float(limit)))
+                    score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+                    if score_val < limit_val:
                         return {
                             "new_stage": next_stage,
                             "reason": f"High intimacy but low {dim} (Toxic).",
@@ -209,7 +237,7 @@ class KnappStageManager:
         return None
 
     def _check_growth(
-        self, current_stage: str, scores: Dict[str, float], spt: Dict[str, Any]
+        self, current_stage: str, scores: Dict[str, float], spt: Dict[str, Any], *, user_turns: int = 0
     ) -> Optional[Dict[str, Any]]:
         stage_conf = self.stages.get(current_stage) or {}
         next_stage = stage_conf.get("next_up")
@@ -219,12 +247,15 @@ class KnappStageManager:
         entry_req = stage_conf.get("up_entry", {}) or {}
         veto_req = stage_conf.get("up_veto", {}) or {}
 
+        # initiating -> experimenting：至少 3 轮用户输入，避免“一句话就升级”
+        if str(current_stage) == "initiating" and str(next_stage) == "experimenting":
+            if int(user_turns or 0) < 3:
+                return None
+
         for dim, min_val in (entry_req.get("min_scores") or {}).items():
-            try:
-                mv = float(min_val)
-            except Exception:
-                continue
-            if float(scores.get(dim, 0.0) or 0.0) < mv:
+            min_val_norm = max(0.0, min(1.0, float(min_val)))
+            score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+            if score_val < min_val_norm:
                 return None
 
         if int(spt.get("depth", 1) or 1) < int(entry_req.get("min_spt_depth", 0) or 0):
@@ -239,18 +270,17 @@ class KnappStageManager:
                 return None
 
         for dim, min_val in (veto_req.get("min_scores") or {}).items():
-            try:
-                mv = float(min_val)
-            except Exception:
-                continue
-            if float(scores.get(dim, 0.0) or 0.0) < mv:
-                logger.info(f"Growth vetoed: {dim} too low.")
+            min_val_norm = max(0.0, min(1.0, float(min_val)))
+            score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+            if score_val < min_val_norm:
+                logger.info(f"Growth vetoed: {dim} too low (score={score_val:.2f} < threshold={min_val_norm:.2f}).")
                 return None
 
         if bool(veto_req.get("check_power_balance")):
-            power = float(scores.get("power", 50.0) or 50.0)
-            imbalance = abs(power - 50.0) * 2.0
-            limit = float(self.settings.get("power_balance_threshold", 30) or 30)
+            # power balance: 0.5 是平衡点，计算偏离度（0-1 范围）
+            power = max(0.0, min(1.0, float(scores.get("power", 0.5) or 0.5)))
+            imbalance = abs(power - 0.5) * 2.0  # 0-1 范围
+            limit = max(0.0, min(1.0, float(self.settings.get("power_balance_threshold", 0.3) or 0.3)))
             if imbalance > limit:
                 logger.info("Growth vetoed: Power imbalance.")
                 return None
@@ -299,12 +329,14 @@ def create_stage_manager_node(config_path: Optional[str] = None):
 
         if ttype != "STAY" and new_stage != current:
             print(f"🚀 STAGE CHANGE: {current} -> {new_stage} ({reason})")
+            print("[StageManager] done")
             return {
                 "current_stage": new_stage,
                 "stage_narrative": reason,
                 "stage_transition": {"from": current, "to": new_stage, "type": ttype, "reason": reason},
                 "spt_info": spt_info,
             }
+        print("[StageManager] done")
         return {"spt_info": spt_info}
 
     return node

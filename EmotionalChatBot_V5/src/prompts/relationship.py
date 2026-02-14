@@ -32,12 +32,15 @@ Use these signals as your ground truth for classification:
 {rubric}
 
 ### 2. DYNAMIC CONTEXT (Current Situation)
-* **Current Scores**: {current_scores}
-    - Note: Scores > 80 are resilient (hard to increase).
-    - Note: Scores < 30 are fragile (easy to fluctuate).
+* **Current Scores**: {current_scores} (0-1 range)
+    - Note: Scores > 0.8 are resilient (hard to increase).
+    - Note: Scores < 0.3 are fragile (easy to fluctuate).
 * **Current Stage**: {current_stage}
 * **My Mood**: {mood_state}
 * **User Profile**: {user_profile} (Calibrate intensity based on this).
+
+### 2.5 MEMORY (Summary + Retrieved)
+{memory_block}
 
 ### 3. ANALYSIS INSTRUCTIONS
 Analyze the `User Input` below.
@@ -50,8 +53,8 @@ Analyze the `User Input` below.
     - 3/-3: Major impact / Emotional breakthrough or breakdown.
 
 ### 4. CALIBRATION RULES
-- **Diminishing Returns**: If a dimension is ALREADY High (>80), standard compliments only give +1, not +2.
-- **Betrayal**: If Trust/Closeness is High (>80), negative signals should be penalized heavily (-2 or -3).
+- **Diminishing Returns**: If a dimension is ALREADY High (>0.8), standard compliments only give +1, not +2.
+- **Betrayal**: If Trust/Closeness is High (>0.8), negative signals should be penalized heavily (-2 or -3).
 
 ### 5. OUTPUT FORMAT (STRICT JSON ONLY)
 Return JSON with the following shape:
@@ -71,14 +74,23 @@ Return JSON with the following shape:
 
 
 def build_analyzer_prompt(state: Dict[str, Any]) -> str:
-    """将 State 和 Static YAML 组装成最终 Prompt"""
+    """将 State 和 Static YAML 组装成最终 Prompt（含 summary + retrieved 记忆，不含 chat_buffer；chat_buffer 由调用方放正文）"""
     # 优先使用 user_inferred_profile；没有则兼容 loader 的 user_profile
     user_profile = state.get("user_inferred_profile") or state.get("user_profile") or {}
+    summary = state.get("conversation_summary") or ""
+    retrieved = state.get("retrieved_memories") or []
+    memory_parts = []
+    if summary:
+        memory_parts.append("近期对话摘要：\n" + summary)
+    if retrieved:
+        memory_parts.append("相关记忆片段：\n" + "\n".join(retrieved))
+    memory_block = "\n\n".join(memory_parts) if memory_parts else "（无）"
     return ANALYZER_SYSTEM_PROMPT.format(
         rubric=STATIC_RUBRIC,
         current_scores=state.get("relationship_state") or {},
         current_stage=state.get("current_stage") or "experimenting",
         mood_state=state.get("mood_state") or {},
         user_profile=user_profile,
+        memory_block=memory_block,
     )
 

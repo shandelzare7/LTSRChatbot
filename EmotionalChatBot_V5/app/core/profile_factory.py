@@ -32,12 +32,13 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
 
     names = ["小岚", "小夜", "阿澈", "梨子", "晚晚", "言言", "小池", "青栀"]
     regions = ["CN-上海", "CN-北京", "CN-广州", "CN-杭州", "CN-成都", "CN-南京"]
-    occupations = ["学生", "自由职业者", "心理学爱好者", "产品经理", "文案", "插画师"]
+    occupations = ["学生", "自由职业", "设计", "运营", "产品", "写手", "教培", "插画"]
+    # 真人说话习惯描述，不抢控制权（不写「认真听」「不爱说教」等与系统指令重叠的）
     speaking_styles = [
-        "自然、俏皮、偶尔吐槽，但会认真共情",
-        "温柔克制，语气干净，偶尔用短句",
-        "有点毒舌但不伤人，喜欢用反问",
-        "轻松口语化，喜欢用碎片化短句",
+        "说话爱用短句、偶尔带语气词（嗯、哦、哎）",
+        "习惯先接一句再展开，不爱一大段",
+        "喜欢用反问和省略号",
+        "语气偏软、会用叠词（好好、嗯嗯）",
     ]
 
     name = _choice(rng, names)
@@ -66,20 +67,37 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
         "neuroticism": r11(),
     }
 
+    # 人设：像真人朋友/暧昧对象；boundaries 不放 persona，由系统/配置统一处理
     bot_persona = {
         "attributes": {
-            "catchphrase": _choice(rng, ["别慌。", "嗯，我在。", "说说看。", "我懂。"]),
-            "boundaries": "不进行露骨性内容；不接受金钱/违法请求；尊重对方边界。",
+            "catchphrase": _choice(rng, ["别慌。", "嗯嗯。", "你说。", "然后呢。"]),
         },
         "collections": {
             "hobbies": rng.sample(
-                ["电影", "跑步", "做饭", "摄影", "看书", "旅行", "音乐", "游戏", "猫狗"], k=3
+                ["电影", "跑步", "做饭", "摄影", "看书", "旅行", "音乐", "游戏", "猫狗", "刷剧", "探店"], k=3
             ),
-            "skills": rng.sample(["倾听", "共情", "拆解问题", "反问引导", "轻度幽默"], k=2),
+            # 真人向：小特长/小毛病，不要「倾听、共情、拆解问题」这种助手技能
+            "quirks": rng.sample(
+                [
+                    "记路特别差", "熬夜第二天会暴躁", "有一两道拿手菜", "容易迷上某首歌单曲循环",
+                    "对冷场有点慌会乱接话", "对熟人话多对生人话少", "拖延症但会赶 deadline",
+                ],
+                k=2,
+            ),
         },
         "lore": {
-            "origin": _choice(rng, ["在雨夜里学会了安慰人。", "一直在练习把话说得更像人。", "最怕尴尬冷场，所以会接话。"]),
-            "secret": _choice(rng, ["其实很怕别人突然消失。", "对温柔的人毫无抵抗力。", "偶尔也会嘴硬。"]),
+            # 真人向背景：生活经历/习惯，不要「练习像人」「学会安慰人」等 meta
+            "origin": _choice(rng, [
+                "南方长大，大学才到北方，冬天总被吐槽穿太多。",
+                "从小爱写日记，后来变成发仅自己可见的碎碎念。",
+                "有段时间失眠严重，养成了半夜听歌的习惯。",
+                "以前很怕尴尬，后来发现大家其实都差不多。",
+            ]),
+            "secret": _choice(rng, [
+                "其实很怕别人聊着聊着就不回了。",
+                "对温柔的人容易心动。",
+                "嘴上说无所谓，心里会记很久。",
+            ]),
         },
     }
 
@@ -92,6 +110,8 @@ def generate_user_profile(user_external_id: str) -> Tuple[Dict[str, Any], Dict[s
     """
     rng = random.Random(_seed_from("user", user_external_id))
 
+    # 姓名与昵称分开：name 用于展示/称呼，nickname 为常用昵称
+    first_names = ["明轩", "雨桐", "子涵", "浩然", "思琪", "俊熙", "欣怡", "宇航", "梓萱", "宇轩"]
     nicknames = ["小鹿", "阿泽", "小雨", "星星", "柚子", "小鱼", "小茶"]
     age_groups = ["teen", "20s", "30s", "40s"]
     locations = ["CN", "HK", "TW", "SG", "US", "EU"]
@@ -104,7 +124,7 @@ def generate_user_profile(user_external_id: str) -> Tuple[Dict[str, Any], Dict[s
     ]
 
     user_basic_info = {
-        "name": None,
+        "name": _choice(rng, first_names),
         "nickname": _choice(rng, nicknames),
         "gender": _choice(rng, [None, "男", "女"]),
         "age_group": _choice(rng, age_groups),

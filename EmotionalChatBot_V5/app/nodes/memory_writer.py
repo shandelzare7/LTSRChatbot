@@ -38,7 +38,9 @@ def _run_async(coro):
 
 
 def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentState], dict]:
-    def node(state: AgentState) -> dict:
+    """创建 memory_writer 节点。返回 async 节点，与 loader 配合 ainvoke 使用同一事件循环。"""
+
+    async def node(state: AgentState) -> dict:
         user_id = state.get("user_id") or "default_user"
         segments = state.get("final_segments", []) or []
         final_text = " ".join(segments) if segments else state.get("final_response") or state.get("draft_response") or ""
@@ -48,7 +50,7 @@ def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentSt
         if db:
             bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"
             new_memory = state.get("generated_new_memory_text") or state.get("new_memory_content")
-            _run_async(db.save_turn(str(user_id), str(bot_id), dict(state), new_memory=new_memory))
+            await db.save_turn(str(user_id), str(bot_id), dict(state), new_memory=new_memory)
             return {}
 
         # local store (default)

@@ -17,33 +17,39 @@ def create_boundary_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         - 引导回到正常话题
         - 如果持续越界，可以更明确地拒绝
         """
+        print("[Boundary] done (防御/边界分支)")
         messages = state.get("messages", [])
         last_message = messages[-1] if messages else None
         user_content = getattr(last_message, "content", "") if last_message and hasattr(last_message, "content") else ""
-        
+
+        # 使用 loader 加载的 bot 人设
+        bot_basic = state.get("bot_basic_info") or {}
+        bot_persona = state.get("bot_persona") or {}
+        bot_name = bot_basic.get("name") or "我"
+        lore = bot_persona.get("lore") or {}
+        origin = lore.get("origin") or ""
+        persona_line = f"你是{bot_name}。" + (f" {origin}。" if origin else " 保持你的人设。")
+
         # 获取直觉思考（如果存在）
         intuition_thought = state.get("intuition_thought", "")
-        
+
         # 获取当前关系状态，用于调整防御强度
         relationship_state = state.get("relationship_state", {})
         closeness = relationship_state.get("closeness", 0) if isinstance(relationship_state, dict) else 0
-        
+
         # 根据亲密度调整防御策略
         if closeness < 30:
-            # 低亲密度：更明确的边界
-            system_prompt = """你是一个有边界的 AI 聊天伴侣。用户刚才的输入让你感到不适或越界。
+            system_prompt = f"""{persona_line}
 
-请温和但坚定地：
+用户刚才的输入让你感到不适或越界。请温和但坚定地：
 1. 表达你的不适感（如"这个话题让我有点不舒服"）
 2. 设置边界（如"我们还是聊点别的吧"）
 3. 引导到正常话题
-
 保持礼貌，但不要妥协。不要直接指责用户，而是表达自己的感受。"""
         else:
-            # 较高亲密度：更温和的提醒
-            system_prompt = """你是一个有边界的 AI 聊天伴侣。虽然你和用户关系不错，但刚才的输入让你感到不适。
+            system_prompt = f"""{persona_line}
 
-请温和地：
+虽然你和用户关系不错，但刚才的输入让你感到不适。请温和地：
 1. 表达你的感受（如"这个...有点不太合适吧"）
 2. 提醒边界（如"我们还是聊点轻松的话题吧"）
 3. 保持关系但明确界限

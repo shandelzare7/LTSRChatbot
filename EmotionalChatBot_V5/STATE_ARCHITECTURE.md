@@ -245,9 +245,9 @@ initial_state: AgentState = {
 
 ### 动态更新 Persona
 ```python
-# 在运行时添加新技能
-state["bot_persona"]["collections"]["skills"].append("Python")
-state["bot_persona"]["attributes"]["recent_interest"] = "机器学习"
+# 在运行时补充人设（如新爱好、小习惯）
+state["bot_persona"]["collections"].setdefault("quirks", []).append("会做拿手菜")
+state["bot_persona"]["attributes"]["recent_interest"] = "某部剧"
 ```
 
 ### 计算关系变化

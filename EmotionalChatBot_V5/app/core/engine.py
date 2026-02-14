@@ -33,16 +33,19 @@ class PsychoEngine:
         """
         根据用户最新消息与上下文，调用 LLM 判断应进入的模式，返回对应的 PsychoMode。
         """
-        options = "\n".join(
-            [f"- {m.id}: {m.trigger_description}" for m in self.modes]
-        )
+        # 使用 description 字段（如果 trigger_description 存在则优先使用，向后兼容）
+        options = []
+        for m in self.modes:
+            desc = m.description if hasattr(m, "description") and m.description else (m.trigger_description if hasattr(m, "trigger_description") and m.trigger_description else m.id)
+            options.append(f"- {m.id}: {desc}")
+        options_str = "\n".join(options)
         current = context_data.get("current_mode_id", "normal_mode")
 
         prompt = f"""你是心理侧写师。请分析用户当前言论，判断 Bot 应该进入哪种心理状态。
 当前状态: {current}
 
 可选模式:
-{options}
+{options_str}
 
 用户最新消息:
 {user_msg}

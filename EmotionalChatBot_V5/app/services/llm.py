@@ -1,5 +1,6 @@
 """LLM 客户端封装：支持普通调用与 Structured Output。"""
 import os
+import time
 from typing import Any, Optional, Type, TypeVar
 
 from langchain_core.language_models import BaseChatModel
@@ -7,6 +8,137 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 T = TypeVar("T")
+
+
+def _truthy(v: Optional[str]) -> bool:
+    if v is None:
+        return False
+    return v.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _approx_input_size(input: Any) -> dict[str, int]:
+    """
+    Best-effort sizing for perf logs (avoid heavy tokenization).
+    Returns {"messages": n, "chars": c}
+    """
+    try:
+        if isinstance(input, str):
+            return {"messages": 1, "chars": len(input)}
+        if isinstance(input, list):
+            chars = 0
+            for m in input:
+                c = getattr(m, "content", None)
+                if c is None:
+                    c = str(m)
+                chars += len(str(c))
+            return {"messages": len(input), "chars": chars}
+        c = getattr(input, "content", None)
+        if c is None:
+            c = str(input)
+        return {"messages": 1, "chars": len(str(c))}
+    except Exception:
+        return {"messages": 0, "chars": 0}
+
+
+class _TimedInvoker:
+    """Wrap an object with .invoke(...) and log elapsed time."""
+
+    def __init__(self, inner: Any, *, label: str):
+        self._inner = inner
+        self._label = label
+
+    def invoke(self, input: Any, **kwargs) -> Any:
+        enabled = _truthy(os.getenv("LTSR_LLM_PERF"))
+        min_ms_raw = os.getenv("LTSR_LLM_PERF_MIN_MS", "").strip()
+        try:
+            min_ms = float(min_ms_raw) if min_ms_raw else 0.0
+        except Exception:
+            min_ms = 0.0
+
+        size = _approx_input_size(input)
+        t0 = time.perf_counter()
+        try:
+            return self._inner.invoke(input, **kwargs)
+        finally:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            if enabled and dt_ms >= min_ms:
+                model_name = getattr(self._inner, "model_name", None) or getattr(self._inner, "model", None) or "unknown"
+                print(
+                    f"[LLM_PERF] {self._label} model={model_name} "
+                    f"dt_ms={dt_ms:.1f} messages={size['messages']} chars={size['chars']}"
+                )
+
+
+class TimedLLM:
+    """
+    Lightweight wrapper for perf logging.
+    Keeps the small surface this repo uses:
+    - invoke(...)
+    - with_structured_output(...).invoke(...)
+    """
+
+    def __init__(self, inner: Any):
+        self._inner = inner
+        self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None)
+
+    def invoke(self, input: Any, **kwargs) -> Any:
+        return _TimedInvoker(self._inner, label="invoke").invoke(input, **kwargs)
+
+    def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
+        structured = self._inner.with_structured_output(schema, **kwargs)
+        return _TimedInvoker(structured, label=f"structured<{getattr(schema, '__name__', 'schema')}>")
+
+
+def _build_httpx_client_for_trace() -> Any:
+    """
+    Build an httpx.Client with request/response hooks that print:
+    - status_code
+    - request id (best-effort)
+    - elapsed ms
+
+    If the SDK retries internally, these hooks will run multiple times, which
+    becomes direct evidence of retry/backoff.
+    """
+    try:
+        import httpx  # type: ignore
+    except Exception:
+        return None
+
+    enabled = _truthy(os.getenv("LTSR_HTTP_TRACE"))
+    if not enabled:
+        return None
+
+    min_ms_raw = os.getenv("LTSR_HTTP_TRACE_MIN_MS", "").strip()
+    try:
+        min_ms = float(min_ms_raw) if min_ms_raw else 0.0
+    except Exception:
+        min_ms = 0.0
+
+    def on_request(request: "httpx.Request") -> None:
+        request.extensions["ltsr_t0"] = time.perf_counter()
+
+    def on_response(response: "httpx.Response") -> None:
+        t0 = response.request.extensions.get("ltsr_t0")
+        if not isinstance(t0, (int, float)):
+            return
+        dt_ms = (time.perf_counter() - t0) * 1000.0
+        if dt_ms < min_ms:
+            return
+
+        h = response.headers
+        request_id = (
+            h.get("x-request-id")
+            or h.get("request-id")
+            or h.get("x-dashscope-request-id")
+            or h.get("x-amzn-requestid")
+            or ""
+        )
+        method = response.request.method
+        url = str(response.request.url)
+        # Avoid printing any auth headers (never print request headers).
+        print(f"[HTTP_TRACE] {method} {url} status={response.status_code} dt_ms={dt_ms:.1f} request_id={request_id}")
+
+    return httpx.Client(event_hooks={"request": [on_request], "response": [on_response]})
 
 
 def get_llm(
@@ -17,13 +149,51 @@ def get_llm(
     """获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。"""
     key = api_key or os.getenv("OPENAI_API_KEY")
     model_name = model or os.getenv("OPENAI_MODEL", "gpt-4o")
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE")
     if key:
-        return ChatOpenAI(
-            model=model_name,
-            temperature=temperature,
-            api_key=key,
-        )
-    return MockLLM(model=model_name, temperature=temperature)
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "temperature": temperature,
+            "api_key": key,
+        }
+        # Best-effort timeout/retries (provider-dependent). Helps identify "卡死" vs "慢"。
+        timeout_s_raw = os.getenv("OPENAI_TIMEOUT_SECONDS", "").strip()
+        retries_raw = os.getenv("OPENAI_MAX_RETRIES", "").strip()
+        try:
+            timeout_s = float(timeout_s_raw) if timeout_s_raw else None
+        except Exception:
+            timeout_s = None
+        try:
+            max_retries = int(retries_raw) if retries_raw else None
+        except Exception:
+            max_retries = None
+        if timeout_s is not None:
+            kwargs["timeout"] = timeout_s
+        if max_retries is not None:
+            kwargs["max_retries"] = max_retries
+        # Allow OpenAI-compatible providers (e.g., DashScope) via base_url.
+        # If the underlying client doesn't accept base_url, fall back silently.
+        if base_url:
+            kwargs["base_url"] = base_url
+        # Optional: enable HTTP-level trace (status_code, request_id, elapsed).
+        http_client = _build_httpx_client_for_trace()
+        if http_client is not None:
+            kwargs["http_client"] = http_client
+            # Let langchain-openai include response headers in message metadata (best-effort).
+            kwargs["include_response_headers"] = True
+        try:
+            llm = ChatOpenAI(**kwargs)  # type: ignore[arg-type]
+        except TypeError:
+            kwargs.pop("base_url", None)
+            # Some versions may not accept timeout/max_retries either.
+            kwargs.pop("timeout", None)
+            kwargs.pop("max_retries", None)
+            kwargs.pop("http_client", None)
+            kwargs.pop("include_response_headers", None)
+            llm = ChatOpenAI(**kwargs)  # type: ignore[arg-type]
+        return TimedLLM(llm) if _truthy(os.getenv("LTSR_LLM_PERF")) else llm
+    llm = MockLLM(model=model_name, temperature=temperature)
+    return TimedLLM(llm) if _truthy(os.getenv("LTSR_LLM_PERF")) else llm
 
 
 class MockLLM(BaseChatModel):

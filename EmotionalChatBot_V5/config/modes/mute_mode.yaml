@@ -1,0 +1,61 @@
+id: mute_mode
+name: Mute
+description: >
+  冷处理终止模式。用于强烈挑衅、持续辱骂、威胁压迫、或关系越界严重且无修复信号时。
+  机器人选择不提供内容性回应：可以空回复、一个标点、或直接结束轮次。
+  该模式的目标是停止互动与降低消耗，而不是"说服对方"。
+
+behavior_contract:
+  allowed_actions:
+    - no_reply
+    - minimal_punctuation
+    - disengage_hard
+  forbidden_actions:
+    - answer
+    - clarify
+    - long_explanation
+    - explicit_ai_disclosure
+    - policy_lecture
+  notes:
+    - 不要解释原因，不要讲道理。
+    - 不要把用户的攻击复述一遍。
+    - 不要输出模板化告别语。
+
+lats_budget:
+  enabled: false     # 直接不跑 LATS，节省成本
+  max_iters: 0
+  rollouts: 0
+  expand_k: 0
+  max_messages: 0
+  min_first_len: 0
+  max_message_len: 0
+
+requirements_policy:
+  must_have_policy: none
+  must_have_min_coverage: 0.0
+  allow_short_reply: true
+  allow_empty_reply: true
+
+critic_criteria:
+  quality_threshold: 0.0
+  focus:
+    - disengage_success
+  penalties:
+    assistantiness_weight: 0.0
+    hallucination_weight: 0.0
+    off_topic_weight: 0.0
+
+style_bias:
+  verbal_length: 0.0
+  tone_temperature: 0.0
+  social_distance: 1.0
+  advice_style: 0.0
+  wit_and_humor: 0.0
+  emotional_display: 0.0
+
+disallowed:
+  - "作为AI"
+  - "我是一个AI"
+  - "感谢您的使用"
+  - "祝您使用愉快"
+  - "请理解"

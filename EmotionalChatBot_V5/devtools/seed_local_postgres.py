@@ -41,7 +41,7 @@ try:
 except Exception:
     pass
 
-from app.core.database import Bot, DBManager, Memory, Message, Relationship, User
+from app.core.database import Bot, DBManager, Memory, Message, User
 
 
 def _split_sql_statements(sql: str) -> list[str]:
@@ -119,31 +119,27 @@ async def main() -> None:
     }
     await db.save_turn(user_external_id, bot_id, state)
 
-    # 查询打印：bot/user/relationship/messages/memories
+    # 查询打印：bot / user（挂在 bot 下）/ messages / memories
     async with db.Session() as session:
         async with session.begin():
             bot_uuid = uuid.UUID(bot_id)
             bot = (await session.execute(select(Bot).where(Bot.id == bot_uuid))).scalars().first()
-            user = (await session.execute(select(User).where(User.external_id == user_external_id))).scalars().first()
+            user = (
+                (await session.execute(select(User).where(User.bot_id == bot_uuid, User.external_id == user_external_id)))
+                .scalars()
+                .first()
+            )
 
             if not bot or not user:
                 raise RuntimeError("bot/user 写入失败：请确认 init_schema.sql 是否已执行，且 DATABASE_URL 指向正确库。")
 
-            rel = (
-                (await session.execute(select(Relationship).where(Relationship.bot_id == bot.id, Relationship.user_id == user.id)))
-                .scalars()
-                .first()
-            )
-            if not rel:
-                raise RuntimeError("relationship 写入失败。")
-
             msgs = (
-                (await session.execute(select(Message).where(Message.relationship_id == rel.id).order_by(Message.created_at.asc())))
+                (await session.execute(select(Message).where(Message.user_id == user.id).order_by(Message.created_at.asc())))
                 .scalars()
                 .all()
             )
             mems = (
-                (await session.execute(select(Memory).where(Memory.relationship_id == rel.id).order_by(Memory.created_at.asc())))
+                (await session.execute(select(Memory).where(Memory.user_id == user.id).order_by(Memory.created_at.asc())))
                 .scalars()
                 .all()
             )
@@ -151,22 +147,16 @@ async def main() -> None:
             print("\n== BOT ==")
             print({"id": str(bot.id), "name": bot.name, "basic_info": bot.basic_info, "big_five": bot.big_five})
 
-            print("\n== USER ==")
-            print({"id": str(user.id), "external_id": user.external_id, "basic_info": user.basic_info})
-
-            print("\n== RELATIONSHIP ==")
-            print(
-                {
-                    "id": str(rel.id),
-                    "current_stage": rel.current_stage,
-                    "dimensions": rel.dimensions,
-                    "mood_state": rel.mood_state,
-                    "inferred_profile": rel.inferred_profile,
-                    "assets": rel.assets,
-                    "spt_info": rel.spt_info,
-                    "conversation_summary": rel.conversation_summary,
-                }
-            )
+            print("\n== USER (under bot) ==")
+            print({
+                "id": str(user.id),
+                "bot_id": str(user.bot_id),
+                "external_id": user.external_id,
+                "basic_info": user.basic_info,
+                "current_stage": user.current_stage,
+                "dimensions": user.dimensions,
+                "mood_state": user.mood_state,
+            })
 
             print("\n== MESSAGES ==")
             for m in msgs:

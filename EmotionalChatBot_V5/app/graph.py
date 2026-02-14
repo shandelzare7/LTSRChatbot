@@ -8,9 +8,6 @@ from app.core.engine import PsychoEngine
 from app.core.mode_base import PsychoMode
 from app.state import AgentState
 from app.nodes.loader import create_loader_node
-from app.nodes.detection.boundary import create_boundary_node
-from app.nodes.detection.sarcasm import create_sarcasm_node
-from app.nodes.detection.confusion import create_confusion_node
 
 # 从 detection.py 文件直接导入（在 nodes/ 目录下，与 detection/ 文件夹同名）
 import importlib.util
@@ -22,14 +19,20 @@ _detection_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_detection_module)
 
 create_detection_node = _detection_module.create_detection_node
-route_by_detection = _detection_module.route_by_detection
+from app.nodes.inner_monologue import create_inner_monologue_node
+from app.nodes.mode_manager import create_mode_manager_node
+from app.nodes.emotion_update import create_emotion_update_node
 from app.nodes.reasoner import create_reasoner_node
+from app.nodes.memory_retriever import create_memory_retriever_node
 from app.nodes.style import create_style_node
 from app.nodes.generator import create_generator_node
 from app.nodes.critic import check_critic_result, create_critic_node
+from app.nodes.lats_search import create_lats_search_node
 from app.nodes.processor import create_processor_node
+from app.nodes.final_validator import create_final_validator_node
 from app.nodes.evolver import create_evolver_node
 from app.nodes.stage_manager import create_stage_manager_node
+from app.nodes.memory_manager import create_memory_manager_node
 from app.nodes.memory_writer import create_memory_writer_node
 from app.services.llm import get_llm
 from app.services.memory import MockMemory
@@ -61,35 +64,45 @@ def build_graph(
 
     loader_node = create_loader_node(memory_service)
     detection_node = create_detection_node(llm)
+    mode_manager_node = create_mode_manager_node(modes)
+    inner_monologue_node = create_inner_monologue_node(llm)
+    emotion_update_node = create_emotion_update_node()
     reasoner_node = create_reasoner_node(llm)
+    memory_retriever_node = create_memory_retriever_node(memory_service)
     style_node = create_style_node(llm)
-    generator_node = create_generator_node(llm)
-    critic_node = create_critic_node(llm)
-    processor_node = create_processor_node()
+    generator_node = create_generator_node(llm)  # legacy / fallback
+    critic_node = create_critic_node(llm)  # legacy / fallback
+    lats_node = create_lats_search_node(llm)
+    processor_node = create_processor_node(llm)
+    final_validator_node = create_final_validator_node()
     evolver_node = create_evolver_node(llm)
     stage_manager_node = create_stage_manager_node()
+    memory_manager_node = create_memory_manager_node(llm)
     memory_writer_node = create_memory_writer_node(memory_service)
-    boundary_node = create_boundary_node(llm)
-    sarcasm_node = create_sarcasm_node(llm)
-    confusion_node = create_confusion_node(llm)
 
     workflow = StateGraph(AgentState)
 
     # 添加所有节点
     workflow.add_node("loader", loader_node)
     workflow.add_node("detection", detection_node)
+    workflow.add_node("mode_manager", mode_manager_node)
+    workflow.add_node("inner_monologue", inner_monologue_node)
+    workflow.add_node("emotion_update", emotion_update_node)
     workflow.add_node("reasoner", reasoner_node)
+    workflow.add_node("memory_retriever", memory_retriever_node)
     workflow.add_node("style", style_node)
+    # legacy nodes kept for fallback / experimentation
     workflow.add_node("generator", generator_node)
     workflow.add_node("critic", critic_node)
     workflow.add_node("refiner", generator_node)
+    # new LATS node
+    workflow.add_node("lats_search", lats_node)
     workflow.add_node("processor", processor_node)
+    workflow.add_node("final_validator", final_validator_node)
     workflow.add_node("evolver", evolver_node)
     workflow.add_node("stage_manager", stage_manager_node)
+    workflow.add_node("memory_manager", memory_manager_node)
     workflow.add_node("memory_writer", memory_writer_node)
-    workflow.add_node("boundary", boundary_node)
-    workflow.add_node("sarcasm", sarcasm_node)
-    workflow.add_node("confusion", confusion_node)
 
     # 设置入口点
     workflow.set_entry_point("loader")
@@ -97,37 +110,24 @@ def build_graph(
     # 主流程：loader -> detection
     workflow.add_edge("loader", "detection")
     
-    # 检测节点条件路由：根据检测结果导向不同节点
-    workflow.add_conditional_edges(
-        "detection",
-        route_by_detection,
-        {
-            "normal": "reasoner",     # NORMAL -> 正常流程
-            "creepy": "boundary",     # CREEPY -> 防御节点
-            "sarcasm": "sarcasm",     # KY/BORING -> 冷淡节点
-            "confusion": "confusion"   # CRAZY -> 困惑节点
-        }
-    )
-    
-    # 正常流程：
-    # reasoner -> style -> generator -> critic -> processor -> evolver -> stage_manager -> memory_writer
-    workflow.add_edge("reasoner", "style")
-    workflow.add_edge("style", "generator")
-    workflow.add_edge("generator", "critic")
-    workflow.add_conditional_edges(
-        "critic",
-        check_critic_result,
-        {"pass": "processor", "retry": "refiner"},
-    )
-    workflow.add_edge("refiner", "critic")
-    workflow.add_edge("processor", "evolver")
+    # 检测节点后直接进入 mode_manager（不再分支）
+    workflow.add_edge("detection", "mode_manager")
+    # mode_manager 之后直接进入 inner_monologue（不再分支）
+    workflow.add_edge("mode_manager", "inner_monologue")
+    workflow.add_edge("inner_monologue", "emotion_update")
+    workflow.add_edge("emotion_update", "reasoner")
+
+    # 正常流程（LATS）：
+    # reasoner -> memory_retriever -> style -> lats_search -> processor -> final_validator -> evolver -> stage_manager -> memory_manager -> memory_writer
+    workflow.add_edge("reasoner", "memory_retriever")
+    workflow.add_edge("memory_retriever", "style")
+    workflow.add_edge("style", "lats_search")
+    workflow.add_edge("lats_search", "processor")
+    workflow.add_edge("processor", "final_validator")
+    workflow.add_edge("final_validator", "evolver")
     workflow.add_edge("evolver", "stage_manager")
-    workflow.add_edge("stage_manager", "memory_writer")
+    workflow.add_edge("stage_manager", "memory_manager")
+    workflow.add_edge("memory_manager", "memory_writer")
     workflow.add_edge("memory_writer", END)
-    
-    # 特殊处理节点：直接结束（因为它们已经设置了 final_response）
-    workflow.add_edge("boundary", END)
-    workflow.add_edge("sarcasm", END)
-    workflow.add_edge("confusion", END)
 
     return workflow.compile()

@@ -3,8 +3,8 @@
 # ==============================================================================
 
 settings:
-  power_balance_threshold: 30   # 权力差超过 30 视为失衡 (e.g. 80 vs 20)
-  jump_delta_threshold: 25      # 单次分数变化超过 25 视为冲击事件
+  power_balance_threshold: 0.3   # 权力差超过 0.3 视为失衡 (0-1 范围)
+  jump_delta_threshold: 0.25     # 单次分数变化超过 0.25 视为冲击事件 (0-1 范围)
 
 stages:
   # ----------------------------------------------------------------------------
@@ -17,7 +17,7 @@ stages:
     next_down: terminating
     # 刚认识没啥要求，只要不被拉黑
     decay_triggers:
-      max_scores: {closeness: 0}
+      max_scores: {closeness: 0.0}
 
   experimenting:
     order: 2
@@ -25,12 +25,12 @@ stages:
     next_down: initiating
     # 晋升要求：聊得来(Liking) + 有点信任(Trust) + 话题够宽
     up_entry:
-      min_scores: {closeness: 15, trust: 10, liking: 20}
+      min_scores: {closeness: 0.15, trust: 0.10, liking: 0.20}
       min_spt_depth: 1
       min_topic_breadth: 3
     # 否决权：如果在这个阶段就表现出不尊重，不能升级
     up_veto:
-      min_scores: {respect: 10}
+      min_scores: {respect: 0.10}
 
   intensifying:
     order: 3
@@ -38,12 +38,12 @@ stages:
     next_down: experimenting
     # 晋升要求：亲密增加 + 开始自我暴露(Depth 2)
     up_entry:
-      min_scores: {closeness: 45, trust: 35, warmth: 35}
+      min_scores: {closeness: 0.45, trust: 0.35, warmth: 0.35}
       min_spt_depth: 2
       required_signals: ["self_disclosure"]
     # 否决权：必须要有点温情
     up_veto:
-      min_scores: {warmth: 30}
+      min_scores: {warmth: 0.30}
 
   integrating:
     order: 4
@@ -51,13 +51,13 @@ stages:
     next_down: differentiating
     # 晋升要求：高信任 + 核心暴露(Depth 3) + "我们"感
     up_entry:
-      min_scores: {closeness: 75, trust: 70, liking: 70}
+      min_scores: {closeness: 0.75, trust: 0.70, liking: 0.70}
       min_spt_depth: 3
       required_signals: ["we_talk"]
     # 否决权 (关键)：权力必须基本平衡，不能是主仆关系
     up_veto:
       check_power_balance: true
-      min_scores: {respect: 50}
+      min_scores: {respect: 0.50}
 
   bonding:
     order: 5
@@ -66,8 +66,8 @@ stages:
     # 衰退触发器 (从 Bonding 跌落)
     decay_triggers:
       conditional_drop:
-        condition: "closeness > 70"
-        triggers: {respect: 50, warmth: 40, liking: 50}
+        condition: "closeness > 0.70"
+        triggers: {respect: 0.50, warmth: 0.40, liking: 0.50}
         critical_signals: ["need_space", "contempt"]
 
   # ----------------------------------------------------------------------------
@@ -79,27 +79,27 @@ stages:
     next_up: integrating
     next_down: circumscribing
     decay_triggers:
-      max_scores: {trust: 50}
+      max_scores: {trust: 0.50}
       spt_behavior: "depth_reduction"
 
   circumscribing:
     order: 7
     next_down: stagnating
     decay_triggers:
-      max_scores: {warmth: 20}
+      max_scores: {warmth: 0.20}
       spt_behavior: "breadth_reduction"
 
   stagnating:
     order: 8
     next_down: avoiding
     decay_triggers:
-      max_scores: {liking: 10, respect: 10}
+      max_scores: {liking: 0.10, respect: 0.10}
 
   avoiding:
     order: 9
     next_down: terminating
     decay_triggers:
-      max_scores: {closeness: 10}
+      max_scores: {closeness: 0.10}
       critical_signals: ["ghosting", "block"]
 
   terminating:

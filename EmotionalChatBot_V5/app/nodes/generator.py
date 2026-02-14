@@ -9,12 +9,14 @@ from utils.tracing import trace_if_enabled
 # from state import AgentState
 
 def _format_history(messages: List[BaseMessage], limit: int = 6) -> str:
-    """格式化最近的对话记录"""
+    """格式化最近的对话记录（含时间戳）"""
     recent = messages[-limit:]
     formatted = []
     for msg in recent:
         role = "User" if msg.type == "human" else "You"
-        formatted.append(f"{role}: {msg.content}")
+        ts = (getattr(msg, "additional_kwargs", None) or {}).get("timestamp") or ""
+        prefix = f"{role} [{ts}]: " if ts else f"{role}: "
+        formatted.append(f"{prefix}{msg.content}")
     return "\n".join(formatted)
 
 def _format_style_instructions(instructions: Dict[str, str]) -> str:
@@ -72,8 +74,15 @@ def generator_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, A
     # D. 情绪状态 (From Reasoner)
     mood_instruction = get_mood_instruction(state['mood_state'])
     
-    # E. 对话历史
-    chat_history = _format_history(state.get('chat_buffer', []))
+    # E. 仅用 summary + retrieved 放入 system；chat_buffer 以消息列表形式放正文
+    summary = state.get("conversation_summary") or ""
+    retrieved = state.get("retrieved_memories") or []
+    system_memory_parts = []
+    if summary:
+        system_memory_parts.append("近期对话摘要：\n" + summary)
+    if retrieved:
+        system_memory_parts.append("相关记忆片段：\n" + "\n".join(retrieved))
+    system_memory = "\n\n".join(system_memory_parts) if system_memory_parts else "（无）"
     
     # ==========================================
     # 2. 构建演员 Prompt (Method Acting)
@@ -108,25 +117,28 @@ You must adjust your speaking style according to these specific settings:
 - Speaking Style: {bot_info['speaking_style']}
 - Key Traits: {bot_persona.get('attributes', {})}
 
-# 5. Conversation Context
-{chat_history}
+# 5. Memory Context (Summary + Retrieved)
+{system_memory}
 
 # Task
 Generate the final response text ONLY. Do not include any meta-data or explanations.
 """
 
     # ==========================================
-    # 3. 执行生成
+    # 3. 执行生成（chat_buffer 分条放正文，非 system）
     # ==========================================
-    
+    chat_buffer = state.get("chat_buffer") or []
+    body_messages = list(chat_buffer[-20:])
     response = llm.invoke([
         SystemMessage(content=system_prompt),
+        *body_messages,
         HumanMessage(content=state['user_input'])
     ])
     
     # ==========================================
     # 4. 返回最终结果
     # ==========================================
+    print("[Generator] done")
     return {
         "final_response": response.content
     }
@@ -178,6 +190,7 @@ def create_generator_node(llm_invoker: Any) -> Callable[[Dict[str, Any]], dict]:
         except Exception as e:
             final_text = f"[Generator Fallback] {e}"
         # 同时写入 final_response + draft_response，兼容 critic/processor
+        print("[Generator] done")
         return {"final_response": final_text, "draft_response": final_text}
 
     return node

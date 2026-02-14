@@ -17,21 +17,28 @@ def create_confusion_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         - 如果完全无法理解，温和地说明
         - 引导回到可理解的对话
         """
+        print("[Confusion] done (困惑/修正分支)")
         messages = state.get("messages", [])
         last_message = messages[-1] if messages else None
         user_content = getattr(last_message, "content", "") if last_message and hasattr(last_message, "content") else ""
-        
+
+        # 使用 loader 加载的 bot 人设
+        bot_basic = state.get("bot_basic_info") or {}
+        bot_persona = state.get("bot_persona") or {}
+        bot_name = bot_basic.get("name") or "我"
+        speaking_style = bot_basic.get("speaking_style") or ""
+        persona_line = f"你是{bot_name}。" + (f" 说话风格：{speaking_style}。" if speaking_style else " 保持你的人设。")
+
         # 获取直觉思考（如果存在）
         intuition_thought = state.get("intuition_thought", "")
-        
-        system_prompt = """你是一个耐心的 AI 聊天伴侣。用户刚才的输入让你感到困惑或无法理解（可能是逻辑混乱、完全无关的话题、胡言乱语等）。
 
-请：
+        system_prompt = f"""{persona_line}
+
+用户刚才的输入让你感到困惑或无法理解（可能是逻辑混乱、完全无关的话题、胡言乱语等）。请：
 1. 温和地表达困惑（如"我有点没理解你的意思"）
 2. 尝试澄清或理解（如"你是想说...吗？"）
 3. 如果完全无法理解，礼貌地说明（如"我有点跟不上你的思路，能再说清楚一点吗？"）
 4. 保持耐心和友好
-
 不要直接说"我听不懂"，而是尝试帮助用户表达清楚。"""
         
         # 如果有直觉思考，将其加入提示词

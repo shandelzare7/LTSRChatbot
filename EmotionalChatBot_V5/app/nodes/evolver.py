@@ -15,6 +15,7 @@
 """
 
 import json
+import re
 from typing import Any, Callable, Dict
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -35,12 +36,12 @@ def _clamp(x: float, lo: float, hi: float) -> float:
 def _ensure_relationship_defaults(state: Dict[str, Any]) -> Dict[str, Any]:
     s = dict(state)
     rel = dict(s.get("relationship_state") or {})
-    rel.setdefault("closeness", 50.0)
-    rel.setdefault("trust", 50.0)
-    rel.setdefault("liking", 50.0)
-    rel.setdefault("respect", 50.0)
-    rel.setdefault("warmth", 50.0)
-    rel.setdefault("power", 50.0)
+    rel.setdefault("closeness", 0.3)  # 默认值 0.3（而非 0.0）
+    rel.setdefault("trust", 0.3)
+    rel.setdefault("liking", 0.3)
+    rel.setdefault("respect", 0.3)
+    rel.setdefault("warmth", 0.3)
+    rel.setdefault("power", 0.5)
     s["relationship_state"] = rel
 
     s.setdefault("mood_state", {"pleasure": 0.0, "arousal": 0.0, "dominance": 0.0, "busyness": 0.0})
@@ -49,31 +50,77 @@ def _ensure_relationship_defaults(state: Dict[str, Any]) -> Dict[str, Any]:
     return s
 
 
-def calculate_damped_delta(current_score: float, raw_delta: int) -> float:
+def calculate_damped_delta(current_score: float, raw_delta: float) -> float:
     """
     阻尼公式：实现边际收益递减和背叛惩罚。
     - 正向：越高越难涨
     - 负向：高信任/高亲密被破坏时更痛（背叛惩罚）
+    
+    注意：current_score 和返回值都是 0-1 范围。
+    raw_delta 也是 0-1 范围的增量（例如 0.1 表示 +10%）。
     """
     try:
         cs = float(current_score)
     except Exception:
-        cs = 50.0
-    rd = int(raw_delta)
+        cs = 0.5  # 0-1 范围的中性值
+    try:
+        rd = float(raw_delta)
+    except Exception:
+        rd = 0.0
 
     if rd > 0:
-        if cs >= 90:
+        if cs >= 0.9:  # 0-1 范围的高值
             return rd * 0.1
-        if cs >= 60:
+        if cs >= 0.6:
             return rd * 0.5
         return rd * 1.0
 
     if rd < 0:
-        if cs >= 80:
+        if cs >= 0.8:  # 0-1 范围的高值
             return rd * 1.5
         return rd * 1.0
 
     return 0.0
+
+
+def _normalize_delta(x: Any) -> float:
+    """
+    统一 delta 量纲（系统内部 relationship_state 为 0-1）：
+    - 若已是 0-1：原样返回
+    - 若是强度档位（-3..3 / -5..5）：除以 10（例如 3 -> 0.3）
+    - 若是旧 points（0-100）：除以 100
+    - 兜底截断到 [-1, 1]
+    """
+    try:
+        v = float(x)
+    except Exception:
+        return 0.0
+    if abs(v) <= 1.0:
+        return v
+    if abs(v) <= 5.0:
+        return v / 10.0
+    if abs(v) <= 100.0:
+        return v / 100.0
+    return float(_clamp(v, -1.0, 1.0))
+
+
+_GREETING_PAT = re.compile(
+    r"^\s*(hi|hello|hey|你好|您好|嗨|哈喽|早上好|中午好|晚上好|晚安)"
+    r"([\s,，!！。．]*"
+    r"(很高兴认识你|认识你很高兴|见到你很高兴|见到你真好|很高兴见到你))?"
+    r"[\s,，!！。．]*$",
+    re.IGNORECASE,
+)
+
+
+def _is_low_info_greeting(text: str) -> bool:
+    t = str(text or "").strip()
+    if not t:
+        return False
+    # 过长通常不是纯寒暄
+    if len(t) > 32:
+        return False
+    return bool(_GREETING_PAT.match(t))
 
 
 # -------------------------------------------------------------------
@@ -89,13 +136,16 @@ def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState]
     )
     def node(state: AgentState) -> dict:
         safe = _ensure_relationship_defaults(state)
-        sys_prompt = build_analyzer_prompt(safe)
+        sys_prompt = build_analyzer_prompt(safe)  # 已含 summary + retrieved 记忆
         user_msg = safe.get("user_input") or ""
+        # chat_buffer 分条放正文，非 system
+        chat_buffer = safe.get("chat_buffer") or []
+        body_messages = list(chat_buffer[-20:])
 
         # LLM 输出：严格 JSON
         try:
             resp = llm_invoker.invoke(
-                [SystemMessage(content=sys_prompt), HumanMessage(content=user_msg)]
+                [SystemMessage(content=sys_prompt), *body_messages, HumanMessage(content=user_msg)]
             )
             raw = getattr(resp, "content", str(resp))
             data = json.loads(str(raw).strip())
@@ -141,25 +191,44 @@ def create_relationship_updater_node() -> Callable[[AgentState], dict]:
 
         rel: Dict[str, float] = dict(safe.get("relationship_state") or {})
         raw_deltas = safe.get("relationship_deltas") or {}
+        user_text = str(safe.get("user_input") or "").strip()
+        try:
+            conv_len = len(list(safe.get("chat_buffer") or []))
+        except Exception:
+            conv_len = 0
+
+        # 低信息寒暄闸门：避免把礼貌性问候当成强积极信号，导致 liking/warmth 一上来顶格跳变
+        greeting_gate = _is_low_info_greeting(user_text) and conv_len <= 2
 
         applied: Dict[str, float] = {}
         for dim in REL_DIMS:
-            score = float(rel.get(dim, 50.0))
+            score = float(rel.get(dim, 0.5))  # 0-1 范围，默认 0.5
             raw_val = raw_deltas.get(dim, 0)
-            try:
-                raw_int = int(raw_val)
-            except Exception:
-                raw_int = 0
+            raw_delta = _normalize_delta(raw_val)
 
-            if raw_int == 0:
+            if greeting_gate:
+                # 对“喜欢/温暖/尊重”的正向增量降权（礼貌寒暄 ≠ 强烈欣赏）
+                if dim in ("liking", "warmth", "respect") and raw_delta > 0:
+                    raw_delta *= 0.35
+                # 对“熟悉/信任”给极小稳定增量（更符合现实：先熟一点，再慢慢喜欢）
+                if dim in ("closeness", "trust") and abs(raw_delta) < 1e-6:
+                    raw_delta = 0.02
+
+            if raw_delta == 0.0:
                 applied[dim] = 0.0
                 continue
 
-            real_change = float(calculate_damped_delta(score, raw_int))
-            new_score = _clamp(score + real_change, 0.0, 100.0)
-            rel[dim] = round(new_score, 2)
-            applied[dim] = round(real_change, 3)
+            real_change = float(calculate_damped_delta(score, raw_delta))
+            # 进一步保护：寒暄阶段不允许 liking/warmth 发生“大跃迁”
+            if greeting_gate and dim in ("liking", "warmth", "respect") and real_change > 0:
+                real_change = min(real_change, 0.06)
+            new_score = _clamp(score + real_change, 0.0, 1.0)  # 0-1 范围
+            rel[dim] = round(new_score, 4)  # 保留更多小数位
+            applied[dim] = round(real_change, 4)
 
+        if greeting_gate:
+            print(f"[Evolver] greeting_gate applied (conv_len={conv_len}, user_input={user_text!r})")
+        print("[Evolver] done")
         return {
             "relationship_state": rel,
             "relationship_deltas_applied": applied,

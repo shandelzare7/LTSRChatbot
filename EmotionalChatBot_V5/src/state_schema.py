@@ -15,12 +15,17 @@ from pydantic import BaseModel, Field
 
 
 class RelationshipStateModel(BaseModel):
-    closeness: float = Field(50.0, ge=0.0, le=100.0)
-    trust: float = Field(50.0, ge=0.0, le=100.0)
-    liking: float = Field(50.0, ge=0.0, le=100.0)
-    respect: float = Field(50.0, ge=0.0, le=100.0)
-    warmth: float = Field(50.0, ge=0.0, le=100.0)
-    power: float = Field(50.0, ge=0.0, le=100.0)
+    """
+    系统内部统一使用 0-1 范围（与 prompt_helpers / evolver / requirements 一致）。
+    旧版若曾写入 0-100（points），应在持久化层/写入层做归一化与截断。
+    """
+
+    closeness: float = Field(0.3, ge=0.0, le=1.0)
+    trust: float = Field(0.3, ge=0.0, le=1.0)
+    liking: float = Field(0.3, ge=0.0, le=1.0)
+    respect: float = Field(0.3, ge=0.0, le=1.0)
+    warmth: float = Field(0.3, ge=0.0, le=1.0)
+    power: float = Field(0.5, ge=0.0, le=1.0)
 
 
 class SPTInfoModel(BaseModel):

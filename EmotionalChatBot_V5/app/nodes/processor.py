@@ -3,20 +3,11 @@ processor.py
 拟人化行为表现层 (Anthropomorphic Behavioral Layer)
 
 功能：
-1) 宏观异步门控 (Macro Gating): 基于昼夜节律、忙碌度和关系策略计算长延迟（睡眠/忙碌/策略性沉默）。
-2) 微观交互节奏 (Micro Dynamics): 基于 SIP 理论计算阅读、思考与打字时间（Big Five + Mood + Knapp）。
-3) 动态分段 (Segmentation): 基于话轮构建单元 (TCUs) 将文本拆分为多个气泡。
+1) 宏观异步门控 (Macro Gating): 可由 LLM 决定或规则回退（睡眠/忙碌/策略性沉默）。
+2) 微观交互节奏 (Micro Dynamics): 由 LLM 根据上下文、记忆、state 输出拆句与每条延迟。
+3) 动态分段 (Segmentation): LLM 将回复拆成多条气泡并指定 delay/action。
 
-理论锚点：
-- Chronemics (Time as Nonverbal Cue)
-- Social Information Processing Theory (Walther, 1992)
-- Big Five Personality Traits in CMC
-- Knapp's Relational Interaction Model
-
-输出（兼容 + 新结构）：
-- humanized_output: HumanizedOutput
-- final_segments: List[str]（兼容旧客户端/下游 memory writer）
-- final_delay: float（兼容旧客户端：第一段出现前等待时间）
+记忆与上下文：与 reasoner/generator 一致——system 仅放 summary + retrieved；chat_buffer 分条放正文。
 """
 
 from __future__ import annotations
@@ -26,7 +17,11 @@ import re
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.state import AgentState, HumanizedOutput, ResponseSegment
+from utils.llm_json import parse_json_from_llm
+from utils.tracing import trace_if_enabled
 
 # ==========================================
 # 配置常量 (Configuration)
@@ -74,7 +69,7 @@ class HumanizationProcessor:
         self.mood = state.get(
             "mood_state", {"arousal": 0.0, "busyness": 0.0, "pleasure": 0.0}
         )
-        self.rel = state.get("relationship_state", {"closeness": 50.0, "power": 50.0})
+        self.rel = state.get("relationship_state", {"closeness": 0.5, "power": 0.5})
         self.stage = str(state.get("current_stage", "experimenting"))
         self.current_time_str = str(state.get("current_time") or "")
 
@@ -96,7 +91,8 @@ class HumanizationProcessor:
         busy = float(self.mood.get("busyness", 0.0) or 0.0)
         pleasure = float(self.mood.get("pleasure", 0.0) or 0.0)
 
-        closeness = float(self.rel.get("closeness", 50.0) or 50.0)
+        # closeness（系统内部统一为 0-1）
+        closeness = _clamp(float(self.rel.get("closeness", 0.5) or 0.5), 0.0, 1.0)
 
         # 1) Personality coefficients
         p_speed = 1.0 - (e * 0.2)
@@ -111,8 +107,8 @@ class HumanizationProcessor:
         stage_factor = float(STAGE_DELAY_FACTORS.get(self.stage, 1.0))
         total_speed_factor = p_speed * p_caution * m_arousal_boost * m_busyness_drag * stage_factor
 
-        # 分段倾向：外向 + 亲密 + 兴奋
-        frag_tendency = (e * 0.4) + ((closeness / 100.0) * 0.4) + (ar * 0.2)
+        # 分段倾向：外向 + 亲密 + 兴奋（closeness 已经是 0-1）
+        frag_tendency = (e * 0.4) + (closeness * 0.4) + (ar * 0.2)
 
         return {
             "speed_factor": _clamp(float(total_speed_factor), 0.2, 5.0),
@@ -296,25 +292,223 @@ class HumanizationProcessor:
         return out
 
 
-def humanize_response_node(state: AgentState) -> Dict[str, Any]:
+def _build_processor_system_prompt(state: Dict[str, Any]) -> str:
+    """System 仅含 summary + retrieved + 角色与 state 上下文（不含 chat_buffer）。"""
+    summary = state.get("conversation_summary") or ""
+    retrieved = state.get("retrieved_memories") or []
+    memory_parts = []
+    if summary:
+        memory_parts.append("近期对话摘要：\n" + summary)
+    if retrieved:
+        memory_parts.append("相关记忆片段：\n" + "\n".join(retrieved))
+    system_memory = "\n\n".join(memory_parts) if memory_parts else "（无）"
+
+    bot = state.get("bot_basic_info") or {}
+    mood = state.get("mood_state") or {}
+    stage = state.get("current_stage") or "experimenting"
+    rel = state.get("relationship_state") or {}
+    current_time = state.get("current_time") or ""
+    # 作息提示（供 LLM 决定是否加长延迟）
+    schedule = f"作息: {BOT_SCHEDULE.get('sleep_start', 23)}:00 入睡, {BOT_SCHEDULE.get('sleep_end', 7)}:00 起床"
+
+    return f"""# Role
+你是拟人化输出编排员。根据对话上下文、记忆和当前状态，将「待拆句的回复」拆成多条气泡，并为每条指定发送前的等待时间（delay，秒）和动作（action）。
+
+# Memory (Summary + Retrieved)
+{system_memory}
+
+# Current State（供你决定节奏与是否长延迟）
+- Bot: {bot.get('name', 'Bot')}，当前情绪 PAD: {mood}
+- 关系阶段: {stage}，亲密/信任等: {rel}
+- 当前时间: {current_time or '未提供'}
+- {schedule}
+
+# Output Format (STRICT JSON ONLY)
+必须返回一个 JSON 对象，且仅此对象，不要其他文字：
+{{
+  "segments": [
+    {{ "content": "第一句或第一段。", "delay": 1.2, "action": "typing" }},
+    {{ "content": "第二句。", "delay": 0.8, "action": "typing" }}
+  ],
+  "is_macro_delay": false,
+  "macro_delay_seconds": 0
+}}
+
+规则：
+- content: 从待拆句回复中切出的完整子句/短语，不要截断语义。
+- delay: 该条气泡发送前相对上一条的等待秒数（≥0）。第一条的 delay 可包含「读用户消息+思考+首段打字」的合成时间（建议 0.5～3.0）。
+- action: 仅 "typing" 或 "idle"。若你判断当前应长时间不回复（如睡觉、忙碌、冷处理），可设 is_macro_delay=true、macro_delay_seconds>0，且第一条 segment 的 action 可为 "idle"。
+- 至少返回 1 条 segment；若回复很短可只 1 条。
+"""
+
+
+def _humanize_via_llm(state: AgentState, llm_invoker: Any) -> HumanizedOutput | None:
+    """用 LLM 做拆句与延迟；失败返回 None，由调用方回退规则。"""
+    user_input = str(state.get("user_input") or "")
+    final_response = (
+        str(state.get("final_response") or state.get("draft_response") or "")
+    ).strip()
+    if not final_response:
+        return None
+
+    system_prompt = _build_processor_system_prompt(state)
+    chat_buffer = state.get("chat_buffer") or []
+    body_messages = list(chat_buffer[-20:])
+    task_content = f"""请将以下回复拆成多条气泡，并为每条指定 delay（秒）和 action（typing 或 idle）。
+
+用户刚说的：
+{user_input}
+
+待拆句的回复：
+{final_response}
+"""
+
+    try:
+        response = llm_invoker.invoke([
+            SystemMessage(content=system_prompt),
+            *body_messages,
+            HumanMessage(content=task_content),
+        ])
+        content = getattr(response, "content", "") or ""
+        data = parse_json_from_llm(content)
+        if not isinstance(data, dict):
+            return None
+        segments_raw = data.get("segments")
+        if not segments_raw or not isinstance(segments_raw, list):
+            return None
+        segments: List[ResponseSegment] = []
+        for item in segments_raw:
+            if not isinstance(item, dict):
+                continue
+            c = item.get("content")
+            if c is None:
+                continue
+            d = item.get("delay")
+            try:
+                delay_val = float(d) if d is not None else 0.5
+            except (TypeError, ValueError):
+                delay_val = 0.5
+            delay_val = max(0.0, min(60.0, delay_val))
+            action = item.get("action")
+            if action not in ("typing", "idle"):
+                action = "typing"
+            segments.append({"content": str(c).strip(), "delay": round(delay_val, 2), "action": action})
+        if not segments:
+            return None
+        is_macro = bool(data.get("is_macro_delay", False))
+        macro_sec = float(data.get("macro_delay_seconds", 0) or 0)
+        total_latency = sum(s["delay"] for s in segments)
+        return {
+            "total_latency_seconds": round(total_latency, 2),
+            "segments": segments,
+            "is_macro_delay": is_macro,
+            "total_latency_simulated": round(total_latency, 2),
+            "latency_breakdown": {
+                "macro_delay": round(macro_sec, 3),
+                "t_read": 0.0,
+                "t_think": 0.0,
+                "macro_reason": 1.0 if is_macro else 0.0,
+            },
+        }
+    except Exception:
+        return None
+
+
+def _humanize_from_processor_plan(state: AgentState) -> HumanizedOutput | None:
+    """优先执行 LATS/编译器产出的 ProcessorPlan，保证模拟=真实。"""
+    plan = state.get("processor_plan") or {}
+    if not isinstance(plan, dict):
+        return None
+    msgs = plan.get("messages")
+    delays = plan.get("delays")
+    actions = plan.get("actions")
+    if not isinstance(msgs, list) or not msgs:
+        return None
+    if not isinstance(delays, list) or len(delays) != len(msgs):
+        return None
+    if not isinstance(actions, list) or len(actions) != len(msgs):
+        # actions 可缺省：默认 typing
+        actions = ["typing"] * len(msgs)
+
+    segments: List[ResponseSegment] = []
+    for i, (m, d, a) in enumerate(zip(msgs, delays, actions)):
+        text = str(m or "").strip()
+        if not text:
+            continue
+        try:
+            delay_val = float(d)
+        except Exception:
+            delay_val = 0.5
+        delay_val = max(0.0, min(86400.0, delay_val))
+        action = a if a in ("typing", "idle") else "typing"
+        segments.append({"content": text, "delay": round(delay_val, 2), "action": action})
+
+    if not segments:
+        return None
+
+    total_latency = float(sum(float(s["delay"]) for s in segments))
+    meta = plan.get("meta") if isinstance(plan.get("meta"), dict) else {}
+    is_macro = bool(meta.get("macro") or meta.get("is_macro_delay") or False)
+    macro_sec = float(meta.get("macro_delay_seconds", 0.0) or 0.0)
+    return {
+        "total_latency_seconds": round(total_latency, 2),
+        "segments": segments,
+        "is_macro_delay": bool(is_macro),
+        "total_latency_simulated": round(total_latency, 2),
+        "latency_breakdown": {
+            "macro_delay": round(float(macro_sec), 3),
+            "t_read": 0.0,
+            "t_think": 0.0,
+            "macro_reason": 1.0 if is_macro else 0.0,
+        },
+    }
+
+
+def humanize_response_node(state: AgentState, llm_invoker: Any = None) -> Dict[str, Any]:
     """
-    LangGraph Node: 将原始回复转换为拟人化的气泡序列
+    LangGraph Node: 将原始回复转换为拟人化的气泡序列。
+    优先执行 state.processor_plan（保证模拟=真实）；否则才用 LLM/规则回退。
     """
-    processor = HumanizationProcessor(state)
-    result = processor.process()
+    result: HumanizedOutput
+    result = _humanize_from_processor_plan(state)
+    if not result and llm_invoker:
+        result = _humanize_via_llm(state, llm_invoker)
+    if not result:
+        processor = HumanizationProcessor(state)
+        result = processor.process()
 
     segs = result.get("segments") or []
     bubbles = [s.get("content", "") for s in segs]
     first_delay = float(segs[0].get("delay", 0.0)) if segs else 0.0
+    total_latency = float(result.get("total_latency_seconds", 0.0) or 0.0)
+    
+    print("[Processor] done")
+    print(f"[Processor] 延迟规划:")
+    print(f"  - 消息数: {len(segs)}")
+    print(f"  - 首条延迟: {first_delay:.2f}秒")
+    print(f"  - 总延迟: {total_latency:.2f}秒")
+    for i, seg in enumerate(segs):
+        content_preview = (seg.get("content", "") or "")[:40]
+        delay_val = float(seg.get("delay", 0.0) or 0.0)
+        action_val = seg.get("action", "typing")
+        print(f"  [{i+1}] delay={delay_val:.2f}s, action={action_val}, content=\"{content_preview}...\"")
 
     return {
         "humanized_output": result,
-        # 兼容旧输出
         "final_segments": bubbles,
         "final_delay": round(first_delay, 2),
     }
 
 
-def create_processor_node() -> Callable[[AgentState], dict]:
-    return humanize_response_node
+def create_processor_node(llm_invoker: Any = None) -> Callable[[AgentState], dict]:
+    """创建 processor 节点；传入 llm 时使用 LLM 拆句+延迟，否则仅用规则。"""
+    @trace_if_enabled(
+        name="Response/Processor",
+        run_type="chain",
+        tags=["node", "processor", "humanize"],
+        metadata={"state_outputs": ["humanized_output", "final_segments", "final_delay"]},
+    )
+    def node(state: AgentState) -> dict:
+        return humanize_response_node(state, llm_invoker)
+    return node
 

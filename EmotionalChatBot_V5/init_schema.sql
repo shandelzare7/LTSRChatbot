@@ -7,63 +7,95 @@ CREATE TYPE knapp_stage AS ENUM (
     'differentiating', 'circumscribing', 'stagnating', 'avoiding', 'terminating'
 );
 
--- 2. 机器人表 (Bots)
+-- 2. 机器人表 (Bots) - 顶层
 CREATE TABLE bots (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
-    basic_info JSONB DEFAULT '{}'::jsonb,  -- 对应 BotBasicInfo
-    big_five JSONB DEFAULT '{}'::jsonb,    -- 对应 BotBigFive
-    persona JSONB DEFAULT '{}'::jsonb,     -- 对应 BotPersona
+    basic_info JSONB DEFAULT '{}'::jsonb,
+    big_five JSONB DEFAULT '{}'::jsonb,
+    persona JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. 用户表 (Users)
+-- 3. 用户表 (Users) - 挂在 bot 下，每个 user 绑定一个 bot
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    external_id TEXT UNIQUE,               -- 外部ID (如微信ID)
-    basic_info JSONB DEFAULT '{}'::jsonb,  -- 对应 UserBasicInfo
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 4. 关系状态表 (Relationships) - 核心引擎
-CREATE TABLE relationships (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    bot_id UUID REFERENCES bots(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-
-    -- 核心状态字段 (对应 state.py)
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    bot_name TEXT,
+    external_id TEXT NOT NULL,
+    basic_info JSONB DEFAULT '{}'::jsonb,
     current_stage knapp_stage DEFAULT 'initiating',
-    dimensions JSONB DEFAULT '{"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "warmth": 0, "power": 50}'::jsonb, -- RelationshipState
-    mood_state JSONB DEFAULT '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'::jsonb,     -- MoodState
-    inferred_profile JSONB DEFAULT '{}'::jsonb,  -- UserInferredProfile
-    assets JSONB DEFAULT '{}'::jsonb,            -- RelationshipAssets
-    spt_info JSONB DEFAULT '{}'::jsonb,          -- SPTInfo
-
-    conversation_summary TEXT,                   -- 长期记忆摘要
-
+    dimensions JSONB DEFAULT '{"closeness": 0.3, "trust": 0.3, "liking": 0.3, "respect": 0.3, "warmth": 0.3, "power": 0.5}'::jsonb,
+    mood_state JSONB DEFAULT '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'::jsonb,
+    inferred_profile JSONB DEFAULT '{}'::jsonb,
+    assets JSONB DEFAULT '{}'::jsonb,
+    spt_info JSONB DEFAULT '{}'::jsonb,
+    conversation_summary TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(bot_id, user_id) -- 确保一个Bot对应一个User只有一条关系
+    UNIQUE(bot_id, external_id)
 );
 
--- 5. 消息流水表 (Messages)
+-- 4. 消息流水表 (Messages) - 挂在 user 下
 CREATE TABLE messages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    relationship_id UUID REFERENCES relationships(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role TEXT CHECK (role IN ('user', 'ai', 'system')),
     content TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}'::jsonb, -- 存 detection_result, latency, intent 等
+    metadata JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. 记忆表 (Memories) - 暂时仅存文本，为未来留接口
+-- 5. 记忆表 (Memories) - 挂在 user 下
 CREATE TABLE memories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    relationship_id UUID REFERENCES relationships(id) ON DELETE CASCADE,
-    content TEXT NOT NULL,              -- 记忆内容
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 建立索引优化查询速度
-CREATE INDEX idx_relationships_lookup ON relationships(bot_id, user_id);
-CREATE INDEX idx_messages_rel_time ON messages(relationship_id, created_at DESC);
+-- 6. Memory Store A：Raw Transcript Store - 挂在 user 下
+CREATE TABLE transcripts (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id TEXT,
+    thread_id TEXT,
+    turn_index INTEGER,
+    user_text TEXT NOT NULL DEFAULT '',
+    bot_text TEXT NOT NULL DEFAULT '',
+    entities JSONB DEFAULT '{}'::jsonb,
+    topic TEXT,
+    importance DOUBLE PRECISION,
+    short_context TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
+-- 7. Memory Store B：Derived Notes Store - 挂在 user 下
+CREATE TABLE derived_notes (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    transcript_id UUID NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
+    note_type TEXT,
+    content TEXT NOT NULL,
+    importance DOUBLE PRECISION,
+    source_pointer TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 索引
+CREATE INDEX idx_users_bot_external ON users(bot_id, external_id);
+CREATE INDEX idx_messages_user_time ON messages(user_id, created_at DESC);
+CREATE INDEX idx_transcripts_user_time ON transcripts(user_id, created_at DESC);
+CREATE INDEX idx_notes_user_time ON derived_notes(user_id, created_at DESC);
+CREATE INDEX idx_notes_transcript ON derived_notes(transcript_id);
+
+-- 便于在库中查看「哪个 User 属于哪个 Bot」的视图（避免只看 uuid 难以辨认）
+CREATE OR REPLACE VIEW users_with_bot_names AS
+SELECT
+  u.id AS user_id,
+  u.bot_id,
+  b.name AS bot_name,
+  u.external_id,
+  COALESCE(u.basic_info->>'name', u.basic_info->>'nickname', u.external_id) AS user_name
+FROM users u
+JOIN bots b ON b.id = u.bot_id;

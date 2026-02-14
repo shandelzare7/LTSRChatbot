@@ -155,6 +155,104 @@ TimelineSegment = ResponseSegment
 
 
 # ==========================================
+# 3.5.1 LATS / Choreography Planning Schemas
+# ==========================================
+
+ReplyMsgFunction = Literal[
+    "empathy",      # 共情/安抚
+    "stance",       # 站队/态度
+    "answer",       # 直接回应/结论
+    "explain",      # 解释原因/背景
+    "advice",       # 给建议/行动
+    "boundary",     # 边界/拒绝
+    "question",     # 反问/追问
+    "closing",      # 收束/邀约继续
+]
+
+PauseType = Literal["none", "thinking", "polite", "beat", "long"]
+DelayBucket = Literal["instant", "short", "medium", "long", "offline"]
+
+
+class ReplyPlanMessage(TypedDict, total=False):
+    """场景化编排下的单条消息计划（不是最终 UI 消息，但应接近可落地文本）。"""
+    id: str
+    function: ReplyMsgFunction
+    content: str
+    key_points: List[str]
+    target_length: int
+    info_density: Literal["low", "medium", "high"]
+    pause_after: PauseType
+    delay_bucket: DelayBucket
+
+
+class ReplyPlan(TypedDict, total=False):
+    """ReplyPlanner 的输出：对话编排计划（A:意图 + B:节奏），供编译器生成可执行 ProcessorPlan。"""
+    intent: str
+    speech_act: str
+    # 变体生成用：显式策略标签（用于强制候选多样性，而非只做同义改写）
+    strategy_tag: Optional[str]
+    stakes: Literal["low", "medium", "high"]
+    first_message_role: ReplyMsgFunction
+    pacing_strategy: str
+    # 生成端硬结构：用于避免“先生成再惩罚”，让 planner 显式思考预算与覆盖分配
+    messages_count: int
+    messages: List[ReplyPlanMessage]
+    # must_cover_points -> message.id 映射（用于对齐计划目标与消息分配）
+    must_cover_map: Dict[str, str]
+    justification: str  # 简短自我解释（为什么这样编排）
+
+
+class ProcessorPlan(TypedDict, total=False):
+    """可执行落地计划：最终 messages/delays/actions（必须可被 processor 执行器直接消费）。"""
+    messages: List[str]
+    delays: List[float]  # 相对上一条的等待秒数
+    actions: List[Literal["typing", "idle"]]
+    meta: Dict[str, Any]  # 例如拆分原因、来源范围、关键点分配映射等
+
+
+class RequirementsChecklist(TypedDict, total=False):
+    """本轮必须满足的硬约束/需求清单（LATS 的硬门槛与 must-have 主要来源）。"""
+    must_have: List[str]
+    forbidden: List[str]
+    safety_notes: List[str]
+    first_message_rule: str
+    max_messages: int
+    min_first_len: int
+    max_message_len: int
+    stage_pacing_notes: str
+    # requirements_policy 相关字段
+    must_have_policy: str  # "soft" | "none"
+    must_have_min_coverage: float
+    allow_short_reply: bool
+    allow_empty_reply: bool
+    # 明确的约束清单（来自 reasoner/style/stage）
+    plan_goals: Dict[str, Any]  # {"must_cover_points": List[str], "avoid_points": List[str]}
+    style_targets: Dict[str, float]  # 12维目标（verbal_length, social_distance, tone_temperature, etc.）
+    stage_targets: Dict[str, Any]  # {"stage": str, "pacing_notes": List[str], "violation_sensitivity": float}
+    # mode 行为策略（用于让 mode 不止约束条数/长度，而是进入可评估目标）
+    mode_behavior_targets: List[str]
+
+
+class EvalCheckFailure(TypedDict, total=False):
+    id: str
+    reason: str
+    evidence: str
+
+
+class SimReport(TypedDict, total=False):
+    """evaluator 的结构化输出：可直接作为 reward 与调参诊断依据。"""
+    found_solution: bool
+    eval_score: float
+    failed_checks: List[EvalCheckFailure]
+    score_breakdown: Dict[str, float]
+    improvement_notes: List[str]
+    # LLM soft scorer 状态：ok / failed / skipped（便于诊断 llm_overall=None 的来源）
+    llm_status: str
+    # 可选：LLM soft scorer 的结构化证据/逐条对齐输出（便于调参、反思与可视化）
+    llm_details: Dict[str, Any]
+
+
+# ==========================================
 # 3.6 关系资产层 (Relationship Assets)
 # ==========================================
 
@@ -202,9 +300,19 @@ class AgentState(TypedDict, total=False):
     # --- Input Context ---
     messages: Annotated[List[BaseMessage], add_messages]  # 对话消息列表（LangGraph 自动合并）
     user_input: str
+    # 仅外部可见的用户文本（防止 internal prompt/debug 污染 user_input）
+    external_user_text: Optional[str]
     current_time: str
     user_id: str  # 用户ID，用于数据库查询
     bot_id: str   # Bot 的外部/固定ID（用于 DB/本地持久化定位同一条关系）
+
+    # --- Persistence Identifiers (optional) ---
+    # relationship_id: 当前「Bot 下用户」的主键（loader 从 DB 读取后填充，即 users.id）
+    relationship_id: Optional[str]
+    # 会话/线程标识：用于 Store A 以 session/thread/turn 组织原文（可由入口注入）
+    session_id: Optional[str]
+    thread_id: Optional[str]
+    turn_index: Optional[int]
     
     # --- Static/Semi-Static Profiles (Loaded from DB) ---
     bot_basic_info: BotBasicInfo
@@ -236,8 +344,13 @@ class AgentState(TypedDict, total=False):
     conversation_summary: str
     # RAG 检索到的相关记忆 (事实 + 关键事件)
     retrieved_memories: List[str]
+    # 统一注入提示词的记忆块（chat_buffer + summary + retrieved 合并后的文本）
+    memory_context: str
     
     # --- Analysis Artifacts (中间产物) ---
+    # Reasoner 输出：内心独白与回复策略（供 Generator 使用）
+    inner_monologue: Optional[str]
+    response_strategy: Optional[str]
     # Analyzer 输出的意图
     user_intent: Optional[str]
     # Analyzer 输出的属性变化值 (Deltas)
@@ -247,13 +360,22 @@ class AgentState(TypedDict, total=False):
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
     
-    # --- Detection Result (偏离检测) ---
-    # 检测用户输入的偏离情况：NORMAL, CREEPY, KY, BORING, CRAZY
+    # --- Detection (信号检测：instant/trace/heat/streak/composite) ---
+    # 完整输出：instant, trace, heat, streak, composite, params, trace_fast, trace_slow（供下一轮衰减）
+    detection_signals: Optional[Dict[str, Any]]
+    # 路由用：由 composite 推导，normal | mute（与 graph 两分支一致）
     detection_result: Optional[str]
-    # detection_category: detection_result 的语义化别名（推荐使用）
     detection_category: Optional[str]
-    # 直觉思考：检测节点的内部独白，用于理解用户意图
+    # 直觉思考：由 Inner Monologue 节点生成（原 detection 的“先想再分类”现移入 inner_monologue）
     intuition_thought: Optional[str]
+    # 关系滤镜：由 Inner Monologue 生成，此刻对 TA 的主观关系感受（字符串，非 relationship_state 数值）
+    relationship_filter: Optional[str]
+    
+    # --- Mode Management ---
+    # 当前模式 ID（由 mode_manager 节点确定）
+    mode_id: Optional[str]
+    # 当前模式配置对象（PsychoMode，包含 behavior_contract, lats_budget, requirements_policy 等）
+    current_mode: Optional[Any]  # PsychoMode 类型，但避免循环导入
     
     # --- Output Drivers (The 12 Dimensions) ---
     # 这里的 Key 对应 12 维输出定义
@@ -272,6 +394,43 @@ class AgentState(TypedDict, total=False):
     #   - wit_and_humor: 机智幽默
     #   - non_verbal_cues: 非语言 cues
     llm_instructions: Dict[str, Any]
+
+    # --- LATS / Choreography Planning (NEW) ---
+    # 从 reasoner/style/mode 编译出的硬约束/需求清单
+    requirements: Optional[RequirementsChecklist]
+    # 作为风格/节奏画像的统一口径（默认可与 llm_instructions 同步）
+    style_profile: Optional[Dict[str, Any]]
+
+    # 当前候选与其编排计划（用于搜索与调试）
+    candidate_text: Optional[str]
+    reply_plan: Optional[ReplyPlan]
+    processor_plan: Optional[ProcessorPlan]
+    sim_report: Optional[SimReport]
+
+    # LATS 搜索树与统计（保持灵活，便于迭代）
+    lats_tree: Optional[Dict[str, Any]]
+    lats_best_id: Optional[str]
+    lats_rollouts: Optional[int]
+    lats_expand_k: Optional[int]
+    # 是否启用 LLM soft scorer（用于 plan_alignment/style/stage/memory/persona/relationship 等“可优化维度”评审）
+    lats_enable_llm_soft_scorer: Optional[bool]
+    # LATS 两阶段评审参数（可选；必须进入 AgentState 否则会被 LangGraph 丢弃）
+    lats_llm_soft_top_n: Optional[int]
+    lats_llm_soft_max_concurrency: Optional[int]
+    lats_assistant_check_top_n: Optional[int]
+    # LATS 早退/停止相关阈值（必须进入 AgentState，否则 LangGraph 传播会丢字段）
+    lats_early_exit_root_score: Optional[float]
+    lats_early_exit_plan_alignment_min: Optional[float]
+    lats_early_exit_assistantiness_max: Optional[float]
+    lats_early_exit_mode_fit_min: Optional[float]
+    # bot-to-bot/压测用：禁用早退（强制至少跑完 rollouts）
+    lats_disable_early_exit: Optional[bool]
+    # 可选：低风险回合跳过 LATS rollout 搜索（只用根计划）
+    lats_skip_low_risk: Optional[bool]
+    # P0：至少跑完 N 次 rollout 才允许 early-exit（root_plan 直接早退）。
+    # - 默认 1：避免“树永远不长”
+    # - 设为 0：允许 root_plan 直接早退（旧行为）
+    lats_min_rollouts_before_early_exit: Optional[int]
     
     # --- Final Output ---
     final_response: str
