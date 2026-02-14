@@ -48,7 +48,7 @@ def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentSt
         final_text = (final_text or "").strip()
 
         # 在真正“准备返回给用户前”的时刻打点（用于 DB created_at）
-        state["ai_sent_at"] = datetime.now(timezone.utc).isoformat()
+        state["ai_sent_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
         db = _get_db_manager()
         if db:

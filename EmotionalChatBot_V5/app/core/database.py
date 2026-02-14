@@ -231,6 +231,28 @@ class DerivedNote(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class WebChatLog(Base):
+    """
+    Persisted web_chat_*.log snapshots (Render filesystem is ephemeral).
+    One row per (user_id, session_id) with latest content.
+    """
+
+    __tablename__ = "web_chat_logs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "session_id", name="uq_web_chat_logs_user_session"),
+        Index("idx_web_chat_logs_user_time", "user_id", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False)
+    session_id: Mapped[str] = mapped_column(Text, nullable=False)
+    filename: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 # -----------------------------
 # DBManager
 # -----------------------------
@@ -714,6 +736,46 @@ class DBManager:
 
         return counts
 
+    async def upsert_web_chat_log(
+        self,
+        *,
+        user_external_id: str,
+        bot_id: str,
+        session_id: str,
+        filename: Optional[str],
+        content: str,
+        max_chars: int = 1_000_000,
+    ) -> None:
+        """
+        Save/replace the latest web chat log snapshot for this (user, session).
+        Stores at most `max_chars` characters (keeps the tail if longer).
+        """
+        content = str(content or "")
+        if max_chars and len(content) > int(max_chars):
+            content = content[-int(max_chars) :]
+
+        async with self.Session() as session:
+            async with session.begin():
+                user = await self._get_or_create_user(session, bot_id, user_external_id)
+                bot = await self._get_or_create_bot(session, bot_id)
+
+                q = select(WebChatLog).where(WebChatLog.user_id == user.id, WebChatLog.session_id == str(session_id))
+                row = (await session.execute(q)).scalars().first()
+                if row:
+                    row.bot_id = bot.id
+                    row.filename = filename
+                    row.content = content
+                else:
+                    session.add(
+                        WebChatLog(
+                            user_id=user.id,
+                            bot_id=bot.id,
+                            session_id=str(session_id),
+                            filename=filename,
+                            content=content,
+                        )
+                    )
+
     async def save_turn(self, user_id: str, bot_id: str, state: Dict[str, Any], new_memory: Optional[str] = None) -> None:
         """
         Writer：事务写入一轮对话。user 挂在 bot 下；写入 messages 并更新 user 的关系状态与可选 memories。
@@ -737,7 +799,13 @@ class DBManager:
         # - user_created_at: 收到用户消息、进入流程前
         # - ai_created_at: 生成完成、准备返回给用户前
         user_created_at = _parse_dt(state.get("user_received_at")) or _parse_dt(state.get("current_time"))
-        ai_created_at = _parse_dt(state.get("ai_sent_at")) or datetime.now(timezone.utc)
+        ai_created_at = _parse_dt(state.get("ai_sent_at"))
+        if not user_created_at:
+            user_created_at = datetime.now(timezone.utc)
+        if not ai_created_at:
+            ai_created_at = datetime.now(timezone.utc)
+        user_created_at = user_created_at.replace(microsecond=0)
+        ai_created_at = ai_created_at.replace(microsecond=0)
 
         async with self.Session() as session:
             async with session.begin():

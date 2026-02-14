@@ -82,12 +82,26 @@ CREATE TABLE derived_notes (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 8. Web 对话日志快照（用于 Render 等无持久磁盘环境）
+CREATE TABLE web_chat_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    filename TEXT,
+    content TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, session_id)
+);
+
 -- 索引
 CREATE INDEX idx_users_bot_external ON users(bot_id, external_id);
 CREATE INDEX idx_messages_user_time ON messages(user_id, created_at DESC);
 CREATE INDEX idx_transcripts_user_time ON transcripts(user_id, created_at DESC);
 CREATE INDEX idx_notes_user_time ON derived_notes(user_id, created_at DESC);
 CREATE INDEX idx_notes_transcript ON derived_notes(transcript_id);
+CREATE INDEX idx_web_chat_logs_user_time ON web_chat_logs(user_id, updated_at DESC);
 
 -- 便于在库中查看「哪个 User 属于哪个 Bot」的视图（避免只看 uuid 难以辨认）
 CREATE OR REPLACE VIEW users_with_bot_names AS

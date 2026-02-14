@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from app.graph import build_graph
-from app.core.database import DBManager, Bot, User, Message
+from app.core.database import DBManager, Bot, User, Message, WebChatLog
 from app.web.session import (
     create_session,
     get_session,
@@ -102,7 +102,7 @@ def log_web_chat(session_id: str, user_id: str, bot_id: str, user_message: str, 
     """记录 Web 对话到日志文件"""
     try:
         log_file, log_path = get_or_create_log_file(session_id, user_id, bot_id)
-        now_iso = datetime.now().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
         
         log_file.write(f"\n[{now_iso}] === 用户: {user_message}\n")
         log_file.write("-" * 80 + "\n")
@@ -138,20 +138,33 @@ def _require_admin(request: Request) -> None:
 async def admin_download_latest_web_chat_logs_zip(request: Request, n: int = 2):
     """
     Download latest N web chat logs as a zip file.
-    Note: Render filesystem is ephemeral; files exist only on the running instance.
+    Prefer DB snapshots (persistent). Fall back to local filesystem.
     """
     _require_admin(request)
     n = max(1, min(int(n or 2), 10))
 
-    log_dir = _get_log_dir()
-    files = sorted(log_dir.glob("web_chat_*.log"), key=lambda x: x.stat().st_mtime, reverse=True)[:n]
-    if not files:
-        raise HTTPException(status_code=404, detail="No logs found")
-
     mem = io.BytesIO()
     with zipfile.ZipFile(mem, mode="w", compression=zipfile.ZIP_DEFLATED) as z:
-        for p in files:
-            z.writestr(p.name, p.read_text(encoding="utf-8", errors="replace"))
+        # 1) DB snapshots
+        try:
+            db = get_db_manager()
+            async with db.Session() as s:
+                result = await s.execute(select(WebChatLog).order_by(WebChatLog.updated_at.desc()).limit(n))
+                rows = list(result.scalars().all())
+            if rows:
+                for r in rows:
+                    name = r.filename or f"web_chat_{(r.updated_at or r.created_at).isoformat()}.log"
+                    z.writestr(str(name), str(r.content or ""))
+            else:
+                raise RuntimeError("no_db_rows")
+        except Exception:
+            # 2) filesystem fallback (ephemeral)
+            log_dir = _get_log_dir()
+            files = sorted(log_dir.glob("web_chat_*.log"), key=lambda x: x.stat().st_mtime, reverse=True)[:n]
+            if not files:
+                raise HTTPException(status_code=404, detail="No logs found")
+            for p in files:
+                z.writestr(p.name, p.read_text(encoding="utf-8", errors="replace"))
     mem.seek(0)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -401,7 +414,7 @@ async def chat(
         t_state_ms = (time.perf_counter() - t0) * 1000.0
         
         # 业务语义：用户消息接收时间（进入流程之前）
-        received_iso = datetime.now(timezone.utc).isoformat()
+        received_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
         state["messages"] = [
             HumanMessage(
                 content=chat_data.message.strip(),
@@ -470,6 +483,31 @@ async def chat(
             )
             log_file.flush()
             log_web_chat(session_id, user_id, bot_id, chat_data.message.strip(), reply)
+
+            # Persist web_chat log snapshot to Postgres (best-effort).
+            # Render filesystem is ephemeral; DB keeps it permanently.
+            try:
+                max_chars_raw = (os.getenv("WEB_CHAT_LOG_MAX_CHARS") or "").strip()
+                max_chars = int(max_chars_raw) if max_chars_raw else 1_000_000
+            except Exception:
+                max_chars = 1_000_000
+            try:
+                # Read latest log file content (tail) and upsert
+                log_text = ""
+                try:
+                    log_text = Path(str(log_path)).read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    log_text = ""
+                await db.upsert_web_chat_log(
+                    user_external_id=user_id,
+                    bot_id=bot_id,
+                    session_id=session_id,
+                    filename=Path(str(log_path)).name,
+                    content=log_text,
+                    max_chars=max_chars,
+                )
+            except Exception:
+                pass
         except Exception as log_error:
             print(f"日志记录失败: {log_error}", file=sys.stderr)
         
