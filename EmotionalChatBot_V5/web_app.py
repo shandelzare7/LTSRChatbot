@@ -491,7 +491,7 @@ async def chat(
 async def reset_session(
     request: Request, response: Response, session_id: Optional[str] = Cookie(None)
 ):
-    """重置会话：清空对话历史"""
+    """清空该用户在当前 bot 下的所有对话与记忆（数据库/本地存储）。"""
     if not session_id:
         raise HTTPException(status_code=401, detail="未找到会话")
     
@@ -502,11 +502,28 @@ async def reset_session(
     try:
         user_id = session["user_id"]
         bot_id = session["bot_id"]
-        
-        db = get_db_manager()
-        await db.clear_messages_for(user_id, bot_id)
-        
-        return {"status": "success", "message": "对话历史已清空"}
+
+        # 1) Prefer DB: delete messages + memories/transcripts/notes + reset summary/stage
+        try:
+            db = get_db_manager()
+            counts = await db.clear_all_memory_for(user_id, bot_id, reset_profile=True)
+            return {"status": "success", "message": "对话历史已清空", "deleted": counts}
+        except Exception:
+            pass
+
+        # 2) Fallback: local store (no DATABASE_URL)
+        try:
+            from app.core.local_store import LocalStoreManager
+
+            store = LocalStoreManager()
+            ok = store.clear_relationship(user_id, bot_id)
+            return {
+                "status": "success",
+                "message": "对话历史已清空",
+                "deleted": {"local_store": 1 if ok else 0},
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"重置会话失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"重置会话失败: {str(e)}")
 
@@ -790,7 +807,7 @@ def get_chat_html(bot_id: str) -> str:
         <div class="chat-container">
             <div class="chat-header">
                 <h2>💬 对话中</h2>
-                <button id="reset-btn" class="btn-secondary">重置会话</button>
+                <button id="reset-btn" class="btn-secondary">清空历史</button>
             </div>
             <div id="chat-messages" class="chat-messages"></div>
             <div class="chat-input-container">

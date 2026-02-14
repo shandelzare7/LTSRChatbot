@@ -296,7 +296,7 @@ function initChat() {
     // 重置会话
     if (resetBtn) {
         resetBtn.onclick = async () => {
-            if (!confirm('确定要重置会话吗？这将清空所有对话历史。')) {
+            if (!confirm('确定要清空历史吗？这会从数据库删除你在该 bot 下的所有聊天记录（不可恢复）。')) {
                 return;
             }
             
@@ -313,7 +313,7 @@ function initChat() {
                     }
                     // 重置后也显示开场白
                     ensureFirstBotMessage().catch(() => {});
-                    alert('会话已重置');
+                    alert('历史已清空');
                 } else {
                     alert('重置失败');
                 }
