@@ -448,10 +448,9 @@ async def chat(
         finally:
             sys.stdout = original_stdout
         
-        # 保存对话
-        t0 = time.perf_counter()
-        await db.save_turn(user_id, bot_id, result)
-        t_save_ms = (time.perf_counter() - t0) * 1000.0
+        # 注意：graph 末尾的 `memory_writer` 节点会负责写入 DB（Commit Late）。
+        # Web 这里再写一次会导致同一轮 messages 被写入两次（历史显示重复）。
+        t_save_ms = 0.0
         
         # 获取回复
         reply = result.get("final_response") or ""
