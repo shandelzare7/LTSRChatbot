@@ -62,9 +62,20 @@ def compile_reply_plan_to_processor_plan(
     delay_bucket: List[str] = []
 
     for m in messages_raw[:max_messages]:
+        # Tolerant parsing:
+        # - planner should output dict messages, but in practice LLM may output strings.
+        # - Accept string messages to avoid empty-output fallbacks that break bot-to-bot runs.
+        if isinstance(m, str):
+            c = m.strip()
+            if not c:
+                continue
+            msgs.append(c)
+            pause_after.append("none")
+            delay_bucket.append("short")
+            continue
         if not isinstance(m, dict):
             continue
-        c = (m.get("content") or "").strip()
+        c = str(m.get("content") or "").strip()
         if not c:
             continue
         msgs.append(c)
@@ -79,7 +90,8 @@ def compile_reply_plan_to_processor_plan(
             pause_after = ["none"]
             delay_bucket = ["short"]
         else:
-            msgs = ["…"]
+            # 避免“…”占位符进入下一轮（会让对话退化成无意义的省略号循环）
+            msgs = ["（刚才生成回复失败了。可能是模型服务不可用/余额不足。你可以稍后再试。）"]
             pause_after = ["none"]
             delay_bucket = ["short"]
 

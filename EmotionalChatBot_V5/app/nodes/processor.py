@@ -471,7 +471,10 @@ def humanize_response_node(state: AgentState, llm_invoker: Any = None) -> Dict[s
     """
     result: HumanizedOutput
     result = _humanize_from_processor_plan(state)
-    if not result and llm_invoker:
+    # If LATS doesn't provide delays/actions, default to deterministic rules for latency/cost.
+    # Enable LLM humanization only when explicitly requested.
+    use_llm = str(state.get("processor_use_llm") or "").strip().lower() in ("1", "true", "yes", "on")
+    if not result and llm_invoker and use_llm:
         result = _humanize_via_llm(state, llm_invoker)
     if not result:
         processor = HumanizationProcessor(state)

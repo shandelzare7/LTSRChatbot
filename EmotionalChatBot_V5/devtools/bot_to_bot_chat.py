@@ -2,9 +2,8 @@
 bot_to_bot_chat.py
 
 用途：
-- 创建两个 Bot（Bot A 和 Bot B）
-- 在各自 Bot 下创建对应的 User（Bot A 下 User B，Bot B 下 User A）
-- 实现对话循环：两个 bot 轮流发送消息，进行 5 轮对话
+- 创建两个 Bot（Bot A 和 Bot B），在各自 Bot 下创建对应的 User（互相当对方用户）
+- 两 bot 互聊：共 3 次会话，每次 5 轮，首句从池中随机（避免千篇一律打招呼）
 - 记录对话内容和日志
 
 前置：
@@ -21,10 +20,26 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+
+# 首句池：两 bot 互聊时每次会话的首句随机（避免都是“你好”式打招呼）
+FIRST_MESSAGE_POOL = [
+    "今天天气好怪啊，一会儿晴一会儿阴的。",
+    "你最近有看什么剧或书吗？我剧荒了。",
+    "刚想到一个冷笑话，要听吗？",
+    "你觉得周末最适合干嘛？睡觉还是出门？",
+    "我昨天梦到一件特别离谱的事。",
+    "如果只能选一种零食吃一辈子你选啥？",
+    "你平时会自己做饭吗？",
+    "有没有什么你一直想学但没学的东西？",
+    "你更喜欢早起还是熬夜？",
+    "假如明天开始不用上班/上学，你第一件事会做啥？",
+]
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from sqlalchemy import select
@@ -44,7 +59,7 @@ except Exception:
 
 from app.core.database import Bot, DBManager, User
 from app.graph import build_graph
-from app.services.llm import get_llm
+from app.services.llm import get_llm, get_llm_stats, reset_llm_stats
 from main import _make_initial_state
 from utils.llm_json import parse_json_from_llm
 
@@ -55,6 +70,10 @@ def _age_to_age_group(age: int | None) -> str:
     try:
         a = int(age)
     except Exception:
+        return "20s"
+    # bot-to-bot：bot basic_info 偶尔会有脏数据（例如 age=5）。
+    # 这里把不合理年龄归一化，避免对方画像被映射成 teen，影响语境与沉浸感。
+    if a < 18 or a > 35:
         return "20s"
     if a < 20:
         return "teen"
@@ -286,21 +305,35 @@ async def run_one_turn(
     message: str,
     log_file,
     original_stdout,
-) -> tuple[str, dict]:
-    """运行一轮对话，返回 bot 的回复。"""
+) -> tuple[str, dict, float]:
+    """运行一轮对话，返回 (bot 的回复, result_state, 本轮耗时秒数)。"""
     from main import FileOnlyWriter
     from utils.external_text import sanitize_external_text
 
     state = _make_initial_state(user_id, bot_id)
     # bot-to-bot 压测：更偏“探索拟人化”而非“根计划过线就早退”
     state["lats_rollouts"] = int(os.getenv("BOT2BOT_LATS_ROLLOUTS", "4"))
-    state["lats_expand_k"] = int(os.getenv("BOT2BOT_LATS_EXPAND_K", "4"))
+    # 默认 expand_k=2：与线上“平衡版”一致（避免变体生成与 soft scorer 调用爆炸）
+    state["lats_expand_k"] = int(os.getenv("BOT2BOT_LATS_EXPAND_K", "2"))
     state["lats_early_exit_root_score"] = float(os.getenv("BOT2BOT_EARLY_EXIT_SCORE", "0.82"))
     state["lats_early_exit_plan_alignment_min"] = float(os.getenv("BOT2BOT_EARLY_EXIT_PLAN_MIN", "0.75"))
     state["lats_early_exit_assistantiness_max"] = float(os.getenv("BOT2BOT_EARLY_EXIT_ASSIST_MAX", "0.22"))
     state["lats_early_exit_mode_fit_min"] = float(os.getenv("BOT2BOT_EARLY_EXIT_MODE_MIN", "0.60"))
     state["lats_disable_early_exit"] = (str(os.getenv("BOT2BOT_DISABLE_EARLY_EXIT", "1")).lower() not in ("0", "false", "no", "off"))
     state["lats_skip_low_risk"] = (str(os.getenv("BOT2BOT_SKIP_LATS_LOW_RISK", "0")).lower() in ("1", "true", "yes", "on"))
+    # soft scorer 仍启用，但只评 Top1，且并发=1（更稳更省）
+    try:
+        state["lats_llm_soft_top_n"] = int(os.getenv("BOT2BOT_LLM_SOFT_TOP_N", "1") or 1)
+    except Exception:
+        state["lats_llm_soft_top_n"] = 1
+    try:
+        state["lats_llm_soft_max_concurrency"] = int(os.getenv("BOT2BOT_LLM_SOFT_MAX_CONCURRENCY", "1") or 1)
+    except Exception:
+        state["lats_llm_soft_max_concurrency"] = 1
+    try:
+        state["lats_assistant_check_top_n"] = int(os.getenv("BOT2BOT_ASSISTANT_CHECK_TOP_N", "0") or 0)
+    except Exception:
+        state["lats_assistant_check_top_n"] = 0
 
     # 注意：LATS_Search 节点优先读取 mode.lats_budget（若存在）而不是 state.lats_rollouts/lats_expand_k。
     # 所以 bot-to-bot 压测要同步覆盖 mode 的预算，否则你设了 state 也不生效。
@@ -326,7 +359,13 @@ async def run_one_turn(
 
     # graph 内部所有 print 只写日志文件，不输出到控制台
     sys.stdout = FileOnlyWriter(log_file)
+    t0 = time.perf_counter()
     try:
+        # Reset LLM stats for this turn (best-effort; only active when LTSR_LLM_STATS/LTSR_PROFILE_STEPS is enabled).
+        try:
+            reset_llm_stats()
+        except Exception:
+            pass
         timeout_s = float(os.getenv("BOT2BOT_TURN_TIMEOUT_S", "180") or 180)
         task = asyncio.create_task(app.ainvoke(state, config={"recursion_limit": 50}))
         try:
@@ -335,6 +374,8 @@ async def run_one_turn(
             task.cancel()
             try:
                 await task
+            except asyncio.CancelledError:
+                pass
             except Exception:
                 pass
             raise TimeoutError(f"turn timeout after {os.getenv('BOT2BOT_TURN_TIMEOUT_S','180')}s")
@@ -344,6 +385,7 @@ async def run_one_turn(
     finally:
         sys.stdout = original_stdout
 
+    elapsed = time.perf_counter() - t0  # 仅成功完成时计算
     reply = result.get("final_response") or ""
     if not reply and result.get("final_segments"):
         reply = " ".join(result["final_segments"])
@@ -351,30 +393,42 @@ async def run_one_turn(
         reply = result.get("draft_response") or "（无回复）"
 
     reply_clean = sanitize_external_text(str(reply or ""))
-    return reply_clean, (result if isinstance(result, dict) else {})
+    out_state = (result if isinstance(result, dict) else {})
+    try:
+        out_state["_llm_stats"] = get_llm_stats()
+    except Exception:
+        pass
+    return reply_clean, out_state, elapsed
 
 
 async def main() -> None:
     if not os.getenv("DATABASE_URL"):
         raise RuntimeError("DATABASE_URL 未设置：请在 .env 里配置本地 PostgreSQL 连接串。")
 
-    # 创建日志文件（提前创建：即使 DB/schema 卡住也能看到进度）
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = log_dir / f"bot_to_bot_chat_{ts}.log"
-    log_file = open(log_path, "w", encoding="utf-8")
-    chat_log_path = log_dir / f"bot_to_bot_chat_{ts}.txt"
-    chat_log_file = open(chat_log_path, "w", encoding="utf-8")
     original_stdout = sys.stdout
 
+    # 可变的当前日志句柄，供 log_line 使用（startup 用 startup 文件，每次会话用 runN 文件）
+    log_file = None
+    chat_log_file = None
+
     def log_line(msg: str):
-        """写一行到日志文件、对话记录文件并打印到控制台。"""
+        """写一行到当前日志/对话文件并打印到控制台。"""
         print(msg)
-        log_file.write(msg + "\n")
-        log_file.flush()
-        chat_log_file.write(msg + "\n")
-        chat_log_file.flush()
+        if log_file is not None:
+            log_file.write(msg + "\n")
+            log_file.flush()
+        if chat_log_file is not None:
+            chat_log_file.write(msg + "\n")
+            chat_log_file.flush()
+
+    # 启动阶段：单独 startup 日志
+    startup_log_path = log_dir / f"bot_to_bot_chat_{ts}_startup.log"
+    startup_txt_path = log_dir / f"bot_to_bot_chat_{ts}_startup.txt"
+    log_file = open(startup_log_path, "w", encoding="utf-8")
+    chat_log_file = open(startup_txt_path, "w", encoding="utf-8")
 
     db = DBManager.from_env()
     # schema 初始化：偶发情况下 DDL 可能等待锁；bot-to-bot 压测允许跳过/超时继续（表通常已存在）
@@ -549,7 +603,7 @@ async def main() -> None:
     except Exception as e:
         log_line(f"⚠ bot-to-bot: 绑定对方画像失败（将继续使用默认画像）: {e}")
 
-    # 可选：每次压测前清空两边关系（避免旧对话/高 liking 把“寒暄增量”掩盖掉）
+    # 可选：仅在“第一次”压测前清空（BOT2BOT_CLEAR_BEFORE_RUN=1）
     if str(os.getenv("BOT2BOT_CLEAR_BEFORE_RUN", "0")).lower() in ("1", "true", "yes", "on"):
         try:
             log_line("\n" + "=" * 60)
@@ -562,135 +616,175 @@ async def main() -> None:
             log_line(f"⚠ 清空失败（继续执行）: {e}")
 
     log_line("\n✓ User 初始化完成\n")
-
     log_line("=" * 60)
-    log_line("Bot to Bot 对话开始")
-    log_line(f"日志文件: {log_path}")
-    log_line(f"对话记录: {chat_log_path}")
+    log_line("Bot to Bot 对话开始（3 次会话 × 每次 5 轮，首句随机）")
+    log_line("每次会话单独写入: bot_to_bot_chat_<ts>_run1/2/3.log 与 _run1/2/3.txt")
     log_line("=" * 60)
     log_line("")
+    log_file.close()
+    chat_log_file.close()
+    log_file = None
+    chat_log_file = None
 
     # 构建 graph
     app = build_graph()
 
-    # 初始消息：Bot A 先说话
-    current_message = "你好，很高兴认识你！"
-    current_speaker = "Bot A"
-    current_user_id = user_b_external_id  # Bot A 把 Bot B 当作 user
-    current_bot_id = bot_a_id
-
-    log_line(f"[第 1 轮] {current_speaker} 说: {current_message}")
-    log_line("")
-
     aborted_reason = ""
-    # 进行 5 轮对话
-    for turn in range(1, 6):
-        log_line(f"\n{'=' * 60}")
-        log_line(f"第 {turn} 轮对话")
-        log_line(f"{'=' * 60}")
+    # Allow overriding run counts for profiling / quick tests
+    try:
+        num_runs = int(os.getenv("BOT2BOT_NUM_RUNS", "3") or 3)
+    except Exception:
+        num_runs = 3
+    try:
+        rounds_per_run = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "5") or 5)
+    except Exception:
+        rounds_per_run = 5
+    run_log_paths = []
+    run_txt_paths = []
+    turn_times: list[float] = []  # 每轮回复耗时（秒），用于算平均
 
-        # 当前说话者发送消息
-        log_line(f"\n[{current_speaker}] 发送: {current_message}")
-        log_line(f"   (user_id={current_user_id}, bot_id={current_bot_id})")
+    for run in range(1, num_runs + 1):
+        # 本次会话使用独立的 .log 和 .txt
+        run_log_path = log_dir / f"bot_to_bot_chat_{ts}_run{run}.log"
+        run_txt_path = log_dir / f"bot_to_bot_chat_{ts}_run{run}.txt"
+        run_log_paths.append(run_log_path)
+        run_txt_paths.append(run_txt_path)
+        log_file = open(run_log_path, "w", encoding="utf-8")
+        chat_log_file = open(run_txt_path, "w", encoding="utf-8")
+        # 每次会话前清空，使 3 次互不干扰；首句随机
+        if run > 1:
+            try:
+                await db.clear_all_memory_for(user_b_external_id, bot_a_id, reset_profile=True)
+                await db.clear_all_memory_for(user_a_external_id, bot_b_id, reset_profile=True)
+            except Exception:
+                pass
+        current_message = random.choice(FIRST_MESSAGE_POOL)
+        current_speaker = "Bot A"
+        current_user_id = user_b_external_id
+        current_bot_id = bot_a_id
+
+        log_line("\n" + "=" * 60)
+        log_line(f"第 {run}/{num_runs} 次会话（首句随机）")
+        log_line("=" * 60)
+        log_line(f"[会话 {run}] 首句: {current_message}")
         log_line("")
 
-        # 运行对话
-        try:
-            # 记录当前日志文件位置（用于定位详细日志）
-            log_file_pos_before = log_file.tell() if hasattr(log_file, 'tell') else None
-            
-            reply, result_state = await run_one_turn(
-                app,
-                current_user_id,
-                current_bot_id,
-                current_message,
-                log_file,
-                original_stdout,
-            )
-            
-            log_file_pos_after = log_file.tell() if hasattr(log_file, 'tell') else None
-            log_size_info = ""
-            if log_file_pos_before is not None and log_file_pos_after is not None:
-                bytes_written = log_file_pos_after - log_file_pos_before
-                log_size_info = f" (本轮详细日志: {bytes_written // 1024}KB)"
-            
-            log_line(f"[{current_speaker} 的 Bot] 回复: {reply}{log_size_info}")
+        for turn in range(1, rounds_per_run + 1):
+            log_line(f"\n--- 第 {run} 次会话 / 第 {turn} 轮 ---")
+            log_line(f"[{current_speaker}] 发送: {current_message}")
+            log_line(f"   (user_id={current_user_id}, bot_id={current_bot_id})")
             log_line("")
 
-            # 保存这一轮对话到数据库：
-            # - 必须用 graph 真实产出的 state（含 evolver/stage_manager 后的 relationship_state/current_stage）
-            # - 仅覆盖必要字段，避免把默认空 dict 写回去导致“关系/阶段不演化”
-            state_after = dict(result_state or {})
-            state_after.update(
-                {
-                    "user_id": current_user_id,
-                    "bot_id": current_bot_id,
-                    "current_time": datetime.now().isoformat(),
-                    "user_input": current_message,
-                    "final_response": reply,
-                }
-            )
-            await db.save_turn(current_user_id, current_bot_id, state_after)
+            try:
+                log_file_pos_before = log_file.tell() if hasattr(log_file, "tell") else None
+                reply, result_state, elapsed = await run_one_turn(
+                    app,
+                    current_user_id,
+                    current_bot_id,
+                    current_message,
+                    log_file,
+                    original_stdout,
+                )
+                turn_times.append(elapsed)
+                log_file_pos_after = log_file.tell() if hasattr(log_file, "tell") else None
+                log_size_info = ""
+                if log_file_pos_before is not None and log_file_pos_after is not None:
+                    log_size_info = f" (本轮详细日志: {(log_file_pos_after - log_file_pos_before) // 1024}KB)"
+                log_line(f"[{current_speaker} 的 Bot] 回复: {reply} [耗时 {elapsed:.2f}s]{log_size_info}")
 
-        except Exception as e:
-            log_line(f"[错误] {current_speaker} 的 Bot 回复失败: {e}")
-            # 关键：不要把“失败占位文本”继续喂给下一轮（会污染 user_input，造成连锁退化）
-            if isinstance(e, TimeoutError):
-                aborted_reason = str(e)
-                log_line(f"[中止] 本次 bot-to-bot 对话因超时中止：{aborted_reason}")
+                # Optional: step-by-step profiling report (requires LTSR_PROFILE_STEPS=1 / LTSR_LLM_STATS=1)
+                prof = (result_state or {}).get("_profile") if isinstance(result_state, dict) else None
+                llm_stats = (result_state or {}).get("_llm_stats") if isinstance(result_state, dict) else None
+                if isinstance(prof, dict) and isinstance(prof.get("nodes"), list):
+                    log_line("  [PROFILE] 节点耗时与 LLM 调用增量：")
+                    for item in prof.get("nodes") or []:
+                        name = str(item.get("name") or "")
+                        dt_ms = float(item.get("dt_ms", 0.0) or 0.0)
+                        delta = item.get("llm_delta") if isinstance(item.get("llm_delta"), dict) else {}
+                        # Summarize delta calls
+                        delta_calls = sum(int(v.get("calls", 0) or 0) for v in delta.values()) if isinstance(delta, dict) else 0
+                        log_line(f"    - {name}: {dt_ms:.2f}ms, llm_calls_delta={delta_calls}")
+                if isinstance(llm_stats, dict) and llm_stats:
+                    log_line("  [PROFILE] 本轮各模型/角色 API 调用统计：")
+                    # Sort by calls desc
+                    rows = []
+                    for k, v in llm_stats.items():
+                        try:
+                            calls = int(v.get("calls", 0) or 0)
+                            total_ms = float(v.get("total_ms", 0.0) or 0.0)
+                        except Exception:
+                            continue
+                        rows.append((calls, total_ms, str(k)))
+                    rows.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                    for calls, total_ms, k in rows[:20]:
+                        avg_ms = (total_ms / calls) if calls else 0.0
+                        log_line(f"    - {k}: calls={calls}, total_ms={total_ms:.1f}, avg_ms={avg_ms:.1f}")
+                log_line("")
+
+                state_after = dict(result_state or {})
+                state_after.update(
+                    {
+                        "user_id": current_user_id,
+                        "bot_id": current_bot_id,
+                        "current_time": datetime.now().isoformat(),
+                        "user_input": current_message,
+                        "final_response": reply,
+                    }
+                )
+                await db.save_turn(current_user_id, current_bot_id, state_after)
+
+            except Exception as e:
+                log_line(f"[错误] {current_speaker} 的 Bot 回复失败: {e}")
+                if isinstance(e, TimeoutError):
+                    aborted_reason = str(e)
+                    log_line(f"[中止] 因超时中止：{aborted_reason}")
+                else:
+                    aborted_reason = str(e)
                 break
-            aborted_reason = str(e)
+
+            if current_speaker == "Bot A":
+                current_speaker = "Bot B"
+                current_user_id = user_a_external_id
+                current_bot_id = bot_b_id
+            else:
+                current_speaker = "Bot A"
+                current_user_id = user_b_external_id
+                current_bot_id = bot_a_id
+            current_message = reply
+
+        if aborted_reason:
+            if log_file is not None:
+                log_file.close()
+            if chat_log_file is not None:
+                chat_log_file.close()
+            log_file = chat_log_file = None
             break
+        log_line(f"\n第 {run}/{num_runs} 次会话（5 轮）完成\n")
+        log_file.close()
+        chat_log_file.close()
+        log_file = chat_log_file = None
 
-        # 切换到另一个 bot
-        if current_speaker == "Bot A":
-            current_speaker = "Bot B"
-            current_user_id = user_a_external_id  # Bot B 把 Bot A 当作 user
-            current_bot_id = bot_b_id
-        else:
-            current_speaker = "Bot A"
-            current_user_id = user_b_external_id  # Bot A 把 Bot B 当作 user
-            current_bot_id = bot_a_id
-
-        # 下一轮的消息就是当前 bot 的回复
-        current_message = reply
-
-        log_line(f"\n{'=' * 60}")
-        log_line(f"第 {turn} 轮对话完成")
-        log_line(f"{'=' * 60}\n")
-
-    log_line("\n" + "=" * 60)
+    # 总结只打控制台（每次会话已有独立 log/txt）
+    print("\n" + "=" * 60)
     if aborted_reason:
-        log_line(f"Bot to Bot 对话结束（提前中止，原因: {aborted_reason}）")
+        print(f"Bot to Bot 对话结束（提前中止，原因: {aborted_reason}）")
     else:
-        log_line("Bot to Bot 对话结束（5 轮完成）")
-    log_line("=" * 60)
-    log_line(f"\n日志文件: {log_path}")
-    log_line(f"对话记录: {chat_log_path}")
-    
-    # 统计日志文件大小
+        print(f"Bot to Bot 对话结束（{num_runs} 次会话 × {rounds_per_run} 轮完成）")
+    print("=" * 60)
+    print(f"启动日志: {startup_log_path}")
+    print(f"启动记录: {startup_txt_path}")
+    for i, (lp, tp) in enumerate(zip(run_log_paths, run_txt_paths), 1):
+        print(f"  第{i}次会话 日志: {lp}")
+        print(f"  第{i}次会话 记录: {tp}")
     try:
-        log_size = log_path.stat().st_size
-        log_size_mb = log_size / (1024 * 1024)
-        log_line(f"\n详细日志文件大小: {log_size_mb:.2f}MB ({log_size:,} 字节)")
-        log_line("详细日志包含:")
-        log_line("  - Detection 节点（用户信号检测）")
-        log_line("  - Inner Monologue（内心独白生成）")
-        log_line("  - Reasoner（对话策略规划）")
-        log_line("  - LATS 搜索（ReplyPlan 生成与搜索过程）")
-        log_line("  - Evaluator（硬门槛检查与软评分，含 LLM 详细评分）")
-        log_line("  - Processor（消息编译与延迟规划）")
-        log_line("  - Evolver（关系状态更新）")
-        log_line("  - 所有节点的完整 prompt 和 LLM 响应")
+        total_size = sum(p.stat().st_size for p in run_log_paths if p.exists())
+        print(f"\n详细日志总大小: {total_size / (1024 * 1024):.2f}MB")
     except Exception:
         pass
-
-    log_file.close()
-    chat_log_file.close()
-
-    print(f"\n✅ 完成！对话已保存到:")
-    print(f"   日志文件: {log_path}")
-    print(f"   对话记录: {chat_log_path}")
+    if turn_times:
+        avg_time = sum(turn_times) / len(turn_times)
+        print(f"\n📊 回复耗时统计: 共 {len(turn_times)} 轮, 平均回复时间 = {avg_time:.2f} 秒")
+    print("\n✅ 完成！每次会话对应独立 .log 与 .txt 文件。")
 
 
 if __name__ == "__main__":

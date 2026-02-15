@@ -376,6 +376,10 @@ class AgentState(TypedDict, total=False):
     mode_id: Optional[str]
     # 当前模式配置对象（PsychoMode，包含 behavior_contract, lats_budget, requirements_policy 等）
     current_mode: Optional[Any]  # PsychoMode 类型，但避免循环导入
+
+    # --- Profiling (devtools) ---
+    # 节点级耗时与 LLM 调用增量（由 app/graph.py 的 profiling wrapper 写入；devtools 使用）
+    _profile: Optional[Dict[str, Any]]
     
     # --- Output Drivers (The 12 Dimensions) ---
     # 这里的 Key 对应 12 维输出定义

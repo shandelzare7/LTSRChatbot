@@ -43,3 +43,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local artifacts (do not commit)
+render_logs_download/
+render_web_chat_latest_*.zip
+EmotionalChatBot_V5/CURRENT_SHARE_LINKS.md
+EmotionalChatBot_V5/SHARE_LINKS.txt

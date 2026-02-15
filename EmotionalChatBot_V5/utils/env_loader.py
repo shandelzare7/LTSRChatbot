@@ -75,6 +75,23 @@ def load_env_from_file(env_path: Path) -> Dict[str, str]:
                 os.environ[k] = v
             loaded[k] = v
 
+    # Convenience aliasing for this repo's multi-provider setup.
+    # - Keep OPENAI_API_KEY_OPENAI in .env as a backup key.
+    # - When using OpenAI official base_url (or a GPT model), prefer it automatically.
+    try:
+        base_url = (os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_BASE") or "").strip()
+        model = (os.environ.get("OPENAI_MODEL") or "").strip()
+        openai_key = (os.environ.get("OPENAI_API_KEY_OPENAI") or loaded.get("OPENAI_API_KEY_OPENAI") or "").strip()
+        if openai_key and (
+            base_url.startswith("https://api.openai.com")
+            or base_url.startswith("https://api.openai.com/")
+            or model.startswith("gpt-")
+        ):
+            os.environ["OPENAI_API_KEY"] = openai_key
+            loaded["OPENAI_API_KEY"] = openai_key
+    except Exception:
+        pass
+
     return loaded
 
 

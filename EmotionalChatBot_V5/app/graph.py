@@ -1,4 +1,8 @@
 """【编排层】构建 LangGraph：节点与边（含并行思考与 Critic 循环）。"""
+import asyncio
+import inspect
+import os
+import time
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 
@@ -25,8 +29,6 @@ from app.nodes.emotion_update import create_emotion_update_node
 from app.nodes.reasoner import create_reasoner_node
 from app.nodes.memory_retriever import create_memory_retriever_node
 from app.nodes.style import create_style_node
-from app.nodes.generator import create_generator_node
-from app.nodes.critic import check_critic_result, create_critic_node
 from app.nodes.lats_search import create_lats_search_node
 from app.nodes.processor import create_processor_node
 from app.nodes.final_validator import create_final_validator_node
@@ -34,7 +36,7 @@ from app.nodes.evolver import create_evolver_node
 from app.nodes.stage_manager import create_stage_manager_node
 from app.nodes.memory_manager import create_memory_manager_node
 from app.nodes.memory_writer import create_memory_writer_node
-from app.services.llm import get_llm
+from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
 
@@ -49,6 +51,8 @@ def _load_modes() -> list[PsychoMode]:
 def build_graph(
     *,
     llm: Any = None,
+    llm_fast: Any = None,
+    llm_judge: Any = None,
     memory_service: Any = None,
     modes: Optional[List[PsychoMode]] = None,
 ) -> Any:
@@ -57,52 +61,122 @@ def build_graph(
     - llm / memory_service / modes 为 None 时使用默认（MockMemory、_load_modes、get_llm()）。
     """
     root = get_project_root()
-    llm = llm or get_llm()
+    # Role-based LLM routing:
+    # - main: planner / generation
+    # - fast: detection / analyzer / memory write
+    # - judge: LATS soft scorer
+    llm = llm or get_llm(role="main")
+    llm_fast = llm_fast or get_llm(role="fast")
+    llm_judge = llm_judge or get_llm(role="judge")
     memory_service = memory_service or MockMemory()
     modes = modes or _load_modes()
     engine = PsychoEngine(modes=modes, llm_invoker=llm)
 
+    def _truthy(v: str | None) -> bool:
+        return str(v or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+    enable_step_profile = _truthy(os.getenv("LTSR_PROFILE_STEPS"))
+    enable_call_log = _truthy(os.getenv("LTSR_LLM_CALL_LOG"))
+
+    def _wrap_node(name: str, fn: Any) -> Any:
+        # If neither step profiling nor per-call logging is enabled, keep original function.
+        if not enable_step_profile and not enable_call_log:
+            return fn
+
+        def _ensure_profile(state: Any) -> dict:
+            try:
+                prof = state.get("_profile") if isinstance(state, dict) else None
+                if not isinstance(prof, dict):
+                    prof = {}
+                prof.setdefault("nodes", [])
+                return prof
+            except Exception:
+                return {"nodes": []}
+
+        async def _call_async(state: Any) -> Any:
+            tok = set_current_node(name)
+            prof = _ensure_profile(state)
+            before = llm_stats_snapshot()
+            t0 = time.perf_counter()
+            try:
+                out = await fn(state)
+            finally:
+                reset_current_node(tok)
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            after = llm_stats_snapshot()
+            prof["nodes"].append(
+                {
+                    "name": name,
+                    "dt_ms": round(dt_ms, 2),
+                    "llm_delta": llm_stats_diff(before, after),
+                }
+            )
+            if isinstance(out, dict):
+                out["_profile"] = prof
+            return out
+
+        def _call_sync(state: Any) -> Any:
+            tok = set_current_node(name)
+            prof = _ensure_profile(state)
+            before = llm_stats_snapshot()
+            t0 = time.perf_counter()
+            try:
+                out = fn(state)
+            finally:
+                reset_current_node(tok)
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            after = llm_stats_snapshot()
+            prof["nodes"].append(
+                {
+                    "name": name,
+                    "dt_ms": round(dt_ms, 2),
+                    "llm_delta": llm_stats_diff(before, after),
+                }
+            )
+            if isinstance(out, dict):
+                out["_profile"] = prof
+            return out
+
+        # Some nodes are sync, others are async (DB/memory). Preserve the type.
+        if inspect.iscoroutinefunction(fn):
+            return _call_async
+        return _call_sync
+
     loader_node = create_loader_node(memory_service)
-    detection_node = create_detection_node(llm)
+    detection_node = create_detection_node(llm_fast)
     mode_manager_node = create_mode_manager_node(modes)
     inner_monologue_node = create_inner_monologue_node(llm)
     emotion_update_node = create_emotion_update_node()
     reasoner_node = create_reasoner_node(llm)
     memory_retriever_node = create_memory_retriever_node(memory_service)
     style_node = create_style_node(llm)
-    generator_node = create_generator_node(llm)  # legacy / fallback
-    critic_node = create_critic_node(llm)  # legacy / fallback
-    lats_node = create_lats_search_node(llm)
+    lats_node = create_lats_search_node(llm, llm_soft_scorer=llm_judge)
     processor_node = create_processor_node(llm)
     final_validator_node = create_final_validator_node()
-    evolver_node = create_evolver_node(llm)
+    evolver_node = create_evolver_node(llm_fast)
     stage_manager_node = create_stage_manager_node()
-    memory_manager_node = create_memory_manager_node(llm)
+    memory_manager_node = create_memory_manager_node(llm_fast)
     memory_writer_node = create_memory_writer_node(memory_service)
 
     workflow = StateGraph(AgentState)
 
     # 添加所有节点
-    workflow.add_node("loader", loader_node)
-    workflow.add_node("detection", detection_node)
-    workflow.add_node("mode_manager", mode_manager_node)
-    workflow.add_node("inner_monologue", inner_monologue_node)
-    workflow.add_node("emotion_update", emotion_update_node)
-    workflow.add_node("reasoner", reasoner_node)
-    workflow.add_node("memory_retriever", memory_retriever_node)
-    workflow.add_node("style", style_node)
-    # legacy nodes kept for fallback / experimentation
-    workflow.add_node("generator", generator_node)
-    workflow.add_node("critic", critic_node)
-    workflow.add_node("refiner", generator_node)
+    workflow.add_node("loader", _wrap_node("loader", loader_node))
+    workflow.add_node("detection", _wrap_node("detection", detection_node))
+    workflow.add_node("mode_manager", _wrap_node("mode_manager", mode_manager_node))
+    workflow.add_node("inner_monologue", _wrap_node("inner_monologue", inner_monologue_node))
+    workflow.add_node("emotion_update", _wrap_node("emotion_update", emotion_update_node))
+    workflow.add_node("reasoner", _wrap_node("reasoner", reasoner_node))
+    workflow.add_node("memory_retriever", _wrap_node("memory_retriever", memory_retriever_node))
+    workflow.add_node("style", _wrap_node("style", style_node))
     # new LATS node
-    workflow.add_node("lats_search", lats_node)
-    workflow.add_node("processor", processor_node)
-    workflow.add_node("final_validator", final_validator_node)
-    workflow.add_node("evolver", evolver_node)
-    workflow.add_node("stage_manager", stage_manager_node)
-    workflow.add_node("memory_manager", memory_manager_node)
-    workflow.add_node("memory_writer", memory_writer_node)
+    workflow.add_node("lats_search", _wrap_node("lats_search", lats_node))
+    workflow.add_node("processor", _wrap_node("processor", processor_node))
+    workflow.add_node("final_validator", _wrap_node("final_validator", final_validator_node))
+    workflow.add_node("evolver", _wrap_node("evolver", evolver_node))
+    workflow.add_node("stage_manager", _wrap_node("stage_manager", stage_manager_node))
+    workflow.add_node("memory_manager", _wrap_node("memory_manager", memory_manager_node))
+    workflow.add_node("memory_writer", _wrap_node("memory_writer", memory_writer_node))
 
     # 设置入口点
     workflow.set_entry_point("loader")
@@ -115,11 +189,11 @@ def build_graph(
     # mode_manager 之后直接进入 inner_monologue（不再分支）
     workflow.add_edge("mode_manager", "inner_monologue")
     workflow.add_edge("inner_monologue", "emotion_update")
-    workflow.add_edge("emotion_update", "reasoner")
+    # 暂停使用 reasoner（保留代码与节点以便未来切回）；直接进入检索/风格/LATS
+    workflow.add_edge("emotion_update", "memory_retriever")
 
     # 正常流程（LATS）：
-    # reasoner -> memory_retriever -> style -> lats_search -> processor -> final_validator -> evolver -> stage_manager -> memory_manager -> memory_writer
-    workflow.add_edge("reasoner", "memory_retriever")
+    # memory_retriever -> style -> lats_search -> processor -> final_validator -> evolver -> stage_manager -> memory_manager -> memory_writer
     workflow.add_edge("memory_retriever", "style")
     workflow.add_edge("style", "lats_search")
     workflow.add_edge("lats_search", "processor")

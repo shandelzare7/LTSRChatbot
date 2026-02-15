@@ -9,18 +9,17 @@ from app.lats.prompt_utils import build_style_profile
 from app.lats.requirements import compile_requirements
 from app.lats.search import lats_search_best_plan
 from app.lats.reply_planner import plan_reply_via_llm
-from app.lats.reply_compiler import compile_reply_plan_to_processor_plan
-from app.lats.evaluator import evaluate_candidate
+from app.lats.evaluator import hard_gate
 
 import re
 
 
-def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
+def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) -> Callable[[AgentState], dict]:
     """
     LATS Choreography Search Node
     - 输入：reasoner/style 已写入的策略/风格/关系参数 + 记忆
-    - 输出：best ReplyPlan + 编译后的 ProcessorPlan（messages/delays/actions）
-    - reward：基于 post-processor 形态（messages/delays）评审得分
+    - 输出：best ReplyPlan + 文本 ProcessorPlan（仅 messages[]；延迟系统交由 processor 节点）
+    - reward：基于候选 messages[] 文本评审得分（不评估 delays/actions）
     """
 
     @trace_if_enabled(
@@ -54,7 +53,7 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
             print("[LATS] Mode 禁用 LATS，跳过搜索（mute_mode 早停）")
             return {
                 "reply_plan": {"mode": "mute", "messages": []},
-                "processor_plan": {"messages": [], "delays": [], "actions": []},
+                "processor_plan": {"messages": []},
                 "final_response": "",  # 空回复
                 "sim_report": {
                     "eval_score": 1.0,
@@ -73,6 +72,45 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         merged["requirements"] = requirements
         merged["style_profile"] = style_profile
 
+        # -----------------------------
+        # LATS tuning defaults (balanced, soft-scorer ON)
+        # -----------------------------
+        stage_id = str(state.get("current_stage") or "")
+        if not stage_id and isinstance(requirements, dict):
+            st = requirements.get("stage_targets") or {}
+            if isinstance(st, dict) and st.get("stage"):
+                stage_id = str(st.get("stage"))
+        stage_id = stage_id or "initiating"
+
+        # Keep soft scorer enabled by default; allow explicit disable only via state/env.
+        enable_llm_soft = bool(state.get("lats_enable_llm_soft_scorer", True))
+
+        # Limit how often soft scorer is invoked (still ON).
+        merged.setdefault("lats_llm_soft_top_n", 1)
+        merged.setdefault("lats_llm_soft_max_concurrency", 1)
+        # Stage 1.5 assistant-check is an extra LLM call; default off (soft scorer already measures assistantiness).
+        merged.setdefault("lats_assistant_check_top_n", 0)
+
+        # LATS V2 defaults (planner 8 candidates, up to 2 regens; strict gate then 3-judge aggregate)
+        merged.setdefault("lats_candidate_k", 8)
+        merged.setdefault("lats_max_regens", 2)
+        merged.setdefault("lats_gate_pass_rate_min", 0.5)
+        merged.setdefault("lats_final_score_threshold", 0.75)
+        merged.setdefault("lats_dim_w_relationship", 1.0 / 3.0)
+        merged.setdefault("lats_dim_w_stage", 1.0 / 3.0)
+        merged.setdefault("lats_dim_w_mood_busy", 1.0 / 3.0)
+
+        # Early-exit guard: initiating/experimenting must explore at least 1 rollout.
+        if "lats_min_rollouts_before_early_exit" not in merged:
+            merged["lats_min_rollouts_before_early_exit"] = 1 if stage_id in ("initiating", "experimenting") else 0
+
+        # Stricter early-exit gates in early stages to avoid "generic opener" winning too often.
+        if stage_id in ("initiating", "experimenting"):
+            merged.setdefault("lats_early_exit_root_score", 0.82)
+            merged.setdefault("lats_early_exit_plan_alignment_min", 0.80)
+            merged.setdefault("lats_early_exit_assistantiness_max", 0.18)
+            merged.setdefault("lats_early_exit_mode_fit_min", 0.65)
+
         # 2.0) 允许“完全跳过 LATS”（只用 draft_response/fallback），用于压测/降载
         if (state.get("lats_rollouts") is not None and int(state.get("lats_rollouts") or 0) <= 0) and (
             state.get("lats_expand_k") is not None and int(state.get("lats_expand_k") or 0) <= 0
@@ -81,10 +119,10 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
             rp = plan_reply_via_llm(
                 merged,
                 llm_invoker,
-                max_messages=int(requirements.get("max_messages", 3) or 3),
+                max_messages=1,
             )
-            proc = compile_reply_plan_to_processor_plan(rp, merged, max_messages=int(requirements.get("max_messages", 3) or 3))
-            rep = evaluate_candidate(merged, rp, proc, requirements, llm_soft_scorer=None)
+            proc = {"messages": list((rp or {}).get("messages") or [])}
+            failures = hard_gate(proc, requirements)
             final_segments = list(proc.get("messages") or [])
             final_text = " ".join([str(x) for x in final_segments]).strip()
             return {
@@ -92,7 +130,12 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
                 "style_profile": style_profile,
                 "reply_plan": rp,
                 "processor_plan": proc,
-                "sim_report": rep,
+                "sim_report": {
+                    "found_solution": len(failures) == 0,
+                    "eval_score": 1.0 if len(failures) == 0 else 0.0,
+                    "failed_checks": failures,
+                    "score_breakdown": {"skip_lats": 1.0},
+                },
                 "lats_tree": {"skipped": True, "reason": "rollouts_expand_k_zero"},
                 "lats_best_id": "root",
                 "final_response": final_text,
@@ -103,7 +146,6 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         # 仅在显式开启时生效（默认不改变线上行为）。
         if bool(state.get("lats_skip_low_risk")):
             ext = str(state.get("external_user_text") or state.get("user_input") or "").strip()
-            stage_id = str(state.get("current_stage") or "initiating")
             composite = (state.get("detection_signals") or {}).get("composite") or {}
             try:
                 risk = max(float(composite.get("conflict_eff", 0.0) or 0.0), float(composite.get("pressure", 0.0) or 0.0))
@@ -116,10 +158,10 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
                 rp = plan_reply_via_llm(
                     merged,
                     llm_invoker,
-                    max_messages=int(requirements.get("max_messages", 3) or 3),
+                    max_messages=1,
                 )
-                proc = compile_reply_plan_to_processor_plan(rp, merged, max_messages=int(requirements.get("max_messages", 3) or 3))
-                rep = evaluate_candidate(merged, rp, proc, requirements, llm_soft_scorer=None)
+                proc = {"messages": list((rp or {}).get("messages") or [])}
+                failures = hard_gate(proc, requirements)
                 final_segments = list(proc.get("messages") or [])
                 final_text = " ".join([str(x) for x in final_segments]).strip()
                 return {
@@ -127,7 +169,12 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
                     "style_profile": style_profile,
                     "reply_plan": rp,
                     "processor_plan": proc,
-                    "sim_report": rep,
+                    "sim_report": {
+                        "found_solution": len(failures) == 0,
+                        "eval_score": 1.0 if len(failures) == 0 else 0.0,
+                        "failed_checks": failures,
+                        "score_breakdown": {"skip_lats_low_risk": 1.0},
+                    },
                     "lats_tree": {"skipped": True},
                     "lats_best_id": "root",
                     "final_response": final_text,
@@ -148,17 +195,13 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         elif lats_budget and hasattr(lats_budget, "rollouts"):
             rollouts = int(lats_budget.rollouts)
         else:
-            # P1：阶段感知预算（让早期阶段更像“会长树”的搜索，而不是 2-sample rerank）
-            stage_id = str(state.get("current_stage") or "")
-            if not stage_id and isinstance(requirements, dict):
-                st = requirements.get("stage_targets") or {}
-                if isinstance(st, dict) and st.get("stage"):
-                    stage_id = str(st.get("stage"))
-            stage_id = stage_id or "initiating"
+            # Stage-aware balanced defaults
             if stage_id in ("initiating", "experimenting"):
-                rollouts = 8
+                rollouts = 4
             elif stage_id in ("intensifying", "integrating"):
-                rollouts = 6
+                rollouts = 2
+            elif stage_id in ("differentiating", "circumscribing", "stagnating", "avoiding", "terminating"):
+                rollouts = 3
             else:
                 rollouts = 2
 
@@ -167,51 +210,43 @@ def create_lats_search_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         elif lats_budget and hasattr(lats_budget, "expand_k"):
             expand_k = int(lats_budget.expand_k)
         else:
-            stage_id = str(state.get("current_stage") or "")
-            if not stage_id and isinstance(requirements, dict):
-                st = requirements.get("stage_targets") or {}
-                if isinstance(st, dict) and st.get("stage"):
-                    stage_id = str(st.get("stage"))
-            stage_id = stage_id or "initiating"
             if stage_id in ("initiating", "experimenting"):
+                expand_k = 2
+            elif stage_id in ("intensifying", "integrating"):
+                expand_k = 1
+            elif stage_id in ("differentiating", "circumscribing", "stagnating", "avoiding", "terminating"):
                 expand_k = 1
             else:
-                expand_k = 2
+                expand_k = 1
         
-        # P0：默认应启用 LLM soft scorer（至少用于 Top1 纠偏），避免“只靠启发式就过关”的短路。
-        # 若用户显式设置为 False 才禁用。
-        enable_llm_soft = bool(state.get("lats_enable_llm_soft_scorer", True))
         print(f"[LATS] 配置: rollouts={rollouts}, expand_k={expand_k}, llm_soft_scorer={'启用' if enable_llm_soft else '禁用'}")
         
         best_reply_plan, best_proc_plan, best_report, tree = lats_search_best_plan(
             merged,
             llm_invoker,
-            llm_soft_scorer=(llm_invoker if enable_llm_soft else None),
+            llm_soft_scorer=(llm_soft_scorer if enable_llm_soft else None),
             rollouts=rollouts,
             expand_k=expand_k,
             max_messages=int(requirements.get("max_messages", 5) or 5),
         )
 
-        # 3) finalize outputs
+        # 3) finalize outputs (LATS does NOT generate delays/actions)
         if not best_proc_plan:
             print("[LATS] ⚠ 未找到有效计划，使用 fallback")
             # 极端 fallback：不阻断主流程
             text = (state.get("draft_response") or state.get("final_response") or "").strip()
-            best_proc_plan = {
-                "messages": [text] if text else ["…"],
-                "delays": [0.8],
-                "actions": ["typing"],
-                "meta": {"source": "lats_fallback"},
-            }
+            if not text:
+                # 避免输出“…”导致下一轮 user_input 变成占位符，整段对话崩塌。
+                # 这里给出可读、可定位的降级提示（尤其是上游 402/限流/网络异常时）。
+                text = "（当前模型服务不可用或余额不足，暂时无法生成回复。请管理员检查 API Key/余额后重试。）"
+            best_proc_plan = {"messages": [text], "meta": {"source": "lats_fallback"}}
         final_segments = list(best_proc_plan.get("messages") or [])
         final_text = " ".join([str(x) for x in final_segments]).strip()
         
         if best_report:
             final_score = best_report.get("eval_score", 0.0)
             final_found = best_report.get("found_solution", False)
-            final_delays = best_proc_plan.get("delays", [])
-            total_delay = sum(float(d) for d in final_delays) if final_delays else 0.0
-            print(f"[LATS] 最终输出: {len(final_segments)}条消息, score={final_score:.4f}, found={final_found}, 总延迟={total_delay:.2f}秒")
+            print(f"[LATS] 最终输出: {len(final_segments)}条消息, score={final_score:.4f}, found={final_found}")
 
         print("[LATS] done")
         return {

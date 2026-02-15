@@ -13,6 +13,7 @@ database.py (Async SQLAlchemy)
 """
 
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -674,6 +675,81 @@ class DBManager:
                     ("power", 0.5),
                 ):
                     normalized_dims[k] = round(_norm01(dims.get(k, default)), 4)
+
+                # 运行时档案归一化：
+                # - 避免 bot_basic_info 出现 age=5 等脏数据
+                # - 避免 persona/lore 出现“由开发者创作/旨在为人们带来…”等产品说明式文本
+                #   （会破坏沉浸感，并与 forbidden 列表产生“诱导+禁止”的自相矛盾）
+                def _clamp_bot_age(info: Dict[str, Any]) -> Dict[str, Any]:
+                    out = dict(info or {})
+                    age = out.get("age")
+                    try:
+                        a = int(age)
+                    except Exception:
+                        return out
+                    # 系统其余模块默认以 18-35 作为可接受区间（否则 age_group 会被映射成 teen 等异常）
+                    if a < 18 or a > 35:
+                        out["age"] = 22
+                    return out
+
+                _drop_patterns = [
+                    r"由.*开发者.*创作",
+                    r"旨在.*(带来|提供)",
+                    r"为人们带来",
+                    r"感谢您的使用",
+                    r"祝您使用愉快",
+                    r"\bchatbot\b",
+                    r"\bai\b",
+                    r"模型",
+                    r"系统",
+                    r"人设",
+                    r"虚拟",
+                    r"虚构",
+                    r"配置",
+                    r"角色",
+                    r"剧本",
+                    r"产品",
+                ]
+                _drop_res = [re.compile(p, re.IGNORECASE) for p in _drop_patterns]
+
+                def _scrub(obj: Any) -> Any:
+                    if isinstance(obj, str):
+                        s = obj.strip()
+                        if not s:
+                            return ""
+                        if any(r.search(s) for r in _drop_res):
+                            return ""
+                        return obj
+                    if isinstance(obj, dict):
+                        out: Dict[str, Any] = {}
+                        for k, v in obj.items():
+                            vv = _scrub(v)
+                            if vv in ("", None, [], {}):
+                                # drop empty fields to reduce prompt noise
+                                continue
+                            out[k] = vv
+                        return out
+                    if isinstance(obj, list):
+                        out_list = []
+                        for it in obj:
+                            vv = _scrub(it)
+                            if vv in ("", None, [], {}):
+                                continue
+                            out_list.append(vv)
+                        return out_list
+                    return obj
+
+                bot_basic_info = _clamp_bot_age(dict(bot.basic_info or {}))
+                bot_persona = _scrub(dict(bot.persona or {})) if isinstance(bot.persona, dict) else {}
+
+                # lore 兜底：如果 scrub 后 lore 为空，给一段不 meta 的默认背景，避免 prompt 空洞
+                if isinstance(bot_persona, dict):
+                    lore = bot_persona.get("lore") if isinstance(bot_persona.get("lore"), dict) else {}
+                    if not lore:
+                        bot_persona["lore"] = {
+                            "origin": "平时话不算多，但对喜欢的东西会突然很认真。",
+                            "secret": "有时候嘴硬，其实挺在意对方的反馈。",
+                        }
                 return {
                     "relationship_id": str(user.id),
                     "relationship_state": normalized_dims,
@@ -683,9 +759,9 @@ class DBManager:
                     "relationship_assets": user.assets or {},
                     "spt_info": user.spt_info or {},
                     "conversation_summary": user.conversation_summary or "",
-                    "bot_basic_info": bot.basic_info or {},
+                    "bot_basic_info": bot_basic_info,
                     "bot_big_five": bot.big_five or {},
-                    "bot_persona": bot.persona or {},
+                    "bot_persona": bot_persona,
                     "user_basic_info": user_basic,
                     "chat_buffer": chat_buffer,
                 }

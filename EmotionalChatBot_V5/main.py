@@ -92,9 +92,9 @@ def _make_initial_state(user_id: str, bot_id: str) -> AgentState:
         "retry_count": 0,
         "final_segments": [],
         "final_delay": 0.0,
-        # LATS defaults (interactive-friendly)
-        "lats_rollouts": 2,
-        "lats_expand_k": 2,
+        # LATS defaults:
+        # Let the LATS node pick stage-aware rollouts/expand_k by default.
+        # (So initiating/experimenting won't be forced into an overly small fixed budget.)
         # 默认启用：否则你新增的 LLM 逐条对齐/记忆一致性/关系拟人评审不会运行
         "lats_enable_llm_soft_scorer": (str(os.getenv("LATS_ENABLE_LLM_SOFT_SCORER", "1")).lower() not in ("0", "false", "no", "off")),
     }

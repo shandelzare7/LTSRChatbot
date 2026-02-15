@@ -1,13 +1,50 @@
-"""LLM 客户端封装：支持普通调用与 Structured Output。"""
+"""LLM 客户端封装：支持普通调用与 Structured Output，并支持按角色路由多模型。
+
+Profiling notes:
+- When enabled (LTSR_LLM_STATS=1 or LTSR_PROFILE_STEPS=1), we collect per-(role,base_url,model)
+  call counts and total elapsed time. This is used by devtools/bot_to_bot_chat.py to produce
+  step-by-step performance reports.
+"""
 import os
 import time
-from typing import Any, Optional, Type, TypeVar
+import contextvars
+from typing import Any, Optional, Type, TypeVar, Literal
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 T = TypeVar("T")
+
+# ----------------------------
+# Current node context (optional)
+# ----------------------------
+
+_CURRENT_NODE: contextvars.ContextVar[str] = contextvars.ContextVar("ltsr_current_node", default="")
+
+
+def set_current_node(name: str) -> contextvars.Token:
+    """Set current graph node name (for per-call logs)."""
+    return _CURRENT_NODE.set(str(name or ""))
+
+
+def reset_current_node(token: contextvars.Token) -> None:
+    """Reset current node name back to previous value."""
+    try:
+        _CURRENT_NODE.reset(token)
+    except Exception:
+        pass
+
+
+def get_current_node() -> str:
+    try:
+        return str(_CURRENT_NODE.get() or "")
+    except Exception:
+        return ""
+
+
+def _call_log_enabled() -> bool:
+    return _truthy(os.getenv("LTSR_LLM_CALL_LOG"))
 
 
 def _truthy(v: Optional[str]) -> bool:
@@ -89,6 +126,121 @@ class TimedLLM:
         return _TimedInvoker(structured, label=f"structured<{getattr(schema, '__name__', 'schema')}>")
 
 
+# ----------------------------
+# LLM call stats (optional)
+# ----------------------------
+
+_LLM_STATS: dict[str, dict[str, Any]] = {}
+
+
+def _stats_enabled() -> bool:
+    return _truthy(os.getenv("LTSR_LLM_STATS")) or _truthy(os.getenv("LTSR_PROFILE_STEPS"))
+
+
+def reset_llm_stats() -> None:
+    """Reset in-memory counters for a fresh run."""
+    global _LLM_STATS
+    _LLM_STATS = {}
+
+
+def get_llm_stats() -> dict[str, dict[str, Any]]:
+    """Return a shallow copy of the current stats dict."""
+    return {k: dict(v) for k, v in _LLM_STATS.items()}
+
+
+def llm_stats_snapshot() -> dict[str, dict[str, Any]]:
+    """Alias for get_llm_stats(), kept for clarity at call sites."""
+    return get_llm_stats()
+
+
+def llm_stats_diff(before: dict[str, dict[str, Any]], after: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Compute (after - before) for each key."""
+    out: dict[str, dict[str, Any]] = {}
+    keys = set(before.keys()) | set(after.keys())
+    for k in keys:
+        b = before.get(k) or {}
+        a = after.get(k) or {}
+        dcalls = int(a.get("calls", 0) or 0) - int(b.get("calls", 0) or 0)
+        dms = float(a.get("total_ms", 0.0) or 0.0) - float(b.get("total_ms", 0.0) or 0.0)
+        if dcalls or abs(dms) > 0.001:
+            out[k] = {"calls": dcalls, "total_ms": round(dms, 2)}
+    return out
+
+
+def _stats_key(*, role: str, base_url: str, model: str, kind: str) -> str:
+    return f"role={role}|kind={kind}|base_url={base_url}|model={model}"
+
+
+def _record_llm_call(*, role: str, base_url: str, model: str, kind: str, dt_ms: float) -> None:
+    if not _stats_enabled():
+        return
+    k = _stats_key(role=role, base_url=base_url or "", model=model or "unknown", kind=kind)
+    rec = _LLM_STATS.get(k)
+    if rec is None:
+        rec = {"calls": 0, "total_ms": 0.0}
+        _LLM_STATS[k] = rec
+    rec["calls"] = int(rec.get("calls", 0) or 0) + 1
+    rec["total_ms"] = float(rec.get("total_ms", 0.0) or 0.0) + float(dt_ms or 0.0)
+
+
+class InstrumentedLLM:
+    """Wrapper that records call counts and elapsed time."""
+
+    def __init__(self, inner: Any, *, role: str, base_url: str, model: str):
+        self._inner = inner
+        self._role = role
+        self._base_url = base_url or ""
+        self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None) or model
+        self._model = model or self.model_name or "unknown"
+
+    def invoke(self, input: Any, **kwargs) -> Any:
+        t0 = time.perf_counter()
+        try:
+            return self._inner.invoke(input, **kwargs)
+        finally:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            _record_llm_call(role=self._role, base_url=self._base_url, model=str(self._model), kind="invoke", dt_ms=dt_ms)
+            if _call_log_enabled():
+                node = get_current_node() or "?"
+                print(
+                    f"[LLM_CALL] node={node} role={self._role} kind=invoke "
+                    f"model={self._model} dt_ms={dt_ms:.1f}"
+                )
+
+    def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
+        structured = self._inner.with_structured_output(schema, **kwargs)
+
+        role = self._role
+        base_url = self._base_url
+        model = str(self._model)
+
+        class _StructuredInstrumented:
+            def __init__(self, inner_struct: Any):
+                self._inner_struct = inner_struct
+
+            def invoke(self, input: Any, **kw) -> Any:
+                t0 = time.perf_counter()
+                try:
+                    return self._inner_struct.invoke(input, **kw)
+                finally:
+                    dt_ms = (time.perf_counter() - t0) * 1000.0
+                    _record_llm_call(
+                        role=role,
+                        base_url=base_url,
+                        model=model,
+                        kind=f"structured<{getattr(schema, '__name__', 'schema')}>",
+                        dt_ms=dt_ms,
+                    )
+                    if _call_log_enabled():
+                        node = get_current_node() or "?"
+                        print(
+                            f"[LLM_CALL] node={node} role={role} kind=structured<{getattr(schema, '__name__', 'schema')}> "
+                            f"model={model} dt_ms={dt_ms:.1f}"
+                        )
+
+        return _StructuredInstrumented(structured)
+
+
 def _build_httpx_client_for_trace() -> Any:
     """
     Build an httpx.Client with request/response hooks that print:
@@ -142,14 +294,82 @@ def _build_httpx_client_for_trace() -> Any:
 
 
 def get_llm(
+    role: Optional[str] = None,
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     temperature: float = 0.3,
 ) -> BaseChatModel:
-    """获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。"""
-    key = api_key or os.getenv("OPENAI_API_KEY")
-    model_name = model or os.getenv("OPENAI_MODEL", "gpt-4o")
-    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE")
+    """
+    获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。
+
+    支持按角色路由多模型（role: main/fast/judge），并支持预设：
+    - LTSR_LLM_PRESET=openai
+    - LTSR_LLM_PRESET=deepseek_route_a  (main=DeepSeek, fast/judge=OpenAI)
+    - LTSR_LLM_PRESET=deepseek_route_b  (all=DeepSeek)
+
+    角色级覆盖（优先级最高）：
+    - LTSR_LLM_<ROLE>_API_KEY
+    - LTSR_LLM_<ROLE>_BASE_URL
+    - LTSR_LLM_<ROLE>_MODEL
+    - LTSR_LLM_<ROLE>_TEMPERATURE
+    """
+
+    r = (role or "main").strip().lower()
+
+    def _env(role_key: str, name: str) -> str:
+        return os.getenv(f"LTSR_LLM_{role_key.upper()}_{name}", "").strip()
+
+    # Role-level overrides (highest priority)
+    role_api_key = _env(r, "API_KEY")
+    role_base_url = _env(r, "BASE_URL")
+    role_model = _env(r, "MODEL")
+    role_temp = _env(r, "TEMPERATURE")
+
+    preset = (os.getenv("LTSR_LLM_PRESET") or "").strip().lower() or "openai"
+
+    # Resolve config by preset (when role overrides absent)
+    def _resolve_by_preset() -> tuple[Optional[str], Optional[str], Optional[str], Optional[float]]:
+        # Defaults
+        if preset == "deepseek_route_a":
+            if r == "main":
+                k = (os.getenv("DEEPSEEK_API_KEY") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
+                return k or None, "https://api.deepseek.com/v1", "deepseek-chat", None
+            # fast/judge use OpenAI official by default (can override via LTSR_LLM_* envs)
+            k = (os.getenv("OPENAI_API_KEY_OPENAI") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
+            if r == "fast":
+                return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+            if r == "judge":
+                # Judge needs structured JSON stability; default to gpt-4o (override to mini if cost-sensitive)
+                return k or None, "https://api.openai.com/v1", "gpt-4o", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+
+        if preset == "deepseek_route_b":
+            # All roles use DeepSeek
+            k = (os.getenv("DEEPSEEK_API_KEY") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
+            return k or None, "https://api.deepseek.com/v1", "deepseek-chat", None
+
+        # openai (default)
+        k = (os.getenv("OPENAI_API_KEY_OPENAI") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
+        if r == "fast":
+            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+        if r == "judge":
+            # Judge is used heavily in LATS; default to a fast/stable mini model.
+            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+        return k or None, "https://api.openai.com/v1", "gpt-4o", None
+
+    preset_key, preset_base_url, preset_model, preset_temp = _resolve_by_preset()
+
+    key = api_key or role_api_key or preset_key or (os.getenv("OPENAI_API_KEY") or "")
+    model_name = model or role_model or preset_model or os.getenv("OPENAI_MODEL", "gpt-4o")
+    base_url = role_base_url or preset_base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE")
+    if role_temp:
+        try:
+            temperature = float(role_temp)
+        except Exception:
+            pass
+    elif preset_temp is not None:
+        temperature = float(preset_temp)
+
     if key:
         kwargs: dict[str, Any] = {
             "model": model_name,
@@ -191,9 +411,19 @@ def get_llm(
             kwargs.pop("http_client", None)
             kwargs.pop("include_response_headers", None)
             llm = ChatOpenAI(**kwargs)  # type: ignore[arg-type]
-        return TimedLLM(llm) if _truthy(os.getenv("LTSR_LLM_PERF")) else llm
+        wrapped: Any = llm
+        if _stats_enabled():
+            wrapped = InstrumentedLLM(wrapped, role=r, base_url=base_url or "", model=model_name)
+        if _truthy(os.getenv("LTSR_LLM_PERF")):
+            wrapped = TimedLLM(wrapped)
+        return wrapped
     llm = MockLLM(model=model_name, temperature=temperature)
-    return TimedLLM(llm) if _truthy(os.getenv("LTSR_LLM_PERF")) else llm
+    wrapped2: Any = llm
+    if _stats_enabled():
+        wrapped2 = InstrumentedLLM(wrapped2, role=r, base_url=base_url or "", model=model_name)
+    if _truthy(os.getenv("LTSR_LLM_PERF")):
+        wrapped2 = TimedLLM(wrapped2)
+    return wrapped2
 
 
 class MockLLM(BaseChatModel):
