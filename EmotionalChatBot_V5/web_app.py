@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from datetime import datetime, timezone
 import time
+import asyncio
 import io
 import zipfile
 from typing import Optional
@@ -201,6 +202,8 @@ class SessionInitRequest(BaseModel):
 
 # 全局变量
 _graph = None
+_graph_fast = None
+_graph_tail = None
 _db_manager = None
 
 
@@ -210,6 +213,26 @@ def get_graph():
     if _graph is None:
         _graph = build_graph()
     return _graph
+
+
+def _truthy(v: Optional[str]) -> bool:
+    return str(v or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def get_graph_fast():
+    """Web fast-return graph: end at final_validator (no tail writes)."""
+    global _graph_fast
+    if _graph_fast is None:
+        _graph_fast = build_graph(entry_point="loader", end_at="final_validator")
+    return _graph_fast
+
+
+def get_graph_tail():
+    """Web tail graph: evolver -> ... -> memory_writer."""
+    global _graph_tail
+    if _graph_tail is None:
+        _graph_tail = build_graph(entry_point="evolver", end_at="memory_writer")
+    return _graph_tail
 
 
 def get_db_manager():
@@ -456,7 +479,9 @@ async def chat(
         sys.stdout = FileOnlyWriter(log_file)
         
         try:
-            graph = get_graph()
+            # Web: return reply ASAP after final_validator, then run tail nodes async.
+            fast_return = _truthy(os.getenv("WEB_FAST_RETURN", "1"))
+            graph = get_graph_fast() if fast_return else get_graph()
             t0 = time.perf_counter()
             result = await graph.ainvoke(state, config={"recursion_limit": 50})
             t_graph_ms = (time.perf_counter() - t0) * 1000.0
@@ -473,6 +498,39 @@ async def chat(
             reply = " ".join(result["final_segments"])
         if not reply:
             reply = result.get("draft_response") or "（无回复）"
+
+        # Mark "ready to return" timestamp for UI and DB created_at semantics.
+        ai_sent_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        if isinstance(result, dict):
+            result["ai_sent_at"] = ai_sent_at
+
+        # Run tail nodes async (evolver -> stage_manager -> memory_manager -> memory_writer)
+        if _truthy(os.getenv("WEB_FAST_RETURN", "1")):
+            tail_state = dict(state)
+            if isinstance(result, dict):
+                tail_state.update(result)
+            tail_state["ai_sent_at"] = ai_sent_at
+
+            async def _run_tail():
+                log_file2, _ = get_or_create_log_file(session_id, user_id, bot_id)
+                orig = sys.stdout
+                sys.stdout = FileOnlyWriter(log_file2)
+                try:
+                    tail_graph = get_graph_tail()
+                    await tail_graph.ainvoke(tail_state, config={"recursion_limit": 50})
+                except Exception as e:
+                    try:
+                        print(f"[WEB_BG] tail graph failed: {e}")
+                    except Exception:
+                        pass
+                finally:
+                    sys.stdout = orig
+
+            # Fire-and-forget: do not block user response.
+            try:
+                asyncio.create_task(_run_tail())
+            except Exception:
+                pass
         
         # 记录到日志文件
         try:
@@ -516,7 +574,7 @@ async def chat(
             "status": "success",
             # timestamps for UI
             "user_created_at": received_iso,
-            "ai_created_at": (result.get("ai_sent_at") if isinstance(result, dict) else None),
+            "ai_created_at": ai_sent_at,
         }
     except Exception as e:
         import traceback

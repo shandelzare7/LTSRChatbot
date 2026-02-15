@@ -4,7 +4,7 @@ import inspect
 import os
 import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List, Optional, Literal
 
 from langgraph.graph import END, StateGraph
 
@@ -55,6 +55,8 @@ def build_graph(
     llm_judge: Any = None,
     memory_service: Any = None,
     modes: Optional[List[PsychoMode]] = None,
+    entry_point: Literal["loader", "evolver"] = "loader",
+    end_at: Literal["memory_writer", "final_validator"] = "memory_writer",
 ) -> Any:
     """
     构建 LangGraph。
@@ -160,48 +162,58 @@ def build_graph(
 
     workflow = StateGraph(AgentState)
 
-    # 添加所有节点
-    workflow.add_node("loader", _wrap_node("loader", loader_node))
-    workflow.add_node("detection", _wrap_node("detection", detection_node))
-    workflow.add_node("mode_manager", _wrap_node("mode_manager", mode_manager_node))
-    workflow.add_node("inner_monologue", _wrap_node("inner_monologue", inner_monologue_node))
-    workflow.add_node("emotion_update", _wrap_node("emotion_update", emotion_update_node))
-    workflow.add_node("reasoner", _wrap_node("reasoner", reasoner_node))
-    workflow.add_node("memory_retriever", _wrap_node("memory_retriever", memory_retriever_node))
-    workflow.add_node("style", _wrap_node("style", style_node))
-    # new LATS node
-    workflow.add_node("lats_search", _wrap_node("lats_search", lats_node))
-    workflow.add_node("processor", _wrap_node("processor", processor_node))
-    workflow.add_node("final_validator", _wrap_node("final_validator", final_validator_node))
-    workflow.add_node("evolver", _wrap_node("evolver", evolver_node))
-    workflow.add_node("stage_manager", _wrap_node("stage_manager", stage_manager_node))
-    workflow.add_node("memory_manager", _wrap_node("memory_manager", memory_manager_node))
-    workflow.add_node("memory_writer", _wrap_node("memory_writer", memory_writer_node))
+    if entry_point == "loader":
+        # Full (or fast-return) graph: loader -> ... -> final_validator -> (optional tail) -> END
+        workflow.add_node("loader", _wrap_node("loader", loader_node))
+        workflow.add_node("detection", _wrap_node("detection", detection_node))
+        workflow.add_node("mode_manager", _wrap_node("mode_manager", mode_manager_node))
+        workflow.add_node("inner_monologue", _wrap_node("inner_monologue", inner_monologue_node))
+        workflow.add_node("emotion_update", _wrap_node("emotion_update", emotion_update_node))
+        workflow.add_node("reasoner", _wrap_node("reasoner", reasoner_node))
+        workflow.add_node("memory_retriever", _wrap_node("memory_retriever", memory_retriever_node))
+        workflow.add_node("style", _wrap_node("style", style_node))
+        workflow.add_node("lats_search", _wrap_node("lats_search", lats_node))
+        workflow.add_node("processor", _wrap_node("processor", processor_node))
+        workflow.add_node("final_validator", _wrap_node("final_validator", final_validator_node))
+        workflow.add_node("evolver", _wrap_node("evolver", evolver_node))
+        workflow.add_node("stage_manager", _wrap_node("stage_manager", stage_manager_node))
+        workflow.add_node("memory_manager", _wrap_node("memory_manager", memory_manager_node))
+        workflow.add_node("memory_writer", _wrap_node("memory_writer", memory_writer_node))
 
-    # 设置入口点
-    workflow.set_entry_point("loader")
-    
-    # 主流程：loader -> detection
-    workflow.add_edge("loader", "detection")
-    
-    # 检测节点后直接进入 mode_manager（不再分支）
-    workflow.add_edge("detection", "mode_manager")
-    # mode_manager 之后直接进入 inner_monologue（不再分支）
-    workflow.add_edge("mode_manager", "inner_monologue")
-    workflow.add_edge("inner_monologue", "emotion_update")
-    # 暂停使用 reasoner（保留代码与节点以便未来切回）；直接进入检索/风格/LATS
-    workflow.add_edge("emotion_update", "memory_retriever")
+        workflow.set_entry_point("loader")
+        workflow.add_edge("loader", "detection")
+        workflow.add_edge("detection", "mode_manager")
+        workflow.add_edge("mode_manager", "inner_monologue")
+        workflow.add_edge("inner_monologue", "emotion_update")
+        workflow.add_edge("emotion_update", "memory_retriever")
+        workflow.add_edge("memory_retriever", "style")
+        workflow.add_edge("style", "lats_search")
+        workflow.add_edge("lats_search", "processor")
+        workflow.add_edge("processor", "final_validator")
 
-    # 正常流程（LATS）：
-    # memory_retriever -> style -> lats_search -> processor -> final_validator -> evolver -> stage_manager -> memory_manager -> memory_writer
-    workflow.add_edge("memory_retriever", "style")
-    workflow.add_edge("style", "lats_search")
-    workflow.add_edge("lats_search", "processor")
-    workflow.add_edge("processor", "final_validator")
-    workflow.add_edge("final_validator", "evolver")
-    workflow.add_edge("evolver", "stage_manager")
-    workflow.add_edge("stage_manager", "memory_manager")
-    workflow.add_edge("memory_manager", "memory_writer")
-    workflow.add_edge("memory_writer", END)
+        if end_at == "final_validator":
+            # Fast return: stop as soon as the final reply is validated.
+            workflow.add_edge("final_validator", END)
+        else:
+            workflow.add_edge("final_validator", "evolver")
+            workflow.add_edge("evolver", "stage_manager")
+            workflow.add_edge("stage_manager", "memory_manager")
+            workflow.add_edge("memory_manager", "memory_writer")
+            workflow.add_edge("memory_writer", END)
 
-    return workflow.compile()
+        return workflow.compile()
+
+    if entry_point == "evolver":
+        # Tail graph: evolver -> stage_manager -> memory_manager -> memory_writer -> END
+        workflow.add_node("evolver", _wrap_node("evolver", evolver_node))
+        workflow.add_node("stage_manager", _wrap_node("stage_manager", stage_manager_node))
+        workflow.add_node("memory_manager", _wrap_node("memory_manager", memory_manager_node))
+        workflow.add_node("memory_writer", _wrap_node("memory_writer", memory_writer_node))
+        workflow.set_entry_point("evolver")
+        workflow.add_edge("evolver", "stage_manager")
+        workflow.add_edge("stage_manager", "memory_manager")
+        workflow.add_edge("memory_manager", "memory_writer")
+        workflow.add_edge("memory_writer", END)
+        return workflow.compile()
+
+    raise ValueError(f"unsupported entry_point: {entry_point}")

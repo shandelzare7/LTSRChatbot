@@ -9,6 +9,7 @@ import os
 import time
 import contextvars
 from typing import Any, Optional, Type, TypeVar, Literal
+from datetime import datetime
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -45,6 +46,74 @@ def get_current_node() -> str:
 
 def _call_log_enabled() -> bool:
     return _truthy(os.getenv("LTSR_LLM_CALL_LOG"))
+
+
+def _dump_file_path() -> str:
+    """If set, append every LLM call's prompt+timing to this file."""
+    return (os.getenv("LTSR_LLM_DUMP_FILE") or "").strip()
+
+
+_LLM_DUMP_SEQ = 0
+
+
+def _as_text(x: Any) -> str:
+    if x is None:
+        return ""
+    if isinstance(x, str):
+        return x
+    try:
+        return str(x)
+    except Exception:
+        return repr(x)
+
+
+def _format_messages_for_dump(input: Any) -> str:
+    """Best-effort: turn input/messages into readable text."""
+    if isinstance(input, list):
+        lines: list[str] = []
+        for i, m in enumerate(input):
+            role = getattr(m, "type", None) or getattr(m, "role", None) or m.__class__.__name__
+            content = _as_text(getattr(m, "content", None) if hasattr(m, "content") else m)
+            lines.append(f"- [{i}] {role}: {content}")
+        return "\n".join(lines)
+    # single message or string
+    role = getattr(input, "type", None) or getattr(input, "role", None) or input.__class__.__name__
+    content = _as_text(getattr(input, "content", None) if hasattr(input, "content") else input)
+    return f"- [0] {role}: {content}"
+
+
+def _dump_llm_call(*, node: str, role: str, kind: str, model: str, dt_ms: float, input: Any) -> None:
+    path = _dump_file_path()
+    if not path:
+        return
+    global _LLM_DUMP_SEQ
+    _LLM_DUMP_SEQ += 1
+    try:
+        ts = datetime.now().isoformat(timespec="seconds")
+    except Exception:
+        ts = ""
+    block = "\n".join(
+        [
+            "============================================================",
+            f"seq={_LLM_DUMP_SEQ}",
+            f"time={ts}",
+            f"node={node}",
+            f"role={role}",
+            f"kind={kind}",
+            f"model={model}",
+            f"dt_ms={dt_ms:.1f}",
+            "messages:",
+            _format_messages_for_dump(input),
+            "",
+        ]
+    )
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(block)
+    except Exception:
+        # Never fail the main call due to dump issues.
+        return
 
 
 def _truthy(v: Optional[str]) -> bool:
@@ -200,8 +269,9 @@ class InstrumentedLLM:
         finally:
             dt_ms = (time.perf_counter() - t0) * 1000.0
             _record_llm_call(role=self._role, base_url=self._base_url, model=str(self._model), kind="invoke", dt_ms=dt_ms)
+            node = get_current_node() or "?"
+            _dump_llm_call(node=node, role=self._role, kind="invoke", model=str(self._model), dt_ms=dt_ms, input=input)
             if _call_log_enabled():
-                node = get_current_node() or "?"
                 print(
                     f"[LLM_CALL] node={node} role={self._role} kind=invoke "
                     f"model={self._model} dt_ms={dt_ms:.1f}"
@@ -231,8 +301,16 @@ class InstrumentedLLM:
                         kind=f"structured<{getattr(schema, '__name__', 'schema')}>",
                         dt_ms=dt_ms,
                     )
+                    node = get_current_node() or "?"
+                    _dump_llm_call(
+                        node=node,
+                        role=role,
+                        kind=f"structured<{getattr(schema, '__name__', 'schema')}>",
+                        model=str(model),
+                        dt_ms=dt_ms,
+                        input=input,
+                    )
                     if _call_log_enabled():
-                        node = get_current_node() or "?"
                         print(
                             f"[LLM_CALL] node={node} role={role} kind=structured<{getattr(schema, '__name__', 'schema')}> "
                             f"model={model} dt_ms={dt_ms:.1f}"
@@ -337,11 +415,11 @@ def get_llm(
             # fast/judge use OpenAI official by default (can override via LTSR_LLM_* envs)
             k = (os.getenv("OPENAI_API_KEY_OPENAI") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
             if r == "fast":
-                return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+                return k or None, "https://api.openai.com/v1", "gpt-4o", None
             if r == "judge":
                 # Judge needs structured JSON stability; default to gpt-4o (override to mini if cost-sensitive)
                 return k or None, "https://api.openai.com/v1", "gpt-4o", None
-            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o", None
 
         if preset == "deepseek_route_b":
             # All roles use DeepSeek
@@ -351,10 +429,9 @@ def get_llm(
         # openai (default)
         k = (os.getenv("OPENAI_API_KEY_OPENAI") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
         if r == "fast":
-            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o", None
         if r == "judge":
-            # Judge is used heavily in LATS; default to a fast/stable mini model.
-            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o", None
         return k or None, "https://api.openai.com/v1", "gpt-4o", None
 
     preset_key, preset_base_url, preset_model, preset_temp = _resolve_by_preset()
