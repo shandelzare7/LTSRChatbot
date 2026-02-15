@@ -53,6 +53,25 @@ def _dump_file_path() -> str:
     return (os.getenv("LTSR_LLM_DUMP_FILE") or "").strip()
 
 
+def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
+    """
+    Best-effort Priority processing toggle for OpenAI.
+    Only apply when explicitly enabled via env and when the model is gpt-4o-mini
+    (user requested 'gpt4omini priority').
+    """
+    tier = (os.getenv("LTSR_OPENAI_SERVICE_TIER") or os.getenv("OPENAI_SERVICE_TIER") or "").strip()
+    if not tier:
+        return None
+    m = str(model or "")
+    if m != "gpt-4o-mini":
+        return None
+    # Only for OpenAI official endpoint (or empty base_url which defaults to it in this repo)
+    b = (base_url or "").strip()
+    if b and "api.openai.com" not in b:
+        return None
+    return tier
+
+
 _LLM_DUMP_SEQ = 0
 
 
@@ -265,6 +284,9 @@ class InstrumentedLLM:
     def invoke(self, input: Any, **kwargs) -> Any:
         t0 = time.perf_counter()
         try:
+            tier = _service_tier_for_call(model=str(self._model), base_url=str(self._base_url))
+            if tier and "service_tier" not in kwargs:
+                kwargs["service_tier"] = tier
             return self._inner.invoke(input, **kwargs)
         finally:
             dt_ms = (time.perf_counter() - t0) * 1000.0
@@ -291,6 +313,9 @@ class InstrumentedLLM:
             def invoke(self, input: Any, **kw) -> Any:
                 t0 = time.perf_counter()
                 try:
+                    tier = _service_tier_for_call(model=str(model), base_url=str(base_url))
+                    if tier and "service_tier" not in kw:
+                        kw["service_tier"] = tier
                     return self._inner_struct.invoke(input, **kw)
                 finally:
                     dt_ms = (time.perf_counter() - t0) * 1000.0
