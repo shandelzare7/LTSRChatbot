@@ -595,37 +595,33 @@ function initChat() {
                     // Notify only once per bot turn (use the first segment).
                     maybeNotifyBotMessage(firstContent).catch(() => {});
                     
-                    // 后续消息：只对 action === "typing" 的 segment 应用打字 delay
+                    // 后续消息：只要 segment 提供了 delay（秒），就累计等待；
+                    // 否则仅对 action === "typing" 使用默认打字 delay。
                     let cumulativeDelayMs = 0;
-                    const DEFAULT_TYPING_DELAY_MS = 800; // 如果后端没有提供 delay，使用默认值
+                    const DEFAULT_TYPING_DELAY_MS = 1200; // 如果后端没有提供 delay，使用默认值（更明显的打字感）
                     
                     for (let i = 1; i < segments.length; i++) {
                         const seg = segments[i];
                         const content = typeof seg === 'string' ? seg : (seg.content || seg);
                         const action = typeof seg === 'object' && seg !== null ? (seg.action || 'typing') : 'typing';
                         
-                        // 只对 action === "typing" 的 segment 应用打字 delay
-                        if (action === 'typing') {
-                            // 获取 delay（秒），转换为毫秒
-                            let delayMs = DEFAULT_TYPING_DELAY_MS;
-                            if (typeof seg === 'object' && seg !== null && typeof seg.delay === 'number') {
-                                delayMs = Math.max(0, seg.delay * 1000); // 秒转毫秒，确保非负
-                            }
-                            cumulativeDelayMs += delayMs;
-                            
-                            setTimeout(() => {
-                                addMessage('bot', content);
-                                const el = document.getElementById('chat-messages');
-                                if (el) el.scrollTop = el.scrollHeight;
-                            }, cumulativeDelayMs);
-                        } else {
-                            // action !== "typing"（如 "idle"）：立即显示，不累积 delay
-                            setTimeout(() => {
-                                addMessage('bot', content);
-                                const el = document.getElementById('chat-messages');
-                                if (el) el.scrollTop = el.scrollHeight;
-                            }, cumulativeDelayMs);
+                        // delay（秒）→ 毫秒；如果后端明确提供了 delay，则无论 action 都累计等待
+                        let providedDelayMs = null;
+                        if (typeof seg === 'object' && seg !== null && typeof seg.delay === 'number') {
+                            providedDelayMs = Math.max(0, seg.delay * 1000);
                         }
+
+                        if (providedDelayMs !== null) {
+                            cumulativeDelayMs += providedDelayMs;
+                        } else if (action === 'typing') {
+                            cumulativeDelayMs += DEFAULT_TYPING_DELAY_MS;
+                        }
+
+                        setTimeout(() => {
+                            addMessage('bot', content);
+                            const el = document.getElementById('chat-messages');
+                            if (el) el.scrollTop = el.scrollHeight;
+                        }, cumulativeDelayMs);
                     }
                 } else {
                     addMessage('bot', data.reply, { timestamp: data.ai_created_at || new Date().toISOString() });
