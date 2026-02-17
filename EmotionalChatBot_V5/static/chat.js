@@ -595,15 +595,13 @@ function initChat() {
                     // Notify only once per bot turn (use the first segment).
                     maybeNotifyBotMessage(firstContent).catch(() => {});
                     
-                    // 后续消息：只要 segment 提供了 delay（秒），就累计等待；
-                    // 否则仅对 action === "typing" 使用默认打字 delay。
+                    // 后续消息：只在 segment 明确提供 delay（秒）时才累计等待；
+                    // 不再在前端兜底计算打字延迟（延迟全部由 processor 输出）。
                     let cumulativeDelayMs = 0;
-                    const DEFAULT_TYPING_DELAY_MS = 1200; // 如果后端没有提供 delay，使用默认值（更明显的打字感）
                     
                     for (let i = 1; i < segments.length; i++) {
                         const seg = segments[i];
                         const content = typeof seg === 'string' ? seg : (seg.content || seg);
-                        const action = typeof seg === 'object' && seg !== null ? (seg.action || 'typing') : 'typing';
                         
                         // delay（秒）→ 毫秒；如果后端明确提供了 delay，则无论 action 都累计等待
                         let providedDelayMs = null;
@@ -613,8 +611,6 @@ function initChat() {
 
                         if (providedDelayMs !== null) {
                             cumulativeDelayMs += providedDelayMs;
-                        } else if (action === 'typing') {
-                            cumulativeDelayMs += DEFAULT_TYPING_DELAY_MS;
                         }
 
                         setTimeout(() => {
