@@ -24,7 +24,7 @@ except Exception:
     pass
 
 from fastapi import FastAPI, Request, Response, Cookie, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -40,6 +40,7 @@ from app.web.session import (
 )
 from main import _make_initial_state
 from sqlalchemy import select, case
+from sqlalchemy import text
 from utils.yaml_loader import get_project_root
 import sys
 
@@ -212,6 +213,22 @@ static_dir.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
 
+@app.get("/sw.js")
+async def service_worker():
+    """
+    Service Worker must be served from the app root to control '/' scope.
+    Used for browser notifications (best-effort; requires HTTPS/localhost).
+    """
+    p = static_dir / "sw.js"
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="sw.js not found")
+    return FileResponse(
+        path=str(p),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
+
+
 # Pydantic 模型
 class ChatRequest(BaseModel):
     message: str
@@ -219,6 +236,11 @@ class ChatRequest(BaseModel):
 
 class SessionInitRequest(BaseModel):
     bot_id: str
+
+
+# Push subscription payload
+class PushSubscribeRequest(BaseModel):
+    subscription: dict
 
 
 # 全局变量
@@ -264,6 +286,146 @@ def get_db_manager():
             raise RuntimeError("DATABASE_URL 未设置")
         _db_manager = DBManager.from_env()
     return _db_manager
+
+
+def _get_vapid_keys() -> tuple[str, str, str]:
+    """
+    Web Push VAPID keys.
+    - VAPID_PUBLIC_KEY: base64url string (no padding)
+    - VAPID_PRIVATE_KEY: base64url string
+    - VAPID_SUBJECT: e.g. 'mailto:you@example.com' or 'https://your-domain'
+    """
+    pub = (os.getenv("VAPID_PUBLIC_KEY") or "").strip()
+    priv = (os.getenv("VAPID_PRIVATE_KEY") or "").strip()
+    subject = (os.getenv("VAPID_SUBJECT") or "").strip() or "mailto:admin@example.com"
+    if not pub or not priv:
+        raise RuntimeError("VAPID keys not configured (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY)")
+    return pub, priv, subject
+
+
+async def _ensure_push_schema(db: DBManager) -> None:
+    """
+    Ensure push_subscriptions table exists (idempotent).
+    We key by session_id (cookie) because sessions are per-browser.
+    """
+    sql = """
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      session_id TEXT PRIMARY KEY,
+      user_external_id TEXT,
+      bot_id UUID,
+      subscription JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_bot ON push_subscriptions(user_external_id, bot_id);
+    """
+    async with db.engine.connect() as conn:
+        await conn.execute(text(sql))
+        await conn.commit()
+
+
+async def _upsert_push_subscription(
+    db: DBManager, *, session_id: str, user_external_id: str, bot_id: str, subscription: dict
+) -> None:
+    import json
+
+    await _ensure_push_schema(db)
+    sql = """
+    INSERT INTO push_subscriptions(session_id, user_external_id, bot_id, subscription, updated_at)
+    VALUES (:session_id, :user_external_id, :bot_id::uuid, :sub::jsonb, NOW())
+    ON CONFLICT (session_id) DO UPDATE
+      SET user_external_id=EXCLUDED.user_external_id,
+          bot_id=EXCLUDED.bot_id,
+          subscription=EXCLUDED.subscription,
+          updated_at=NOW();
+    """
+    async with db.engine.connect() as conn:
+        await conn.execute(
+            text(sql),
+            {
+                "session_id": session_id,
+                "user_external_id": user_external_id,
+                "bot_id": bot_id,
+                "sub": json.dumps(subscription, ensure_ascii=False),
+            },
+        )
+        await conn.commit()
+
+
+async def _delete_push_subscription(db: DBManager, *, session_id: str) -> None:
+    await _ensure_push_schema(db)
+    async with db.engine.connect() as conn:
+        await conn.execute(text("DELETE FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})
+        await conn.commit()
+
+
+async def _get_push_subscription(db: DBManager, *, session_id: str) -> Optional[dict]:
+    await _ensure_push_schema(db)
+    async with db.engine.connect() as conn:
+        row = (await conn.execute(text("SELECT subscription FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})).first()
+    if not row:
+        return None
+    sub = row[0]
+    return sub if isinstance(sub, dict) else None
+
+
+async def _send_web_push(*, subscription: dict, title: str, body: str, url: str = "/", tag: str = "ltsr-push") -> None:
+    """
+    Best-effort send Web Push.
+    Uses pywebpush (sync) in a thread executor.
+    """
+    import json
+    from pywebpush import webpush  # type: ignore
+
+    pub, priv, subject = _get_vapid_keys()
+    payload = json.dumps({"title": title, "body": body, "url": url, "tag": tag}, ensure_ascii=False)
+
+    def _do():
+        # webpush() will raise on network/provider errors; we treat as best-effort.
+        webpush(
+            subscription_info=subscription,
+            data=payload,
+            vapid_private_key=priv,
+            vapid_claims={"sub": subject},
+        )
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, _do)
+
+
+@app.get("/api/push/public-key")
+async def get_push_public_key():
+    pub, _, _ = _get_vapid_keys()
+    return {"public_key": pub}
+
+
+@app.post("/api/push/subscribe")
+async def push_subscribe(req: PushSubscribeRequest, session_id: Optional[str] = Cookie(None)):
+    if not session_id:
+        raise HTTPException(status_code=401, detail="未找到会话")
+    session = get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=401, detail="会话无效或已过期")
+    # Validate VAPID config early
+    _get_vapid_keys()
+    db = get_db_manager()
+    await _upsert_push_subscription(
+        db,
+        session_id=session_id,
+        user_external_id=str(session.get("user_id") or ""),
+        bot_id=str(session.get("bot_id") or ""),
+        subscription=req.subscription or {},
+    )
+    return {"status": "success"}
+
+
+@app.post("/api/push/unsubscribe")
+async def push_unsubscribe(session_id: Optional[str] = Cookie(None)):
+    if not session_id:
+        raise HTTPException(status_code=401, detail="未找到会话")
+    db = get_db_manager()
+    await _delete_push_subscription(db, session_id=session_id)
+    return {"status": "success"}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -630,6 +792,21 @@ async def chat(
                     inflight["pending_user_msgs"] = []
                     w = inflight.get("waiter")
                     if w is not None and (not w.done()):
+                        # Web Push (best-effort): send once per bot turn.
+                        try:
+                            sub = await _get_push_subscription(db, session_id=session_id)
+                            if isinstance(sub, dict) and sub:
+                                bot_name = ""
+                                try:
+                                    bot_name = str((state.get("bot_basic_info") or {}).get("name") or "")  # type: ignore[union-attr]
+                                except Exception:
+                                    bot_name = ""
+                                title = bot_name or "Chatbot"
+                                body = str(segments[0] if segments else reply)[:200]
+                                await _send_web_push(subscription=sub, title=title, body=body, url="/", tag="ltsr-bot-message")
+                        except Exception:
+                            # never block chat on push failures
+                            pass
                         w.set_result(
                             {
                                 "reply": reply,
@@ -977,7 +1154,10 @@ def get_chat_html(bot_id: str) -> str:
         <div class="chat-container">
             <div class="chat-header">
                 <h2>💬 对话中</h2>
-                <button id="reset-btn" class="btn-secondary">清空历史</button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button id="notify-btn" class="btn-secondary" title="开启浏览器通知（需要授权）">开启通知</button>
+                    <button id="reset-btn" class="btn-secondary">清空历史</button>
+                </div>
             </div>
             <div id="chat-messages" class="chat-messages"></div>
             <div class="chat-input-container">

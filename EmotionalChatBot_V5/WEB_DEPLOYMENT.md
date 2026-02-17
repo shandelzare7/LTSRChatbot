@@ -17,6 +17,11 @@ DATABASE_URL=postgresql+asyncpg://user:password@localhost/dbname
 OPENAI_API_KEY=your_openai_api_key
 ENVIRONMENT=development  # 或 production
 PORT=8000  # 可选，默认8000
+# Web Push（可选：关掉网页也能推送）
+# 生成 key：python devtools/generate_vapid_keys.py
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+VAPID_SUBJECT=mailto:you@example.com
 ```
 
 ### 3. 启动 Web 应用

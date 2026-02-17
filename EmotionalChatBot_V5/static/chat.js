@@ -1,5 +1,7 @@
 // Chatbot Web Application JavaScript
 
+let currentBotName = 'Chatbot';
+
 // 获取当前会话状态（用于开场白等 UI）
 async function fetchSessionStatus() {
     try {
@@ -16,6 +18,7 @@ async function fetchSessionStatus() {
 
 function buildFirstBotMessage(status) {
     const botName = (status && status.bot_name) ? status.bot_name : 'Chatbot';
+    currentBotName = botName || 'Chatbot';
     const basicInfo = (status && status.bot_basic_info) ? status.bot_basic_info : {};
     const age = basicInfo.age;
     const occupation = basicInfo.occupation;
@@ -40,6 +43,207 @@ async function ensureFirstBotMessage() {
 
     const status = await fetchSessionStatus();
     addMessage('bot', buildFirstBotMessage(status));
+}
+
+function _notifyEnabled() {
+    try {
+        return localStorage.getItem('ltsr_notify_enabled') === '1';
+    } catch (e) {
+        return false;
+    }
+}
+
+function _pushEnabled() {
+    try {
+        return localStorage.getItem('ltsr_push_enabled') === '1';
+    } catch (e) {
+        return false;
+    }
+}
+
+function _setPushEnabled(v) {
+    try {
+        localStorage.setItem('ltsr_push_enabled', v ? '1' : '0');
+    } catch (e) {}
+}
+
+function _setNotifyEnabled(v) {
+    try {
+        localStorage.setItem('ltsr_notify_enabled', v ? '1' : '0');
+    } catch (e) {}
+}
+
+function _shouldNotifyNow() {
+    try {
+        if (document.visibilityState && document.visibilityState !== 'visible') return true;
+        if (typeof document.hasFocus === 'function' && !document.hasFocus()) return true;
+    } catch (e) {}
+    return false;
+}
+
+async function _registerServiceWorkerIfPossible() {
+    try {
+        if (!('serviceWorker' in navigator)) return null;
+        // SW must be at /sw.js to cover '/' scope.
+        await navigator.serviceWorker.register('/sw.js');
+        return await navigator.serviceWorker.ready;
+    } catch (e) {
+        return null;
+    }
+}
+
+async function maybeNotifyBotMessage(text) {
+    try {
+        // If Web Push is enabled, do NOT do local Notification here (avoid duplicates).
+        if (_pushEnabled()) return;
+        if (!_notifyEnabled()) return;
+        if (!('Notification' in window)) return;
+        if (Notification.permission !== 'granted') return;
+        if (!_shouldNotifyNow()) return;
+
+        const body = String(text || '').trim();
+        if (!body) return;
+
+        // Prefer SW showNotification (more reliable in background tabs).
+        const reg = await _registerServiceWorkerIfPossible();
+        if (reg && reg.showNotification) {
+            await reg.showNotification(currentBotName || 'Chatbot', {
+                body,
+                tag: 'ltsr-bot-message',
+                renotify: false,
+            });
+            return;
+        }
+        // Fallback: direct Notification.
+        // eslint-disable-next-line no-new
+        new Notification(currentBotName || 'Chatbot', { body });
+    } catch (e) {
+        // best-effort: never break chat flow
+    }
+}
+
+async function setupNotificationButton() {
+    const btn = document.getElementById('notify-btn');
+    if (!btn) return;
+    const supportsLocal = ('Notification' in window);
+    const supportsPush = ('serviceWorker' in navigator) && ('PushManager' in window);
+    if (!supportsLocal && !supportsPush) {
+        btn.style.display = 'none';
+        return;
+    }
+
+    // Register SW best-effort (does not prompt permission).
+    _registerServiceWorkerIfPossible().catch(() => {});
+
+    function urlBase64ToUint8Array(base64String) {
+        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+        const rawData = window.atob(base64);
+        const outputArray = new Uint8Array(rawData.length);
+        for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+        return outputArray;
+    }
+
+    async function getVapidPublicKey() {
+        const resp = await fetch('/api/push/public-key', { credentials: 'include' });
+        if (!resp.ok) throw new Error('get public key failed');
+        const data = await resp.json();
+        if (!data || !data.public_key) throw new Error('missing public key');
+        return String(data.public_key);
+    }
+
+    async function subscribePush() {
+        if (!supportsPush) return false;
+        const perm = supportsLocal ? await Notification.requestPermission() : 'granted';
+        if (perm !== 'granted') return false;
+        const reg = await _registerServiceWorkerIfPossible();
+        if (!reg || !reg.pushManager) return false;
+        const pub = await getVapidPublicKey();
+        const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(pub),
+        });
+        const payload = { subscription: sub.toJSON ? sub.toJSON() : sub };
+        const r = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+        });
+        if (!r.ok) throw new Error('subscribe api failed');
+        return true;
+    }
+
+    async function unsubscribePush() {
+        if (!supportsPush) return;
+        const reg = await _registerServiceWorkerIfPossible();
+        if (!reg || !reg.pushManager) return;
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+            try { await sub.unsubscribe(); } catch (e) {}
+        }
+        try {
+            await fetch('/api/push/unsubscribe', { method: 'POST', credentials: 'include' });
+        } catch (e) {}
+    }
+
+    const refresh = () => {
+        if (_pushEnabled()) {
+            btn.textContent = '推送已开启';
+            return;
+        }
+        if (!_notifyEnabled()) {
+            btn.textContent = supportsPush ? '开启推送' : '开启通知';
+            return;
+        }
+        if (!supportsLocal) {
+            btn.textContent = '开启通知';
+            return;
+        }
+        const perm = Notification.permission;
+        if (perm === 'denied') btn.textContent = '通知被禁用';
+        else if (perm === 'granted') btn.textContent = '通知已开启';
+        else btn.textContent = '点击授权通知';
+    };
+
+    btn.onclick = async () => {
+        try {
+            // Toggle off push if already enabled
+            if (_pushEnabled()) {
+                _setPushEnabled(false);
+                await unsubscribePush();
+                refresh();
+                return;
+            }
+
+            // Prefer Web Push when supported
+            if (supportsPush) {
+                const ok = await subscribePush();
+                if (ok) {
+                    _setPushEnabled(true);
+                    // When push is enabled, disable local notifications to avoid duplicates.
+                    _setNotifyEnabled(false);
+                    refresh();
+                    return;
+                }
+            }
+
+            // Fallback: local notification
+            if (!supportsLocal) return;
+            const perm = await Notification.requestPermission();
+            if (perm === 'granted') {
+                _setNotifyEnabled(true);
+                refresh();
+            } else {
+                _setNotifyEnabled(false);
+                refresh();
+            }
+        } catch (e) {
+            // ignore
+        }
+    };
+
+    refresh();
 }
 
 async function fetchChatHistory(limit = 2000) {
@@ -233,6 +437,9 @@ function initChat() {
     
     if (!messageInput || !sendBtn) return;
 
+    // Notification setup (opt-in via button)
+    setupNotificationButton().catch(() => {});
+
     // 先加载历史（如果有），再决定是否插入开场白
     loadAndRenderChatHistory()
         .then(() => ensureFirstBotMessage())
@@ -279,6 +486,8 @@ function initChat() {
                 const segments = Array.isArray(data.segments) ? data.segments : [];
                 if (segments.length >= 1) {
                     addMessage('bot', segments[0], { timestamp: data.ai_created_at || new Date().toISOString() });
+                    // Notify only once per bot turn (use the first segment).
+                    maybeNotifyBotMessage(segments[0]).catch(() => {});
                     const TYPING_DELAY_MS = 800;
                     for (let i = 1; i < segments.length; i++) {
                         const seg = segments[i];
@@ -290,6 +499,7 @@ function initChat() {
                     }
                 } else {
                     addMessage('bot', data.reply, { timestamp: data.ai_created_at || new Date().toISOString() });
+                    maybeNotifyBotMessage(data.reply).catch(() => {});
                 }
             } else {
                 addMessage('bot', '回复失败');
