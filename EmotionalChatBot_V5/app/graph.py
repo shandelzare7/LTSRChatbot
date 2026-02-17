@@ -37,6 +37,7 @@ from app.nodes.evolver import create_evolver_node
 from app.nodes.stage_manager import create_stage_manager_node
 from app.nodes.memory_manager import create_memory_manager_node
 from app.nodes.memory_writer import create_memory_writer_node
+from app.nodes.security_response import create_security_response_node
 from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
@@ -164,6 +165,7 @@ def build_graph(
 
     loader_node = create_loader_node(memory_service)
     detection_node = create_detection_node(llm_fast)
+    security_response_node = create_security_response_node(llm_fast)
     inner_monologue_node = create_inner_monologue_node(llm)
     reasoner_node = create_reasoner_node(llm)
     memory_retriever_node = create_memory_retriever_node(memory_service)
@@ -198,7 +200,27 @@ def build_graph(
 
         workflow.set_entry_point("loader")
         workflow.add_edge("loader", "detection")
-        workflow.add_edge("detection", "inner_monologue")
+        
+        # ✅ 路由：根据 security_check 决定是进入安全响应节点还是正常流程
+        def _route_after_detection(state: dict) -> str:
+            security_check = state.get("security_check") or {}
+            needs_security_response = security_check.get("needs_security_response", False)
+            if needs_security_response:
+                return "security_response"
+            return "inner_monologue"
+        
+        workflow.add_conditional_edges(
+            "detection",
+            _route_after_detection,
+            {
+                "security_response": "security_response",
+                "inner_monologue": "inner_monologue",
+            }
+        )
+        
+        # ✅ 安全响应节点直接结束（跳过 LATS 等流程）
+        workflow.add_edge("security_response", END)
+        
         workflow.add_edge("inner_monologue", "memory_retriever")
         workflow.add_edge("memory_retriever", "style")
         workflow.add_edge("style", "task_planner")

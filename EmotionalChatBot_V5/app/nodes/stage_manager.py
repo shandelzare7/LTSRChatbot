@@ -158,25 +158,32 @@ class KnappStageManager:
         trust_delta = self._normalize_delta_points(deltas.get("trust", 0))
         respect_delta = self._normalize_delta_points(deltas.get("respect", 0))
 
+        # 监控 JUMP 检查过程
+        print(f"[MONITOR] stage_jump_check: current_stage={current_stage}, threshold={threshold:.3f}, trust_delta={trust_delta:.3f}, respect_delta={respect_delta:.3f}")
+
         if trust_delta <= -threshold:
+            print(f"[MONITOR] stage_jump_triggered: trust_delta={trust_delta:.3f} <= -threshold={-threshold:.3f}")
             return {
                 "new_stage": "terminating",
-                "reason": "Catastrophic trust failure (Event Driven).",
+                "reason": f"Catastrophic trust failure (Event Driven). trust_delta={trust_delta:.3f}",
                 "transition_type": "JUMP",
             }
         if respect_delta <= -threshold:
+            print(f"[MONITOR] stage_jump_triggered: respect_delta={respect_delta:.3f} <= -threshold={-threshold:.3f}")
             return {
                 "new_stage": "differentiating",
-                "reason": "Sudden loss of respect.",
+                "reason": f"Sudden loss of respect. respect_delta={respect_delta:.3f}",
                 "transition_type": "JUMP",
             }
 
         if current_stage == "initiating" and int(spt.get("depth", 1) or 1) >= 3:
             liking_score = max(0.0, min(1.0, float(scores.get("liking", 0.0) or 0.0)))
+            print(f"[MONITOR] stage_jump_check_rapid_intimacy: depth={spt.get('depth', 1)}, liking_score={liking_score:.3f}")
             if liking_score > 0.4:
+                print(f"[MONITOR] stage_jump_triggered: rapid_intimacy_acceleration, depth={spt.get('depth', 1)}, liking_score={liking_score:.3f}")
                 return {
                     "new_stage": "intensifying",
-                    "reason": "Rapid intimacy acceleration.",
+                    "reason": f"Rapid intimacy acceleration. depth={spt.get('depth', 1)}, liking={liking_score:.3f}",
                     "transition_type": "JUMP",
                 }
         return None
@@ -191,14 +198,19 @@ class KnappStageManager:
 
         triggers = stage_conf.get("decay_triggers", {}) or {}
 
+        # 监控 DECAY 检查过程
+        print(f"[MONITOR] stage_decay_check: current_stage={current_stage}, next_down={next_stage}")
+
         max_scores = triggers.get("max_scores") or {}
         for dim, limit in (max_scores or {}).items():
             limit_val = max(0.0, min(1.0, float(limit)))
             score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+            print(f"[MONITOR] stage_decay_check_max_score: dim={dim}, score={score_val:.3f}, limit={limit_val:.3f}")
             if score_val <= limit_val:
+                print(f"[MONITOR] stage_decay_triggered: {dim}={score_val:.3f} <= limit={limit_val:.3f}")
                 return {
                     "new_stage": next_stage,
-                    "reason": f"Score {dim} dropped below {limit_val:.2f}.",
+                    "reason": f"Score {dim} dropped below {limit_val:.2f} (actual={score_val:.3f}).",
                     "transition_type": "DECAY",
                 }
 
@@ -206,31 +218,41 @@ class KnappStageManager:
             cd = triggers.get("conditional_drop") or {}
             cond_str = str(cd.get("condition") or "")
             closeness_raw = float(scores.get("closeness", 0.0) or 0.0)
-            if _safe_check_condition(cond_str, closeness=closeness_raw):
+            cond_met = _safe_check_condition(cond_str, closeness=closeness_raw)
+            print(f"[MONITOR] stage_decay_check_conditional: condition={cond_str}, closeness={closeness_raw:.3f}, condition_met={cond_met}")
+            if cond_met:
                 sub = cd.get("triggers") or {}
                 for dim, limit in sub.items():
                     limit_val = max(0.0, min(1.0, float(limit)))
                     score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+                    print(f"[MONITOR] stage_decay_check_conditional_sub: dim={dim}, score={score_val:.3f}, limit={limit_val:.3f}")
                     if score_val < limit_val:
+                        print(f"[MONITOR] stage_decay_triggered: conditional_drop, {dim}={score_val:.3f} < limit={limit_val:.3f}")
                         return {
                             "new_stage": next_stage,
-                            "reason": f"High intimacy but low {dim} (Toxic).",
+                            "reason": f"High intimacy but low {dim} (Toxic). closeness={closeness_raw:.3f}, {dim}={score_val:.3f}",
                             "transition_type": "DECAY",
                         }
 
         behavior_required = triggers.get("spt_behavior")
         if behavior_required == "depth_reduction":
-            if str(spt.get("depth_trend") or "stable") == "decreasing":
+            depth_trend = str(spt.get("depth_trend") or "stable")
+            print(f"[MONITOR] stage_decay_check_spt_behavior: behavior_required=depth_reduction, depth_trend={depth_trend}")
+            if depth_trend == "decreasing":
+                print(f"[MONITOR] stage_decay_triggered: depth_reduction, depth_trend=decreasing")
                 return {
                     "new_stage": next_stage,
-                    "reason": "User is withdrawing (Depenetration).",
+                    "reason": f"User is withdrawing (Depenetration). depth_trend={depth_trend}",
                     "transition_type": "DECAY",
                 }
         if behavior_required == "breadth_reduction":
-            if int(spt.get("breadth", 0) or 0) <= 1:
+            breadth = int(spt.get("breadth", 0) or 0)
+            print(f"[MONITOR] stage_decay_check_spt_behavior: behavior_required=breadth_reduction, breadth={breadth}")
+            if breadth <= 1:
+                print(f"[MONITOR] stage_decay_triggered: breadth_reduction, breadth={breadth} <= 1")
                 return {
                     "new_stage": next_stage,
-                    "reason": "Topic breadth collapsed (breadth reduction).",
+                    "reason": f"Topic breadth collapsed (breadth reduction). breadth={breadth}",
                     "transition_type": "DECAY",
                 }
 
@@ -258,21 +280,35 @@ class KnappStageManager:
             if score_val < min_val_norm:
                 return None
 
-        if int(spt.get("depth", 1) or 1) < int(entry_req.get("min_spt_depth", 0) or 0):
+        min_spt_depth = int(entry_req.get("min_spt_depth", 0) or 0)
+        spt_depth = int(spt.get("depth", 1) or 1)
+        print(f"[MONITOR] stage_growth_check_spt_depth: depth={spt_depth}, required={min_spt_depth}")
+        if spt_depth < min_spt_depth:
+            print(f"[MONITOR] stage_growth_blocked: spt_depth={spt_depth} < required={min_spt_depth}")
             return None
-        if int(spt.get("breadth", 0) or 0) < int(entry_req.get("min_topic_breadth", 0) or 0):
+
+        min_breadth = int(entry_req.get("min_topic_breadth", 0) or 0)
+        spt_breadth = int(spt.get("breadth", 0) or 0)
+        print(f"[MONITOR] stage_growth_check_spt_breadth: breadth={spt_breadth}, required={min_breadth}")
+        if spt_breadth < min_breadth:
+            print(f"[MONITOR] stage_growth_blocked: spt_breadth={spt_breadth} < required={min_breadth}")
             return None
 
         required_signals = entry_req.get("required_signals") or []
         recent = set([str(x) for x in (spt.get("recent_signals") or [])])
+        print(f"[MONITOR] stage_growth_check_signals: required={required_signals}, recent={list(recent)}")
         for sig in required_signals:
             if str(sig) not in recent:
+                print(f"[MONITOR] stage_growth_blocked: missing_signal={sig}")
                 return None
 
+        # 检查 veto requirements
         for dim, min_val in (veto_req.get("min_scores") or {}).items():
             min_val_norm = max(0.0, min(1.0, float(min_val)))
             score_val = max(0.0, min(1.0, float(scores.get(dim, 0.0) or 0.0)))
+            print(f"[MONITOR] stage_growth_check_veto_score: dim={dim}, score={score_val:.3f}, veto_threshold={min_val_norm:.3f}")
             if score_val < min_val_norm:
+                print(f"[MONITOR] stage_growth_vetoed: {dim}={score_val:.3f} < veto_threshold={min_val_norm:.3f}")
                 logger.info(f"Growth vetoed: {dim} too low (score={score_val:.2f} < threshold={min_val_norm:.2f}).")
                 return None
 
@@ -281,10 +317,13 @@ class KnappStageManager:
             power = max(0.0, min(1.0, float(scores.get("power", 0.5) or 0.5)))
             imbalance = abs(power - 0.5) * 2.0  # 0-1 范围
             limit = max(0.0, min(1.0, float(self.settings.get("power_balance_threshold", 0.3) or 0.3)))
+            print(f"[MONITOR] stage_growth_check_power_balance: power={power:.3f}, imbalance={imbalance:.3f}, threshold={limit:.3f}")
             if imbalance > limit:
+                print(f"[MONITOR] stage_growth_vetoed: power_imbalance={imbalance:.3f} > threshold={limit:.3f}")
                 logger.info("Growth vetoed: Power imbalance.")
                 return None
 
+        print(f"[MONITOR] stage_growth_triggered: all_entry_criteria_met")
         return {"new_stage": next_stage, "reason": "All entry criteria met.", "transition_type": "GROWTH"}
 
     def _derive_spt_from_assets(self, state: Dict[str, Any]) -> Dict[str, Any]:
@@ -322,12 +361,28 @@ def create_stage_manager_node(config_path: Optional[str] = None):
                 "recent_signals": [str(x) for x in detected],
             }
 
+        # 收集当前状态信息用于监控
+        rel_state = state.get("relationship_state") or {}
+        rel_deltas = state.get("relationship_deltas_applied") or state.get("relationship_deltas") or {}
+        user_turns = manager._count_user_turns(state)
+
         result = manager.evaluate_transition(current, {**state, "spt_info": spt_info})
         new_stage = result.get("new_stage", current)
         ttype = result.get("transition_type", "STAY")
         reason = result.get("reason", "")
 
+        # ### 6.2 需要监控的参数 - stage 变化触发的详细信息
         if ttype != "STAY" and new_stage != current:
+            # Stage 变化发生
+            print(f"[MONITOR] stage_transition_triggered:")
+            print(f"  from_stage={current}")
+            print(f"  to_stage={new_stage}")
+            print(f"  transition_type={ttype}")
+            print(f"  reason={reason}")
+            print(f"  relationship_state: closeness={rel_state.get('closeness', 0):.3f}, trust={rel_state.get('trust', 0):.3f}, liking={rel_state.get('liking', 0):.3f}, respect={rel_state.get('respect', 0):.3f}, warmth={rel_state.get('warmth', 0):.3f}, power={rel_state.get('power', 0):.3f}")
+            print(f"  relationship_deltas: {rel_deltas}")
+            print(f"  spt_info: depth={spt_info.get('depth', 1)}, breadth={spt_info.get('breadth', 0)}, depth_trend={spt_info.get('depth_trend', 'stable')}, recent_signals={spt_info.get('recent_signals', [])}")
+            print(f"  user_turns={user_turns}")
             print(f"🚀 STAGE CHANGE: {current} -> {new_stage} ({reason})")
             print("[StageManager] done")
             return {
@@ -336,6 +391,16 @@ def create_stage_manager_node(config_path: Optional[str] = None):
                 "stage_transition": {"from": current, "to": new_stage, "type": ttype, "reason": reason},
                 "spt_info": spt_info,
             }
+        else:
+            # Stage 保持不变，也记录当前状态
+            print(f"[MONITOR] stage_no_change:")
+            print(f"  current_stage={current}")
+            print(f"  transition_type={ttype}")
+            print(f"  reason={reason}")
+            print(f"  relationship_state: closeness={rel_state.get('closeness', 0):.3f}, trust={rel_state.get('trust', 0):.3f}, liking={rel_state.get('liking', 0):.3f}, respect={rel_state.get('respect', 0):.3f}, warmth={rel_state.get('warmth', 0):.3f}, power={rel_state.get('power', 0):.3f}")
+            print(f"  relationship_deltas: {rel_deltas}")
+            print(f"  spt_info: depth={spt_info.get('depth', 1)}, breadth={spt_info.get('breadth', 0)}, depth_trend={spt_info.get('depth_trend', 'stable')}, recent_signals={spt_info.get('recent_signals', [])}")
+            print(f"  user_turns={user_turns}")
         print("[StageManager] done")
         return {"spt_info": spt_info}
 

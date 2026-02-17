@@ -1,5 +1,7 @@
 # EmotionalChatBot V5.0
 
+**GitHub Repository**: https://github.com/shandelzare7/LTSRChatbot
+
 一个基于 LangGraph 构建的高度拟人化 AI 聊天机器人系统，支持大五人格模型、6维关系模型和 PAD 情绪模型。
 
 ## 🌟 核心特性

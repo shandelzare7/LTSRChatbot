@@ -437,6 +437,9 @@ class AgentState(TypedDict, total=False):
     intuition_thought: Optional[str]
     # 关系滤镜：由 Inner Monologue 生成，此刻对 TA 的主观关系感受（字符串，非 relationship_state 数值）
     relationship_filter: Optional[str]
+    # 安全检测结果：由 Detection 节点生成，用于路由到安全响应节点
+    # {"is_injection_attempt": bool, "is_ai_test": bool, "is_user_treating_as_assistant": bool, "needs_security_response": bool, "reasoning": str}
+    security_check: Optional[Dict[str, Any]]
     
     # --- Mode Management ---
     # 当前模式 ID（由 mode_manager 节点确定）

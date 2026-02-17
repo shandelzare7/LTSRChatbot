@@ -509,6 +509,17 @@ def compile_requirements(state: Dict[str, Any]) -> RequirementsChecklist:
     # ==========================================
     requirements["tasks_for_lats"] = state.get("tasks_for_lats") or []
     requirements["task_budget_max"] = int(state.get("task_budget_max", 2) or 2)
-    requirements["word_budget"] = int(state.get("word_budget", 60) or 60)
+    word_budget = int(state.get("word_budget", 60) or 60)
+    requirements["word_budget"] = word_budget
+    
+    # 根据 word_budget 动态调整 max_messages
+    # word_budget > 40 时允许 4-5 条消息
+    base_max_messages = requirements.get("max_messages", 3)
+    if word_budget > 40:
+        # 根据 word_budget 调整：40-60 允许 4 条，>60 允许 5 条
+        if word_budget > 60:
+            requirements["max_messages"] = min(5, base_max_messages + 2)
+        else:
+            requirements["max_messages"] = min(4, base_max_messages + 1)
     
     return requirements

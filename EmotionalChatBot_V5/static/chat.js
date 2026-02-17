@@ -468,11 +468,20 @@ function initChat() {
             });
             
             if (!response.ok) {
-                const error = await response.json();
-                // Superseded is a normal flow when user sends again quickly.
-                if (error && error.status === 'superseded') return;
-                if (error && typeof error.detail === 'string' && error.detail.includes('superseded')) return;
-                addMessage('bot', '错误: ' + (error.detail || '未知错误'));
+                let errorDetail = '未知错误';
+                try {
+                    const error = await response.json();
+                    // Superseded is a normal flow when user sends again quickly.
+                    if (error && error.status === 'superseded') return;
+                    if (error && typeof error.detail === 'string' && error.detail.includes('superseded')) return;
+                    errorDetail = error.detail || `HTTP ${response.status}: ${response.statusText}`;
+                } catch (parseError) {
+                    // 如果无法解析 JSON，使用状态码和状态文本
+                    errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+                    console.error('无法解析错误响应:', parseError);
+                }
+                console.error('服务器错误:', response.status, errorDetail);
+                addMessage('bot', `服务器错误 (${response.status}): ${errorDetail}`);
                 return;
             }
             
@@ -506,7 +515,21 @@ function initChat() {
             }
         } catch (error) {
             console.error('发送消息失败:', error);
-            addMessage('bot', '网络错误，请重试');
+            // 显示详细的错误信息
+            let errorMsg = '网络错误';
+            if (error instanceof TypeError && error.message.includes('fetch')) {
+                errorMsg = `网络连接失败: ${error.message}`;
+            } else if (error instanceof Error) {
+                errorMsg = `错误: ${error.name} - ${error.message}`;
+                if (error.stack) {
+                    console.error('错误堆栈:', error.stack);
+                }
+            } else if (typeof error === 'string') {
+                errorMsg = `错误: ${error}`;
+            } else {
+                errorMsg = `网络错误: ${JSON.stringify(error)}`;
+            }
+            addMessage('bot', errorMsg + '，请重试');
         } finally {
             messageInput.focus();
         }

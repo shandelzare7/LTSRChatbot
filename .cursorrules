@@ -1,0 +1,16 @@
+# Cursor Rules for LTSRChatbot Project
+
+## Project Information
+
+**GitHub Repository**: https://github.com/shandelzare7/LTSRChatbot
+
+This is the official GitHub repository for the LTSRChatbot project. All code changes should be synchronized to this repository.
+
+## Claude Command Usage
+
+When the user mentions "claude" or "问claude" or similar phrases, it means they want to use the terminal command `claude` to solve their problem. Automatically execute the `claude` command with the appropriate prompt based on the user's question.
+
+Example: If user says "问claude关于网络错误的问题"，run:
+```bash
+claude -p "关于网络错误的问题：[用户的具体问题]"
+```

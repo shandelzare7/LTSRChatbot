@@ -273,7 +273,7 @@ class HumanizationProcessor:
         # B) 关系策略：Strategic Silence / Ghosting
         ghosting_prob = 0.0
         if self.stage in ("avoiding", "terminating"):
-            ghosting_prob = 0.8
+            ghosting_prob = 0.65
         elif self.stage == "stagnating":
             ghosting_prob = 0.5
 
@@ -288,7 +288,7 @@ class HumanizationProcessor:
         # C) 忙碌
         busyness = float(self.mood.get("busyness", 0.0) or 0.0)
         if busyness > 0.85 and random.random() < 0.7:
-            return random.uniform(1800.0, 14400.0), "busy"  # 30min~4h
+            return random.uniform(1800.0, 7200.0), "busy"  # 30min~2h
 
         return 0.0, "online"
 
@@ -308,9 +308,9 @@ class HumanizationProcessor:
         bubbles: List[str] = []
         current_buf = ""
 
-        # High tendency -> threshold ~5; Low -> ~45
+        # High tendency -> threshold ~8; Low -> ~45
         split_threshold = 45.0 - (float(tendency) * 40.0)
-        split_threshold = _clamp(split_threshold, 5.0, 60.0)
+        split_threshold = _clamp(split_threshold, 8.0, 60.0)
 
         for part in raw_parts:
             if not part:
@@ -346,6 +346,15 @@ class HumanizationProcessor:
         dyn = self._calculate_dynamics_modifiers()
         macro_delay, macro_reason = self._calculate_macro_delay(dyn)
         is_macro = macro_delay > 0.0
+        
+        # ### 6.2 需要监控的参数 - fragmentation_tendency 的实际分布
+        frag_tendency = float(dyn.get("fragmentation_tendency", 0.0))
+        print(f"[MONITOR] fragmentation_tendency={frag_tendency:.3f} (reached_1.0={frag_tendency >= 0.99})")
+        
+        # ### 6.2 需要监控的参数 - 宏观延迟触发的频率
+        if is_macro:
+            delay_hours = macro_delay / 3600.0
+            print(f"[MONITOR] macro_delay_triggered: reason={macro_reason}, delay={delay_hours:.2f}h ({macro_delay:.1f}s)")
 
         # 读/想
         t_read = 0.5 + (len(user_input) * AVG_READING_SPEED)

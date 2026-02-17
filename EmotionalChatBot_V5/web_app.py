@@ -830,8 +830,16 @@ async def chat(
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
-        print(f"Chat error: {error_detail}")
-        raise HTTPException(status_code=500, detail=f"处理消息失败: {str(e)}")
+        error_type = type(e).__name__
+        error_msg = str(e)
+        print(f"[WEB_ERROR] Chat error ({error_type}): {error_msg}")
+        print(f"[WEB_ERROR] Traceback:\n{error_detail}")
+        # 返回更详细的错误信息给前端
+        detail_msg = f"{error_type}: {error_msg}"
+        if os.getenv("ENVIRONMENT") != "production":
+            # 开发环境返回完整堆栈信息
+            detail_msg += f"\n\n堆栈信息:\n{error_detail}"
+        raise HTTPException(status_code=500, detail=detail_msg)
 
 
 @app.post("/api/session/reset")

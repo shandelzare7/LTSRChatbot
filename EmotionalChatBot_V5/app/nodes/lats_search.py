@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Dict
 
 from app.state import AgentState
@@ -97,8 +98,8 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
         # LATS V2 defaults (planner 8 candidates, up to 2 regens; strict gate then 3-judge aggregate)
         merged.setdefault("lats_candidate_k", 8)
         merged.setdefault("lats_max_regens", 2)
-        merged.setdefault("lats_gate_pass_rate_min", 0.5)
-        merged.setdefault("lats_final_score_threshold", 0.75)
+        merged.setdefault("lats_gate_pass_rate_min", 0.65)
+        merged.setdefault("lats_final_score_threshold", 0.68)
         merged.setdefault("lats_dim_w_relationship", 1.0 / 3.0)
         merged.setdefault("lats_dim_w_stage", 1.0 / 3.0)
         merged.setdefault("lats_dim_w_mood_busy", 1.0 / 3.0)
@@ -224,6 +225,9 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
         
         print(f"[LATS] 配置: rollouts={rollouts}, expand_k={expand_k}, llm_soft_scorer={'启用' if enable_llm_soft else '禁用'}")
         
+        # ### 6.2 需要监控的参数 - LATS 搜索的平均耗时
+        lats_start_time = time.perf_counter()
+        
         best_reply_plan, best_proc_plan, best_report, tree = lats_search_best_plan(
             merged,
             llm_invoker,
@@ -232,6 +236,17 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
             expand_k=expand_k,
             max_messages=int(requirements.get("max_messages", 5) or 5),
         )
+        
+        lats_duration_ms = (time.perf_counter() - lats_start_time) * 1000.0
+        print(f"[MONITOR] lats_search_duration_ms={lats_duration_ms:.2f}")
+        
+        # ### 6.2 需要监控的参数 - 早退触发的频率
+        if isinstance(tree, dict):
+            early_exit = tree.get("early_exit", False)
+            if early_exit:
+                exit_reason = tree.get("early_exit_reason", "unknown")
+                exit_at_rollout = tree.get("early_exit_at_rollout", 0)
+                print(f"[MONITOR] lats_early_exit_triggered: reason={exit_reason}, at_rollout={exit_at_rollout}/{rollouts}")
 
         # 3) finalize outputs (LATS does NOT generate delays/actions)
         if not best_proc_plan:
