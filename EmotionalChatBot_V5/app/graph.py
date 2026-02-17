@@ -185,6 +185,8 @@ def build_graph(
         # Full (or fast-return) graph: loader -> ... -> final_validator -> (optional tail) -> END
         workflow.add_node("loader", _wrap_node("loader", loader_node))
         workflow.add_node("detection", _wrap_node("detection", detection_node))
+        # Security short-circuit node (must be registered before edges reference it)
+        workflow.add_node("security_response", _wrap_node("security_response", security_response_node))
         workflow.add_node("inner_monologue", _wrap_node("inner_monologue", inner_monologue_node))
         workflow.add_node("reasoner", _wrap_node("reasoner", reasoner_node))
         workflow.add_node("memory_retriever", _wrap_node("memory_retriever", memory_retriever_node))

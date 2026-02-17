@@ -433,7 +433,6 @@ function copyShareLink() {
 function initChat() {
     const messageInput = document.getElementById('message-input');
     const sendBtn = document.getElementById('send-btn');
-    const resetBtn = document.getElementById('reset-btn');
     
     if (!messageInput || !sendBtn) return;
 
@@ -543,37 +542,6 @@ function initChat() {
             sendMessage();
         }
     };
-    
-    // 重置会话
-    if (resetBtn) {
-        resetBtn.onclick = async () => {
-            if (!confirm('确定要清空历史吗？这会从数据库删除你在该 bot 下的所有聊天记录（不可恢复）。')) {
-                return;
-            }
-            
-            try {
-                const response = await fetch('/api/session/reset', {
-                    method: 'POST',
-                    credentials: 'include',
-                });
-                
-                if (response.ok) {
-                    const chatMessages = document.getElementById('chat-messages');
-                    if (chatMessages) {
-                        chatMessages.innerHTML = '';
-                    }
-                    // 重置后也显示开场白
-                    ensureFirstBotMessage().catch(() => {});
-                    alert('历史已清空');
-                } else {
-                    alert('重置失败');
-                }
-            } catch (error) {
-                console.error('重置会话失败:', error);
-                alert('重置失败，请重试');
-            }
-        };
-    }
     
     // 聚焦输入框
     messageInput.focus();

@@ -1164,7 +1164,6 @@ def get_chat_html(bot_id: str) -> str:
                 <h2>💬 对话中</h2>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <button id="notify-btn" class="btn-secondary" title="开启浏览器通知（需要授权）">开启通知</button>
-                    <button id="reset-btn" class="btn-secondary">清空历史</button>
                 </div>
             </div>
             <div id="chat-messages" class="chat-messages"></div>

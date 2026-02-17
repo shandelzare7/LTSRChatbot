@@ -5,6 +5,7 @@ Profiling notes:
   call counts and total elapsed time. This is used by devtools/bot_to_bot_chat.py to produce
   step-by-step performance reports.
 """
+import asyncio
 import os
 import time
 import contextvars
@@ -60,7 +61,8 @@ def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
     OpenAI endpoint (unless explicitly disabled).
     """
     m = str(model or "")
-    if m != "gpt-4o-mini":
+    # Accept version-suffixed variants like "gpt-4o-mini-YYYY-MM-DD"
+    if not m.startswith("gpt-4o-mini"):
         return None
     # Only for OpenAI official endpoint (or empty base_url which defaults to it in this repo)
     b = (base_url or "").strip()
@@ -79,6 +81,51 @@ def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
     # Allow override via env; default to priority for gpt-4o-mini
     tier = (os.getenv("LTSR_OPENAI_SERVICE_TIER") or os.getenv("OPENAI_SERVICE_TIER") or "").strip()
     return tier or "priority"
+
+
+class ServiceTierLLM:
+    """
+    Always-on wrapper that injects OpenAI `service_tier` (e.g. "priority") for eligible calls.
+
+    Notes:
+    - Some call sites use `ainvoke()` (async path). If wrappers don't implement `ainvoke()`, tier injection
+      and even async behavior can be bypassed. This wrapper ensures both `invoke()` and `ainvoke()` carry
+      the `service_tier` when applicable.
+    - Tier injection must NOT depend on profiling/stats flags.
+    """
+
+    def __init__(self, inner: Any, *, base_url: str, model: str):
+        self._inner = inner
+        self._base_url = (base_url or "").strip()
+        self._model = model or (getattr(inner, "model_name", None) or getattr(inner, "model", None) or "unknown")
+        self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None) or self._model
+
+    def _inject(self, kw: dict) -> dict:
+        try:
+            tier = _service_tier_for_call(model=str(self._model), base_url=str(self._base_url))
+            if tier and "service_tier" not in kw:
+                kw = dict(kw)
+                kw["service_tier"] = tier
+                if _truthy(os.getenv("LTSR_LOG_SERVICE_TIER")):
+                    b = self._base_url or "default"
+                    print(f"[LLM_TIER] model={self._model} base_url={b} service_tier={tier}")
+        except Exception:
+            # Never fail the main call due to routing logic.
+            pass
+        return kw
+
+    def invoke(self, input: Any, **kwargs) -> Any:
+        return self._inner.invoke(input, **self._inject(kwargs))
+
+    async def ainvoke(self, input: Any, **kwargs) -> Any:
+        kw = self._inject(kwargs)
+        if hasattr(self._inner, "ainvoke") and callable(getattr(self._inner, "ainvoke")):
+            return await self._inner.ainvoke(input, **kw)
+        return await asyncio.to_thread(self._inner.invoke, input, **kw)
+
+    def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
+        structured = self._inner.with_structured_output(schema, **kwargs)
+        return ServiceTierLLM(structured, base_url=self._base_url, model=str(self._model))
 
 
 _LLM_DUMP_SEQ = 0
@@ -202,6 +249,29 @@ class _TimedInvoker:
                     f"dt_ms={dt_ms:.1f} messages={size['messages']} chars={size['chars']}"
                 )
 
+    async def ainvoke(self, input: Any, **kwargs) -> Any:
+        enabled = _truthy(os.getenv("LTSR_LLM_PERF"))
+        min_ms_raw = os.getenv("LTSR_LLM_PERF_MIN_MS", "").strip()
+        try:
+            min_ms = float(min_ms_raw) if min_ms_raw else 0.0
+        except Exception:
+            min_ms = 0.0
+
+        size = _approx_input_size(input)
+        t0 = time.perf_counter()
+        try:
+            if hasattr(self._inner, "ainvoke") and callable(getattr(self._inner, "ainvoke")):
+                return await self._inner.ainvoke(input, **kwargs)
+            return await asyncio.to_thread(self._inner.invoke, input, **kwargs)
+        finally:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            if enabled and dt_ms >= min_ms:
+                model_name = getattr(self._inner, "model_name", None) or getattr(self._inner, "model", None) or "unknown"
+                print(
+                    f"[LLM_PERF] {self._label} model={model_name} "
+                    f"dt_ms={dt_ms:.1f} messages={size['messages']} chars={size['chars']}"
+                )
+
 
 class TimedLLM:
     """
@@ -217,6 +287,9 @@ class TimedLLM:
 
     def invoke(self, input: Any, **kwargs) -> Any:
         return _TimedInvoker(self._inner, label="invoke").invoke(input, **kwargs)
+
+    async def ainvoke(self, input: Any, **kwargs) -> Any:
+        return await _TimedInvoker(self._inner, label="ainvoke").ainvoke(input, **kwargs)
 
     def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
         structured = self._inner.with_structured_output(schema, **kwargs)
@@ -308,6 +381,27 @@ class InstrumentedLLM:
                     f"model={self._model} dt_ms={dt_ms:.1f}"
                 )
 
+    async def ainvoke(self, input: Any, **kwargs) -> Any:
+        t0 = time.perf_counter()
+        try:
+            tier = _service_tier_for_call(model=str(self._model), base_url=str(self._base_url))
+            if tier and "service_tier" not in kwargs:
+                kwargs = dict(kwargs)
+                kwargs["service_tier"] = tier
+            if hasattr(self._inner, "ainvoke") and callable(getattr(self._inner, "ainvoke")):
+                return await self._inner.ainvoke(input, **kwargs)
+            return await asyncio.to_thread(self._inner.invoke, input, **kwargs)
+        finally:
+            dt_ms = (time.perf_counter() - t0) * 1000.0
+            _record_llm_call(role=self._role, base_url=self._base_url, model=str(self._model), kind="ainvoke", dt_ms=dt_ms)
+            node = get_current_node() or "?"
+            _dump_llm_call(node=node, role=self._role, kind="ainvoke", model=str(self._model), dt_ms=dt_ms, input=input)
+            if _call_log_enabled():
+                print(
+                    f"[LLM_CALL] node={node} role={self._role} kind=ainvoke "
+                    f"model={self._model} dt_ms={dt_ms:.1f}"
+                )
+
     def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
         structured = self._inner.with_structured_output(schema, **kwargs)
 
@@ -347,6 +441,40 @@ class InstrumentedLLM:
                     if _call_log_enabled():
                         print(
                             f"[LLM_CALL] node={node} role={role} kind=structured<{getattr(schema, '__name__', 'schema')}> "
+                            f"model={model} dt_ms={dt_ms:.1f}"
+                        )
+
+            async def ainvoke(self, input: Any, **kw) -> Any:
+                t0 = time.perf_counter()
+                try:
+                    tier = _service_tier_for_call(model=str(model), base_url=str(base_url))
+                    if tier and "service_tier" not in kw:
+                        kw = dict(kw)
+                        kw["service_tier"] = tier
+                    if hasattr(self._inner_struct, "ainvoke") and callable(getattr(self._inner_struct, "ainvoke")):
+                        return await self._inner_struct.ainvoke(input, **kw)
+                    return await asyncio.to_thread(self._inner_struct.invoke, input, **kw)
+                finally:
+                    dt_ms = (time.perf_counter() - t0) * 1000.0
+                    _record_llm_call(
+                        role=role,
+                        base_url=base_url,
+                        model=model,
+                        kind=f"structured<{getattr(schema, '__name__', 'schema')}>.ainvoke",
+                        dt_ms=dt_ms,
+                    )
+                    node = get_current_node() or "?"
+                    _dump_llm_call(
+                        node=node,
+                        role=role,
+                        kind=f"structured<{getattr(schema, '__name__', 'schema')}>.ainvoke",
+                        model=str(model),
+                        dt_ms=dt_ms,
+                        input=input,
+                    )
+                    if _call_log_enabled():
+                        print(
+                            f"[LLM_CALL] node={node} role={role} kind=structured<{getattr(schema, '__name__', 'schema')}>.ainvoke "
                             f"model={model} dt_ms={dt_ms:.1f}"
                         )
 
@@ -522,14 +650,15 @@ def get_llm(
             kwargs.pop("http_client", None)
             kwargs.pop("include_response_headers", None)
             llm = ChatOpenAI(**kwargs)  # type: ignore[arg-type]
-        wrapped: Any = llm
+        # Always inject service_tier for eligible models (independent of stats/profiling flags).
+        wrapped: Any = ServiceTierLLM(llm, base_url=base_url or "", model=model_name)
         if _stats_enabled():
             wrapped = InstrumentedLLM(wrapped, role=r, base_url=base_url or "", model=model_name)
         if _truthy(os.getenv("LTSR_LLM_PERF")):
             wrapped = TimedLLM(wrapped)
         return wrapped
     llm = MockLLM(model=model_name, temperature=temperature)
-    wrapped2: Any = llm
+    wrapped2: Any = ServiceTierLLM(llm, base_url=base_url or "", model=model_name)
     if _stats_enabled():
         wrapped2 = InstrumentedLLM(wrapped2, role=r, base_url=base_url or "", model=model_name)
     if _truthy(os.getenv("LTSR_LLM_PERF")):
