@@ -54,6 +54,59 @@ _log_files: dict[str, tuple] = {}  # {session_id: (file_handle, path)}
 # key=session_id -> state
 _inflight_chat: dict[str, dict] = {}
 
+# Persistent cookies (so history survives Render restarts / IP changes)
+_COOKIE_WEB_USER_ID = "web_user_id"
+_COOKIE_BOT_ID = "bot_id"
+
+
+def _get_user_bot_from_session_or_cookies(
+    *,
+    session_id: Optional[str],
+    web_user_id: Optional[str],
+    bot_id_cookie: Optional[str],
+) -> Optional[tuple[str, str]]:
+    """
+    Resolve (user_external_id, bot_id) from in-memory session if present,
+    otherwise fall back to persistent cookies.
+    """
+    if session_id:
+        sess = get_session(session_id)
+        if isinstance(sess, dict) and sess.get("user_id") and sess.get("bot_id"):
+            return str(sess["user_id"]), str(sess["bot_id"])
+    if web_user_id and bot_id_cookie:
+        return str(web_user_id), str(bot_id_cookie)
+    return None
+
+
+def _set_persistent_session_cookies(response: Response, *, user_id: str, bot_id: str, session_id: str) -> None:
+    secure = os.getenv("ENVIRONMENT") == "production"
+    # Primary session pointer (in-memory map)
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=86400 * 7,
+    )
+    # Persistent identity + bot selection (survive server restarts/IP changes)
+    response.set_cookie(
+        key=_COOKIE_WEB_USER_ID,
+        value=str(user_id),
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=86400 * 30,
+    )
+    response.set_cookie(
+        key=_COOKIE_BOT_ID,
+        value=str(bot_id),
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=86400 * 30,
+    )
+
 
 def _get_inflight_state(session_id: str) -> dict:
     st = _inflight_chat.get(session_id)
@@ -400,20 +453,26 @@ async def get_push_public_key():
 
 
 @app.post("/api/push/subscribe")
-async def push_subscribe(req: PushSubscribeRequest, session_id: Optional[str] = Cookie(None)):
-    if not session_id:
+async def push_subscribe(
+    req: PushSubscribeRequest,
+    session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
+):
+    resolved = _get_user_bot_from_session_or_cookies(
+        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+    )
+    if not resolved or not session_id:
         raise HTTPException(status_code=401, detail="未找到会话")
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=401, detail="会话无效或已过期")
+    user_external_id, bot_id = resolved
     # Validate VAPID config early
     _get_vapid_keys()
     db = get_db_manager()
     await _upsert_push_subscription(
         db,
         session_id=session_id,
-        user_external_id=str(session.get("user_id") or ""),
-        bot_id=str(session.get("bot_id") or ""),
+        user_external_id=str(user_external_id or ""),
+        bot_id=str(bot_id or ""),
         subscription=req.subscription or {},
     )
     return {"status": "success"}
@@ -429,16 +488,26 @@ async def push_unsubscribe(session_id: Optional[str] = Cookie(None)):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request, session_id: Optional[str] = Cookie(None)):
+async def index(
+    request: Request,
+    response: Response,
+    session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
+):
     """主入口：检查会话，返回相应页面"""
-    # 检查是否有有效会话
-    if session_id:
-        session = get_session(session_id)
-        if session:
-            # 有有效会话，返回聊天界面
-            return get_chat_html(session["bot_id"])
-    
-    # 无会话或过期，返回bot选择页面
+    resolved = _get_user_bot_from_session_or_cookies(
+        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+    )
+    if resolved:
+        user_id, bot_id = resolved
+        # if in-memory session was lost (Render restart), recreate it so /api/chat can use same session_id
+        if not session_id or not get_session(session_id):
+            session_id = create_session(user_id, bot_id)
+            _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
+        return get_chat_html(bot_id)
+
+    # 无会话或过期，返回 bot 选择页面
     return get_bot_selection_html()
 
 
@@ -482,19 +551,10 @@ async def chat_with_bot(
                 # 已有匹配的会话，直接返回聊天界面
                 return get_chat_html(bot_id_str)
         
-        # 创建新会话
-        user_id = generate_user_id_from_request(request)
+        # 创建新会话（优先复用持久 cookie 的 web_user_id，避免 IP 变化导致“历史丢失”）
+        user_id = (request.cookies.get(_COOKIE_WEB_USER_ID) or "").strip() or generate_user_id_from_request(request)
         new_session_id = create_session(user_id, bot_id_str)
-        
-        # 设置Cookie
-        response.set_cookie(
-            key="session_id",
-            value=new_session_id,
-            httponly=True,
-            secure=os.getenv("ENVIRONMENT") == "production",
-            samesite="lax",
-            max_age=86400 * 7,
-        )
+        _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id_str, session_id=new_session_id)
         
         # 返回聊天界面
         return get_chat_html(bot_id_str)
@@ -531,8 +591,8 @@ async def init_session(
 ):
     """初始化会话：选择bot"""
     try:
-        # 生成或获取user_id
-        user_id = generate_user_id_from_request(request)
+        # 生成或获取 user_id（优先复用持久 cookie 的 web_user_id，避免 IP 变化导致“历史丢失”）
+        user_id = (request.cookies.get(_COOKIE_WEB_USER_ID) or "").strip() or generate_user_id_from_request(request)
         
         # 验证bot_id是否存在
         db = get_db_manager()
@@ -559,18 +619,9 @@ async def init_session(
             
             bot_id = str(bot.id)
         
-        # 创建会话
+        # 创建会话 + 设置 Cookie（包含持久 user_id/bot_id）
         session_id = create_session(user_id, bot_id)
-        
-        # 设置Cookie
-        response.set_cookie(
-            key="session_id",
-            value=session_id,
-            httponly=True,
-            secure=os.getenv("ENVIRONMENT") == "production",  # 生产环境启用
-            samesite="lax",
-            max_age=86400 * 7,  # 7天
-        )
+        _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
         
         return {
             "session_id": session_id,
@@ -587,20 +638,24 @@ async def init_session(
 @app.post("/api/chat")
 async def chat(
     request: Request,
+    response: Response,
     chat_data: ChatRequest,
     session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
 ):
     """处理聊天消息"""
-    # 验证会话
-    if not session_id:
+    # Resolve user/bot; if in-memory session lost (Render restart), fall back to cookies and re-create session_id.
+    resolved = _get_user_bot_from_session_or_cookies(
+        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+    )
+    if not resolved:
         raise HTTPException(status_code=401, detail="未找到会话，请先选择bot")
-    
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=401, detail="会话无效或已过期，请重新选择bot")
-    
-    user_id = session["user_id"]
-    bot_id = session["bot_id"]
+    user_id, bot_id = resolved
+    if not session_id or not get_session(session_id):
+        # recreate an in-memory session for concurrency control
+        session_id = create_session(user_id, bot_id)
+        _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
     
     if not chat_data.message or not chat_data.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
@@ -903,20 +958,25 @@ async def chat(
 
 @app.post("/api/session/reset")
 async def reset_session(
-    request: Request, response: Response, session_id: Optional[str] = Cookie(None)
+    request: Request,
+    response: Response,
+    session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
 ):
     """清空该用户在当前 bot 下的所有对话与记忆（数据库/本地存储）。"""
-    if not session_id:
+    resolved = _get_user_bot_from_session_or_cookies(
+        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+    )
+    if not resolved:
         raise HTTPException(status_code=401, detail="未找到会话")
-    
-    session = get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=401, detail="会话无效")
-    
-    try:
-        user_id = session["user_id"]
-        bot_id = session["bot_id"]
+    user_id, bot_id = resolved
+    # Ensure an in-memory session exists (so subsequent calls don't error)
+    if not session_id or not get_session(session_id):
+        session_id = create_session(user_id, bot_id)
+        _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
 
+    try:
         # 1) Prefer DB: delete messages + memories/transcripts/notes + reset summary/stage
         try:
             db = get_db_manager()
@@ -945,18 +1005,17 @@ async def reset_session(
 @app.get("/api/chat/history")
 async def get_chat_history(
     session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
     limit: int = 2000,
 ):
     """获取当前用户在该 bot 下的全部对话历史（按时间升序）。"""
-    if not session_id:
+    resolved = _get_user_bot_from_session_or_cookies(
+        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+    )
+    if not resolved:
         raise HTTPException(status_code=401, detail="未找到会话，请先选择bot")
-
-    sess = get_session(session_id)
-    if not sess:
-        raise HTTPException(status_code=401, detail="会话无效或已过期，请重新选择bot")
-
-    bot_id_str = sess["bot_id"]
-    user_external_id = sess["user_id"]
+    user_external_id, bot_id_str = resolved
 
     # guardrails
     try:
@@ -1028,17 +1087,18 @@ async def get_chat_history(
 
 
 @app.get("/api/session/status")
-async def get_session_status(session_id: Optional[str] = Cookie(None)):
+async def get_session_status(
+    session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
+):
     """获取会话状态"""
-    if not session_id:
+    resolved = _get_user_bot_from_session_or_cookies(
+        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+    )
+    if not resolved:
         return {"has_session": False}
-    
-    session = get_session(session_id)
-    if not session:
-        return {"has_session": False}
-
-    bot_id_str = session["bot_id"]
-    user_external_id = session["user_id"]
+    user_external_id, bot_id_str = resolved
 
     bot_name = None
     bot_basic_info = {}

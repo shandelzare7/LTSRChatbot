@@ -19,14 +19,10 @@ def generate_session_id() -> str:
 def generate_user_id_from_request(request) -> str:
     """
     基于请求生成或获取 user_id
-    使用 IP + User-Agent 的哈希值作为匿名用户标识
+    旧实现用 IP + User-Agent，IP 变化会导致“用户变了、历史像丢了”。
+    现在改为生成随机匿名 ID，由 web_app 写入持久 cookie（web_user_id）后复用。
     """
-    client_ip = request.client.host if request.client else "unknown"
-    user_agent = request.headers.get("user-agent", "unknown")
-    combined = f"{client_ip}:{user_agent}"
-    # 生成稳定的哈希值
-    user_hash = hashlib.md5(combined.encode()).hexdigest()[:16]
-    return f"web_user_{user_hash}"
+    return f"web_user_{uuid.uuid4().hex[:16]}"
 
 
 def create_session(user_id: str, bot_id: str) -> str:
