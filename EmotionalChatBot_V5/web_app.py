@@ -646,10 +646,9 @@ async def chat(
         # 3) Wait for reply or superseded
         out = await waiter
         if isinstance(out, dict) and out.get("status") == "superseded":
-            return JSONResponse(
-                status_code=409,
-                content={"status": "superseded", "detail": "superseded by a newer user message"},
-            )
+            # Not an error: this request was intentionally superseded by a newer user message.
+            # Frontend should ignore this response and wait for the newer request's result.
+            return JSONResponse(status_code=200, content={"status": "superseded"})
         return out
     except Exception as e:
         import traceback

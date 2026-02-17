@@ -262,11 +262,16 @@ function initChat() {
             
             if (!response.ok) {
                 const error = await response.json();
+                // Superseded is a normal flow when user sends again quickly.
+                if (error && error.status === 'superseded') return;
+                if (error && typeof error.detail === 'string' && error.detail.includes('superseded')) return;
                 addMessage('bot', '错误: ' + (error.detail || '未知错误'));
                 return;
             }
             
             const data = await response.json();
+            // Superseded is NOT a failure: ignore this response.
+            if (data && data.status === 'superseded') return;
             if (data.status === 'success') {
                 if (userMsgId && data.user_created_at) {
                     setMessageTimestamp(userMsgId, data.user_created_at);
