@@ -472,24 +472,22 @@ def compile_requirements(state: Dict[str, Any]) -> RequirementsChecklist:
         "forbidden_acts": forbidden_acts,
     }
     
-    # 加载 stage 配置
+    # 加载 stage 配置（怎么演：优先从 act 块取，兼容旧版顶层）
     stage_config = _load_stage_config(stage)
     if stage_config:
-        # 从 strategy 字段提取 pacing_notes
-        strategy = stage_config.get("strategy", [])
+        act = stage_config.get("act") or {}
+        strategy = act.get("strategy") or stage_config.get("strategy") or []
         if isinstance(strategy, list):
             stage_targets["pacing_notes"] = [str(s).strip() for s in strategy if str(s).strip()]
         elif isinstance(strategy, str):
             stage_targets["pacing_notes"] = [strategy.strip()]
         
-        # 从 stage_goal 也可以提取一些 pacing 信息
-        stage_goal = stage_config.get("stage_goal", "")
+        stage_goal = act.get("stage_goal") or stage_config.get("stage_goal") or ""
         if stage_goal:
             stage_targets["pacing_notes"].append(f"阶段目标: {stage_goal}")
 
-        # 允许/禁止的行为类型（如果 stage yaml 提供则覆盖默认）
-        sa = stage_config.get("allowed_acts")
-        sf = stage_config.get("forbidden_acts")
+        sa = act.get("allowed_acts") or stage_config.get("allowed_acts")
+        sf = act.get("forbidden_acts") or stage_config.get("forbidden_acts")
         if isinstance(sa, list) and sa:
             stage_targets["allowed_acts"] = [str(x).strip() for x in sa if str(x).strip()][:12]
         if isinstance(sf, list) and sf:
@@ -505,5 +503,12 @@ def compile_requirements(state: Dict[str, Any]) -> RequirementsChecklist:
         stage_targets["violation_sensitivity"] = min(1.0, max(base, max_violation))
     
     requirements["stage_targets"] = stage_targets
+
+    # ==========================================
+    # 4. task_planner 输出：tasks_for_lats / task_budget_max / word_budget（LATS 之前节点写入）
+    # ==========================================
+    requirements["tasks_for_lats"] = state.get("tasks_for_lats") or []
+    requirements["task_budget_max"] = int(state.get("task_budget_max", 2) or 2)
+    requirements["word_budget"] = int(state.get("word_budget", 60) or 60)
     
     return requirements

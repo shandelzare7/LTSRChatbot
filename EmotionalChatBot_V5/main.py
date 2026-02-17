@@ -92,6 +92,9 @@ def _make_initial_state(user_id: str, bot_id: str) -> AgentState:
         "retry_count": 0,
         "final_segments": [],
         "final_delay": 0.0,
+        # Processor defaults:
+        # Enable processor LLM segmentation/delay by default (override via env).
+        "processor_use_llm": (str(os.getenv("LTSR_PROCESSOR_USE_LLM", "1")).lower() not in ("0", "false", "no", "off")),
         # LATS defaults:
         # Let the LATS node pick stage-aware rollouts/expand_k by default.
         # (So initiating/experimenting won't be forced into an overly small fixed budget.)
@@ -218,15 +221,42 @@ async def run_console_chat_async(
                 log_line(f"Bot: [出错] {e}")
                 continue
 
+            # Prefer segmented output when available.
+            segments_raw = result.get("final_segments") or []
+            segments: list[str] = []
+            if isinstance(segments_raw, list):
+                for s in segments_raw:
+                    ss = str(s or "").strip()
+                    if ss:
+                        segments.append(ss)
+
             reply = result.get("final_response") or ""
-            if not reply and result.get("final_segments"):
-                reply = " ".join(result["final_segments"])
+            if not reply and segments:
+                reply = " ".join(segments)
             if not reply:
                 reply = result.get("draft_response") or "（无回复）"
 
-            log_line(f"=== Bot: {reply}")
-            log_line("")
-            print("Bot:", reply)
+            if segments:
+                # Console "typing" delay: only from 2nd segment onward.
+                # Note: intentionally does NOT use processor-provided delay.
+                base_delay_ms = int(os.getenv("CONSOLE_SEGMENT_DELAY_MS", "800") or "800")
+                per_char_ms = int(os.getenv("CONSOLE_SEGMENT_DELAY_PER_CHAR_MS", "0") or "0")
+                max_delay_ms = int(os.getenv("CONSOLE_SEGMENT_DELAY_MAX_MS", "2000") or "2000")
+
+                log_line(f"=== Bot(segments={len(segments)}): {reply}")
+                log_line("")
+                for i, seg in enumerate(segments):
+                    if i > 0:
+                        delay_ms = base_delay_ms + per_char_ms * len(seg)
+                        delay_ms = max(0, min(max_delay_ms, delay_ms))
+                        if delay_ms > 0:
+                            await asyncio.sleep(delay_ms / 1000.0)
+                    print("Bot:", seg)
+                log_line("")
+            else:
+                log_line(f"=== Bot: {reply}")
+                log_line("")
+                print("Bot:", reply)
     finally:
         sys.stdout = original_stdout
         try:

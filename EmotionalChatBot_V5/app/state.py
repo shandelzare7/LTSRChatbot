@@ -6,6 +6,9 @@ from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated, Liter
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
+# 时间戳在 state 中通常为 ISO 字符串，便于 JSON 序列化
+TimestampStr = str
+
 
 # ==========================================
 # 0. Knapp 关系阶段定义 (Relationship Stages)
@@ -129,6 +132,32 @@ class MoodState(TypedDict):
 
 
 # ==========================================
+# 3.4 任务 (Bot Task)
+# ==========================================
+
+class Task(TypedDict, total=False):
+    """
+    Bot 的单项任务：用于待办/提醒/跟进等。
+    - id: 唯一标识（UUID 字符串）
+    - task_type: 任务类型（如 remind / follow_up / ask / custom）
+    - description: 自然语言描述
+    - importance: 重要性（0-1 或 1-5，由业务约定）
+    - created_at: 创建时间（ISO 字符串）
+    - expires_at: 有效期/截止时间（ISO 字符串，可选）
+    - last_attempt_at: 上次尝试时间（ISO 字符串，可选）
+    - attempt_count: 尝试次数（非负整数）
+    """
+    id: str
+    task_type: str
+    description: str
+    importance: float
+    created_at: TimestampStr
+    expires_at: Optional[TimestampStr]
+    last_attempt_at: Optional[TimestampStr]
+    attempt_count: int
+
+
+# ==========================================
 # 3.5 拟人化行为表现层 (Behavioral Layer)
 # ==========================================
 
@@ -200,6 +229,9 @@ class ReplyPlan(TypedDict, total=False):
     # must_cover_points -> message.id 映射（用于对齐计划目标与消息分配）
     must_cover_map: Dict[str, str]
     justification: str  # 简短自我解释（为什么这样编排）
+    # 任务结算（最小闭环）：由 LATS/ReplyPlanner 输出，供 evolver 在本轮结束时结算
+    attempted_task_ids: List[str]
+    completed_task_ids: List[str]
 
 
 class ProcessorPlan(TypedDict, total=False):
@@ -303,6 +335,9 @@ class AgentState(TypedDict, total=False):
     # 仅外部可见的用户文本（防止 internal prompt/debug 污染 user_input）
     external_user_text: Optional[str]
     current_time: str
+    # 业务语义时间戳（用于 DB 写入 created_at 语义）
+    user_received_at: Optional[str]
+    ai_sent_at: Optional[str]
     user_id: str  # 用户ID，用于数据库查询
     bot_id: str   # Bot 的外部/固定ID（用于 DB/本地持久化定位同一条关系）
 
@@ -336,6 +371,30 @@ class AgentState(TypedDict, total=False):
     # --- Knapp Relationship Stage ---
     # 当前关系阶段（根据 Knapp 理论模型）
     current_stage: KnappStage
+
+    # --- Bot 任务清单（读写数据库）---
+    # 该 Bot 对应当前用户的完整任务列表，由 loader 从 DB 加载，可由节点更新后经 save_turn 写回
+    bot_task_list: List[Task]
+    # 当前会话要处理的任务子集，通常 0-3 条，仅内存使用不持久化
+    current_session_tasks: List[Task]
+
+    # --- TaskPlanner 输出（LATS 之前节点写入，供 LATS / reply_planner 使用）---
+    # 本轮交给 LATS 的至多 3 条自然语言任务（带 id 便于回写完成）
+    tasks_for_lats: List[Dict[str, Any]]  # [{"id": str, "description": str, "task_type": str?}, ...]
+    # 本轮允许完成的任务数 0/1/2；0 时仍可带任务包，但倾向“隐式完成”
+    task_budget_max: int
+    # 回复字数上限（0-60）
+    word_budget: int
+    # 第三任务加权随机时的温度（可选）
+    completion_temperature: Optional[float]
+
+    # --- Task settlement (from LATS/ReplyPlanner; evolver consumes) ---
+    attempted_task_ids: Optional[List[str]]
+    completed_task_ids: Optional[List[str]]
+
+    # --- Writer flags ---
+    # Web 并发输入：用户消息可能已提前逐条落库，此时 save_turn 不应再写入 user_input（避免出现合并 user 行）
+    skip_user_message_write: Optional[bool]
     
     # --- Memory System ---
     # 短期记忆窗口 (最近 10-20 条)
@@ -344,6 +403,8 @@ class AgentState(TypedDict, total=False):
     conversation_summary: str
     # RAG 检索到的相关记忆 (事实 + 关键事件)
     retrieved_memories: List[str]
+    # 检索是否成功（失败时下游 prompt 只用 summary，不拼旧 retrieved）
+    retrieval_ok: Optional[bool]
     # 统一注入提示词的记忆块（chat_buffer + summary + retrieved 合并后的文本）
     memory_context: str
     
@@ -360,12 +421,18 @@ class AgentState(TypedDict, total=False):
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
     
-    # --- Detection (信号检测：instant/trace/heat/streak/composite) ---
-    # 完整输出：instant, trace, heat, streak, composite, params, trace_fast, trace_slow（供下一轮衰减）
+    # --- Detection（感知：scores/brief/stage_judge/immediate_tasks）---
     detection_signals: Optional[Dict[str, Any]]
-    # 路由用：由 composite 推导，normal | mute（与 graph 两分支一致）
+    detection_scores: Optional[Dict[str, float]]   # friendly, hostile, overstep, low_effort, confusion
+    detection_meta: Optional[Dict[str, int]]       # target_is_assistant, quoted_or_reported_speech
+    detection_brief: Optional[Dict[str, Any]]      # gist, references, unknowns, subtext, understanding_confidence, reaction_seed
+    detection_stage_judge: Optional[Dict[str, Any]]  # current_stage, implied_stage, delta, direction, evidence_spans
+    detection_immediate_tasks: Optional[List[Dict[str, Any]]]  # 当轮任务，交给 planner 写入任务库
+    # 兼容/日志用（不再用于路由；路由改由 word_budget/no_reply）
     detection_result: Optional[str]
     detection_category: Optional[str]
+    # 是否本轮不回复（由 task_planner 在 word_budget=0 时设置，graph 条件边短路）
+    no_reply: Optional[bool]
     # 直觉思考：由 Inner Monologue 节点生成（原 detection 的“先想再分类”现移入 inner_monologue）
     intuition_thought: Optional[str]
     # 关系滤镜：由 Inner Monologue 生成，此刻对 TA 的主观关系感受（字符串，非 relationship_state 数值）
@@ -448,6 +515,8 @@ class AgentState(TypedDict, total=False):
     retry_count: Optional[int]  # 重试次数
     final_segments: Optional[List[str]]  # 最终分段
     final_delay: Optional[float]  # 最终延迟
+    # Processor 开关：是否启用 LLM 做拆句与节奏（必须进 AgentState，否则 LangGraph 传播会丢字段）
+    processor_use_llm: Optional[bool]
 
     # --- Behavioral Layer Output (Processor) ---
     # 更细粒度的“拟人化输出”，供客户端按 delay 播放打字/气泡

@@ -15,8 +15,10 @@
 """
 
 import json
+import random
 import re
-from typing import Any, Callable, Dict
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -24,6 +26,7 @@ from app.state import AgentState
 from src.schemas import RelationshipAnalysis
 from src.prompts.relationship import build_analyzer_prompt
 from utils.tracing import trace_if_enabled
+from utils.llm_json import parse_json_from_llm
 
 
 REL_DIMS = ("closeness", "trust", "liking", "respect", "warmth", "power")
@@ -85,20 +88,20 @@ def calculate_damped_delta(current_score: float, raw_delta: float) -> float:
 
 def _normalize_delta(x: Any) -> float:
     """
-    统一 delta 量纲（系统内部 relationship_state 为 0-1）：
-    - 若已是 0-1：原样返回
-    - 若是强度档位（-3..3 / -5..5）：除以 10（例如 3 -> 0.3）
-    - 若是旧 points（0-100）：除以 100
-    - 兜底截断到 [-1, 1]
+    统一 delta 量纲：relationship_state 为 0-1，增量也需在合理步长内。
+    Analyzer 按 prompt/schema 输出 -3..+3 整数（0 无变化，±1 轻微，±2 中等，±3 强烈），
+    此处统一映射到 ±0.3：先按 -3..3 归一化，再兼容其它量纲。
     """
     try:
         v = float(x)
     except Exception:
         return 0.0
+    # 先处理 Analyzer 标准输出：-3..+3 整档 → 步长 -0.3..+0.3（与 prompt/schema 一致）
+    if -3.0 <= v <= 3.0:
+        return v / 10.0
+    # 已是 0-1 或 ±1 内的小数（其它来源）则原样
     if abs(v) <= 1.0:
         return v
-    if abs(v) <= 5.0:
-        return v / 10.0
     if abs(v) <= 100.0:
         return v / 100.0
     return float(_clamp(v, -1.0, 1.0))
@@ -271,9 +274,246 @@ def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], 
     return node
 
 
+# -------------------------------------------------------------------
+# 任务完成检测与会话池更新（当前会话任务池：移除已完成，backlog/daily 递补；未完成 backlog 写回 DB）
+# -------------------------------------------------------------------
+
+def _detect_completed_tasks_and_replenish(
+    state: Dict[str, Any],
+    llm_invoker: Any,
+) -> Dict[str, Any]:
+    """
+    用 LLM 判断 current_session_tasks 中哪些在本轮完成；
+    移除已完成的，对 backlog 类型的从 bot_task_list 也移除（未完成 backlog 随 save_turn 写回 DB）；
+    递补：再补 3 个 backlog 进 current_session_tasks（daily 不进入持久化池）。
+    """
+    from app.nodes.task_planner import (
+        BACKLOG_SESSION_TARGET,
+        CURRENT_SESSION_TASKS_CAP,
+        _sample_backlog_excluding,
+    )
+
+    current_session_tasks: List[Dict[str, Any]] = list(state.get("current_session_tasks") or [])
+    bot_task_list: List[Dict[str, Any]] = list(state.get("bot_task_list") or [])
+    tasks_for_lats = state.get("tasks_for_lats") or []
+    final_response = (state.get("final_response") or state.get("draft_response") or "").strip()
+    user_input = (state.get("user_input") or "").strip()
+
+    # 优先使用 LATS/ReplyPlanner 的结构化回写（最小闭环），避免额外 LLM 结算调用
+    completed_ids: set = set()
+    attempted_ids: set = set()
+    try:
+        c = state.get("completed_task_ids")
+        a = state.get("attempted_task_ids")
+        if isinstance(c, list):
+            completed_ids = {str(x) for x in c if str(x).strip()}
+        if isinstance(a, list):
+            attempted_ids = {str(x) for x in a if str(x).strip()}
+    except Exception:
+        pass
+
+    # fallback：仅在“没有结构化字段”的旧版本状态下，才用 LLM 判断完成（兼容旧行为）
+    has_structured = isinstance(state.get("attempted_task_ids"), list) or isinstance(state.get("completed_task_ids"), list)
+    if (not has_structured) and (not completed_ids) and current_session_tasks and llm_invoker and (final_response or tasks_for_lats):
+        task_descriptions = "\n".join(
+            f"- id={t.get('id')!r}: {str(t.get('description') or '')[:80]}"
+            for t in current_session_tasks[:20]
+        )
+        prompt = f"""根据「用户本轮发言」和「助手本轮回复」判断下面任务列表中哪些在本轮被完成（显式或隐式完成均可）。
+只输出 JSON：{{"completed_ids": ["id1", "id2", ...]}}，仅包含已完成的 id，未完成的不列。
+用户发言：{user_input[:200]}
+助手回复：{final_response[:400]}
+任务列表：
+{task_descriptions}
+只输出 JSON，不要其他文字。"""
+        try:
+            resp = llm_invoker.invoke([HumanMessage(content=prompt)])
+            raw = (getattr(resp, "content", "") or str(resp)).strip()
+            data = parse_json_from_llm(raw)
+            if isinstance(data, dict) and isinstance(data.get("completed_ids"), list):
+                completed_ids = {str(x) for x in data["completed_ids"] if x}
+        except Exception:
+            pass
+
+    # attempted_ids fallback：没有显式 attempted，就用 tasks_for_lats 的 id 当作“尝试过”
+    if not attempted_ids and isinstance(tasks_for_lats, list):
+        for t in tasks_for_lats:
+            if isinstance(t, dict) and t.get("id"):
+                attempted_ids.add(str(t.get("id")))
+
+    # 从 current_session_tasks 中移除已完成的
+    current_session_tasks = [t for t in current_session_tasks if str(t.get("id")) not in completed_ids]
+
+    # 清理遗留/非法类型：daily 不应进入持久化池；仅允许 backlog/immediate 常驻
+    cleaned: List[Dict[str, Any]] = []
+    for t in current_session_tasks:
+        tt = str(t.get("task_type") or "").strip()
+        if tt in ("backlog", "immediate"):
+            cleaned.append(t)
+    current_session_tasks = cleaned
+
+    # 对“尝试过但未完成”的任务加急：attempt_count += 1，last_attempt_at=now（写回 DB 的 bot_task_list）
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    bumped = 0
+    if attempted_ids:
+        for t in current_session_tasks:
+            tid = str(t.get("id") or "")
+            if not tid or tid in completed_ids or tid not in attempted_ids:
+                continue
+            try:
+                t["attempt_count"] = int(t.get("attempt_count", 0) or 0) + 1
+                t["last_attempt_at"] = now_iso
+                bumped += 1
+            except Exception:
+                pass
+        for t in bot_task_list:
+            tid = str(t.get("id") or "")
+            if not tid or tid in completed_ids or tid not in attempted_ids:
+                continue
+            try:
+                t["attempt_count"] = int(t.get("attempt_count", 0) or 0) + 1
+                t["last_attempt_at"] = now_iso
+            except Exception:
+                pass
+
+    # immediate 任务 TTL：每轮结算时递减；到期则移除（immediate 允许跨轮累加，但不应无限膨胀）
+    def _dec_ttl_and_filter(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        for t in tasks:
+            tt = str(t.get("task_type") or "").strip()
+            if tt != "immediate":
+                out.append(t)
+                continue
+            try:
+                ttl = int(t.get("ttl_turns", 0) or 0)
+            except Exception:
+                ttl = 0
+            if ttl <= 0:
+                # 没有 ttl 的 immediate，默认给 1 轮寿命（避免永久堆积）
+                ttl = 1
+            ttl -= 1
+            if ttl <= 0:
+                continue
+            nt = dict(t)
+            nt["ttl_turns"] = ttl
+            out.append(nt)
+        return out
+
+    current_session_tasks = _dec_ttl_and_filter(current_session_tasks)
+
+    # 已完成的 backlog 从 bot_task_list 中移除（未完成的会随 save_turn 写回 DB）
+    backlog_task_type = ("backlog",)
+    for tid in completed_ids:
+        for t in list(bot_task_list):
+            if str(t.get("id")) == tid and (t.get("task_type") or "").strip() in backlog_task_type:
+                bot_task_list.remove(t)
+                break
+
+    # backlog 池容量控制：历史 bug 可能导致 backlog 在 current_session_tasks 中膨胀；
+    # 这里强制收敛到固定目标数，只在“数量不足”时补齐。
+    backlog_items = [t for t in current_session_tasks if str(t.get("task_type") or "").strip() == "backlog"]
+    immediate_items = [t for t in current_session_tasks if str(t.get("task_type") or "").strip() == "immediate"]
+    backlog_in_pool = len(backlog_items)
+    trimmed_backlog = 0
+    if backlog_in_pool > int(BACKLOG_SESSION_TARGET):
+        # 保持稳定：保留最早进入池子的 backlog（列表前面的），其余丢弃
+        keep = backlog_items[: int(BACKLOG_SESSION_TARGET)]
+        trimmed_backlog = backlog_in_pool - len(keep)
+        current_session_tasks = keep + immediate_items
+        backlog_items = keep
+        backlog_in_pool = len(backlog_items)
+
+    need_backlog = max(0, int(BACKLOG_SESSION_TARGET) - int(backlog_in_pool))
+    added_backlog = 0
+    existing_ids = {str(t.get("id")) for t in current_session_tasks if t.get("id")}
+    backlog_new = _sample_backlog_excluding(bot_task_list, existing_ids, need_backlog) if need_backlog > 0 else []
+
+    def _norm(t: Dict[str, Any], prefix: str, i: int) -> Dict[str, Any]:
+        return {
+            "id": t.get("id") or f"{prefix}_{i}",
+            "description": str(t.get("description") or t.get("id") or "").strip() or "（无描述）",
+            "task_type": str(t.get("task_type") or "other"),
+        }
+
+    for i, t in enumerate(backlog_new):
+        current_session_tasks.append(_norm(t, "backlog", len(current_session_tasks)))
+        added_backlog += 1
+
+    # carry 硬上限：超过则按 priority + recency 裁剪尾部
+    carry_max = int(CURRENT_SESSION_TASKS_CAP)
+    if len(current_session_tasks) > carry_max:
+        scored: List[tuple] = []
+        for idx, t in enumerate(current_session_tasks):
+            tt = str(t.get("task_type") or "").strip()
+            is_immediate = 1 if tt == "immediate" else 0
+            try:
+                imp = float(t.get("importance", 0.5) or 0.5)
+            except Exception:
+                imp = 0.5
+            try:
+                ac = int(t.get("attempt_count", 0) or 0)
+            except Exception:
+                ac = 0
+            # 越大越保留：immediate 优先，其次 attempt_count/importance；recency 用 idx（越靠后越新）
+            score = (is_immediate, min(10, ac), imp, idx)
+            scored.append((score, str(t.get("id") or ""), idx))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        keep_ids = set()
+        # 先选够 carry_max
+        for _, tid, _ in scored[:carry_max]:
+            if tid:
+                keep_ids.add(tid)
+        # 保持原顺序
+        current_session_tasks = [t for t in current_session_tasks if str(t.get("id") or "") in keep_ids]
+
+    if len(current_session_tasks) > CURRENT_SESSION_TASKS_CAP:
+        current_session_tasks = current_session_tasks[-CURRENT_SESSION_TASKS_CAP:]
+
+    # Debug breadcrumb for logs: task settlement and replenishment
+    try:
+        if completed_ids or attempted_ids or added_backlog or trimmed_backlog or bumped:
+            print(
+                f"[Evolver] completed={len(completed_ids)} attempted={len(attempted_ids)} bumped={bumped} "
+                f"backlog_pool={backlog_in_pool}->{sum(1 for t in current_session_tasks if str(t.get('task_type') or '').strip() == 'backlog')}, "
+                f"trimmed_backlog={trimmed_backlog}, added_backlog={added_backlog}, session_tasks={len(current_session_tasks)}"
+            )
+    except Exception:
+        pass
+
+    return {
+        "current_session_tasks": current_session_tasks,
+        "bot_task_list": bot_task_list,
+    }
+
+
 def create_evolver_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     """
     Graph 入口（与文件名一致）：
-    evolver = RelationshipEngine = Analyzer -> Updater
+    evolver = RelationshipEngine = Analyzer -> Updater，再执行任务完成检测与 current_session_tasks/bot_task_list 更新。
     """
-    return create_relationship_engine_node(llm_invoker)
+    base_engine = create_relationship_engine_node(llm_invoker)
+
+    @trace_if_enabled(
+        name="Evolver",
+        run_type="chain",
+        tags=["node", "evolver", "relationship", "task_pool"],
+        metadata={
+            "state_outputs": [
+                "latest_relationship_analysis",
+                "relationship_deltas",
+                "relationship_deltas_applied",
+                "relationship_state",
+                "current_session_tasks",
+                "bot_task_list",
+            ]
+        },
+    )
+    def node(state: AgentState) -> dict:
+        out = base_engine(state)
+        merged = dict(state)
+        merged.update(out)
+        task_updates = _detect_completed_tasks_and_replenish(merged, llm_invoker)
+        out.update(task_updates)
+        return out
+
+    return node

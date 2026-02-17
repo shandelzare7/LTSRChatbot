@@ -11,6 +11,7 @@ import asyncio
 import io
 import zipfile
 from typing import Optional
+import uuid
 
 # 加载 .env（若存在）
 root = Path(__file__).resolve().parent
@@ -47,6 +48,26 @@ app = FastAPI(title="EmotionalChatBot Web", version="5.0")
 
 # 日志文件管理
 _log_files: dict[str, tuple] = {}  # {session_id: (file_handle, path)}
+
+# Web 并发输入控制：同一 session 允许“中断上一轮结算并合并消息”
+# key=session_id -> state
+_inflight_chat: dict[str, dict] = {}
+
+
+def _get_inflight_state(session_id: str) -> dict:
+    st = _inflight_chat.get(session_id)
+    if isinstance(st, dict):
+        return st
+    st = {
+        "lock": asyncio.Lock(),
+        "pending_user_msgs": [],  # List[{"content": str, "ts": str}]
+        "latest_req_id": None,
+        "waiter": None,  # asyncio.Future
+        "fast_task": None,  # asyncio.Task
+        "tail_task": None,  # asyncio.Task
+    }
+    _inflight_chat[session_id] = st
+    return st
 
 
 def get_or_create_log_file(session_id: str, user_id: str, bot_id: str):
@@ -423,159 +444,213 @@ async def chat(
         raise HTTPException(status_code=400, detail="消息不能为空")
     
     try:
-        t_total = time.perf_counter()
-        # 加载数据库状态
+        # -----
+        # Interruptible in-flight chat:
+        # - Always persist the user message immediately (so history keeps 2 separate user rows if user sends twice fast).
+        # - If another message arrives while previous generation/settlement is running, cancel it and restart with merged user_input.
+        # - Still pass the two user messages separately into chat_buffer (two consecutive user tags).
+        # -----
         db = get_db_manager()
-        t0 = time.perf_counter()
-        db_state = await db.load_state(user_id, bot_id)
-        t_load_ms = (time.perf_counter() - t0) * 1000.0
-        
-        # 构建AgentState
-        t0 = time.perf_counter()
-        state = _make_initial_state(user_id, bot_id)
-        state.update(db_state)  # 合并数据库状态
-        t_state_ms = (time.perf_counter() - t0) * 1000.0
-        
-        # 业务语义：用户消息接收时间（进入流程之前）
-        received_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        state["messages"] = [
-            HumanMessage(
-                content=chat_data.message.strip(),
-                additional_kwargs={"timestamp": received_iso},
-            )
-        ]
-        state["current_time"] = received_iso
-        state["user_received_at"] = received_iso
-        state["user_input"] = chat_data.message.strip()
-        state["external_user_text"] = state["user_input"]
-        
-        # Web：仅在显式设置环境变量时覆盖 LATS 配置（默认走系统原始策略/预算与评审）
-        # 说明：用户可能希望在 Web 上也完整启用 LATS + LLM soft scorer。
-        if os.getenv("WEB_LATS_ROLLOUTS") is not None:
-            try:
-                state["lats_rollouts"] = int(os.getenv("WEB_LATS_ROLLOUTS") or 0)
-            except Exception:
-                pass
-        if os.getenv("WEB_LATS_EXPAND_K") is not None:
-            try:
-                state["lats_expand_k"] = int(os.getenv("WEB_LATS_EXPAND_K") or 0)
-            except Exception:
-                pass
-        if os.getenv("WEB_ENABLE_LLM_SOFT_SCORER") is not None:
-            state["lats_enable_llm_soft_scorer"] = (
-                str(os.getenv("WEB_ENABLE_LLM_SOFT_SCORER", "0")).lower() in ("1", "true", "yes", "on")
-            )
-        
-        # 运行graph（重定向 stdout 到日志文件）
-        log_file, log_path = get_or_create_log_file(session_id, user_id, bot_id)
+        inflight = _get_inflight_state(session_id)
+
+        # Use milliseconds to keep ordering stable for bursty inputs
+        received_iso = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        msg_text = chat_data.message.strip()
+
+        # 1) Persist this user message ASAP (history correctness)
         try:
-            log_file.write(
-                f"[WEB_PERF] db.load_state_ms={t_load_ms:.1f} make_state_ms={t_state_ms:.1f}\n"
+            await db.append_message(
+                user_id,
+                bot_id,
+                role="user",
+                content=msg_text,
+                created_at=received_iso,
+                meta={"source": "web", "session_id": session_id},
             )
-            log_file.flush()
         except Exception:
+            # best-effort: don't block generation
             pass
-        original_stdout = sys.stdout
-        sys.stdout = FileOnlyWriter(log_file)
-        
-        try:
-            # Web: return reply ASAP after final_validator, then run tail nodes async.
-            fast_return = _truthy(os.getenv("WEB_FAST_RETURN", "1"))
-            graph = get_graph_fast() if fast_return else get_graph()
-            t0 = time.perf_counter()
-            result = await graph.ainvoke(state, config={"recursion_limit": 50})
-            t_graph_ms = (time.perf_counter() - t0) * 1000.0
-        finally:
-            sys.stdout = original_stdout
-        
-        # 注意：graph 末尾的 `memory_writer` 节点会负责写入 DB（Commit Late）。
-        # Web 这里再写一次会导致同一轮 messages 被写入两次（历史显示重复）。
-        t_save_ms = 0.0
-        
-        # 获取回复
-        reply = result.get("final_response") or ""
-        if not reply and result.get("final_segments"):
-            reply = " ".join(result["final_segments"])
-        if not reply:
-            reply = result.get("draft_response") or "（无回复）"
 
-        # Mark "ready to return" timestamp for UI and DB created_at semantics.
-        ai_sent_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        if isinstance(result, dict):
-            result["ai_sent_at"] = ai_sent_at
+        # 2) Register as pending and cancel any in-flight tasks
+        loop = asyncio.get_running_loop()
+        waiter = loop.create_future()
+        req_id = str(uuid.uuid4())
 
-        # Run tail nodes async (evolver -> stage_manager -> memory_manager -> memory_writer)
-        if _truthy(os.getenv("WEB_FAST_RETURN", "1")):
-            tail_state = dict(state)
-            if isinstance(result, dict):
-                tail_state.update(result)
-            tail_state["ai_sent_at"] = ai_sent_at
+        async with inflight["lock"]:
+            inflight["pending_user_msgs"].append({"content": msg_text, "ts": received_iso})
 
-            async def _run_tail():
-                log_file2, _ = get_or_create_log_file(session_id, user_id, bot_id)
-                orig = sys.stdout
-                sys.stdout = FileOnlyWriter(log_file2)
+            # Supersede previous waiter (if any)
+            old_waiter = inflight.get("waiter")
+            if old_waiter is not None and hasattr(old_waiter, "done") and (not old_waiter.done()):
                 try:
-                    tail_graph = get_graph_tail()
-                    await tail_graph.ainvoke(tail_state, config={"recursion_limit": 50})
-                except Exception as e:
+                    old_waiter.set_result({"status": "superseded"})
+                except Exception:
+                    pass
+
+            inflight["waiter"] = waiter
+            inflight["latest_req_id"] = req_id
+
+            # Cancel in-flight tasks (generation and tail settlement)
+            for k in ("fast_task", "tail_task"):
+                t = inflight.get(k)
+                if t is not None and hasattr(t, "done") and (not t.done()):
                     try:
-                        print(f"[WEB_BG] tail graph failed: {e}")
+                        t.cancel()
                     except Exception:
                         pass
-                finally:
-                    sys.stdout = orig
 
-            # Fire-and-forget: do not block user response.
-            try:
-                asyncio.create_task(_run_tail())
-            except Exception:
-                pass
-        
-        # 记录到日志文件
-        try:
-            t_total_ms = (time.perf_counter() - t_total) * 1000.0
-            log_file, _ = get_or_create_log_file(session_id, user_id, bot_id)
-            log_file.write(
-                f"[WEB_PERF] graph_ms={t_graph_ms:.1f} save_turn_ms={t_save_ms:.1f} total_ms={t_total_ms:.1f} log={log_path}\n"
-            )
-            log_file.flush()
-            log_web_chat(session_id, user_id, bot_id, chat_data.message.strip(), reply)
+            async def _run_one(req_id_local: str):
+                t_total = time.perf_counter()
+                # Snapshot pending messages for this run
+                async with inflight["lock"]:
+                    pending = list(inflight.get("pending_user_msgs") or [])
 
-            # Persist web_chat log snapshot to Postgres (best-effort).
-            # Render filesystem is ephemeral; DB keeps it permanently.
-            try:
-                max_chars_raw = (os.getenv("WEB_CHAT_LOG_MAX_CHARS") or "").strip()
-                max_chars = int(max_chars_raw) if max_chars_raw else 1_000_000
-            except Exception:
-                max_chars = 1_000_000
-            try:
-                # Read latest log file content (tail) and upsert
-                log_text = ""
+                if not pending:
+                    return
+
+                merged_text = "\n".join([str(x.get("content") or "").strip() for x in pending if str(x.get("content") or "").strip()]).strip()
+                if not merged_text:
+                    return
+
+                # Load fresh state (includes any just-appended user messages)
+                t0 = time.perf_counter()
+                db_state = await db.load_state(user_id, bot_id)
+                t_load_ms = (time.perf_counter() - t0) * 1000.0
+
+                state = _make_initial_state(user_id, bot_id)
+                state.update(db_state)
+
+                # Provide bursty user inputs as 2 separate chat_buffer messages,
+                # but use merged_text as "current user input" for detection/reasoning.
+                state["messages"] = []  # let loader prefer state.user_input
+                state["chat_buffer"] = [
+                    HumanMessage(content=str(x.get("content") or ""), additional_kwargs={"timestamp": str(x.get("ts") or "")})
+                    for x in pending
+                ]
+                state["user_input"] = merged_text
+                state["external_user_text"] = merged_text
+                state["current_time"] = str(pending[-1].get("ts") or received_iso)
+                state["user_received_at"] = str(pending[0].get("ts") or received_iso)
+
+                # Web：仅在显式设置环境变量时覆盖 LATS 配置（默认走系统原始策略/预算与评审）
+                if os.getenv("WEB_LATS_ROLLOUTS") is not None:
+                    try:
+                        state["lats_rollouts"] = int(os.getenv("WEB_LATS_ROLLOUTS") or 0)
+                    except Exception:
+                        pass
+                if os.getenv("WEB_LATS_EXPAND_K") is not None:
+                    try:
+                        state["lats_expand_k"] = int(os.getenv("WEB_LATS_EXPAND_K") or 0)
+                    except Exception:
+                        pass
+                if os.getenv("WEB_ENABLE_LLM_SOFT_SCORER") is not None:
+                    state["lats_enable_llm_soft_scorer"] = (
+                        str(os.getenv("WEB_ENABLE_LLM_SOFT_SCORER", "0")).lower() in ("1", "true", "yes", "on")
+                    )
+
+                # Run fast graph (stdout -> log)
+                log_file, log_path = get_or_create_log_file(session_id, user_id, bot_id)
                 try:
-                    log_text = Path(str(log_path)).read_text(encoding="utf-8", errors="replace")
+                    log_file.write(f"[WEB_PERF] db.load_state_ms={t_load_ms:.1f} pending_msgs={len(pending)}\n")
+                    log_file.flush()
                 except Exception:
-                    log_text = ""
-                await db.upsert_web_chat_log(
-                    user_external_id=user_id,
-                    bot_id=bot_id,
-                    session_id=session_id,
-                    filename=Path(str(log_path)).name,
-                    content=log_text,
-                    max_chars=max_chars,
-                )
-            except Exception:
-                pass
-        except Exception as log_error:
-            print(f"日志记录失败: {log_error}", file=sys.stderr)
-        
-        return {
-            "reply": reply,
-            "status": "success",
-            # timestamps for UI
-            "user_created_at": received_iso,
-            "ai_created_at": ai_sent_at,
-        }
+                    pass
+
+                original_stdout = sys.stdout
+                sys.stdout = FileOnlyWriter(log_file)
+                try:
+                    fast_return = _truthy(os.getenv("WEB_FAST_RETURN", "1"))
+                    graph = get_graph_fast() if fast_return else get_graph()
+                    t0 = time.perf_counter()
+                    result = await graph.ainvoke(state, config={"recursion_limit": 50})
+                    t_graph_ms = (time.perf_counter() - t0) * 1000.0
+                finally:
+                    sys.stdout = original_stdout
+
+                reply = result.get("final_response") or ""
+                if not reply and result.get("final_segments"):
+                    reply = " ".join(result["final_segments"])
+                if not reply:
+                    reply = result.get("draft_response") or "（无回复）"
+                segments = result.get("final_segments") or []
+                if not segments and reply:
+                    segments = [reply]
+
+                ai_sent_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+                if isinstance(result, dict):
+                    result["ai_sent_at"] = ai_sent_at
+
+                # Tail settlement: skip writing user message (already persisted individually above)
+                if _truthy(os.getenv("WEB_FAST_RETURN", "1")):
+                    tail_state = dict(state)
+                    if isinstance(result, dict):
+                        tail_state.update(result)
+                    tail_state["ai_sent_at"] = ai_sent_at
+                    tail_state["skip_user_message_write"] = True
+
+                    async def _run_tail_local():
+                        log_file2, _ = get_or_create_log_file(session_id, user_id, bot_id)
+                        orig = sys.stdout
+                        sys.stdout = FileOnlyWriter(log_file2)
+                        try:
+                            tail_graph = get_graph_tail()
+                            await tail_graph.ainvoke(tail_state, config={"recursion_limit": 50})
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as e:
+                            try:
+                                print(f"[WEB_BG] tail graph failed: {e}")
+                            except Exception:
+                                pass
+                        finally:
+                            sys.stdout = orig
+
+                    try:
+                        tail_task = asyncio.create_task(_run_tail_local())
+                        async with inflight["lock"]:
+                            inflight["tail_task"] = tail_task
+                    except Exception:
+                        pass
+
+                # Write perf + persist web_chat log snapshot
+                try:
+                    t_total_ms = (time.perf_counter() - t_total) * 1000.0
+                    log_file3, _ = get_or_create_log_file(session_id, user_id, bot_id)
+                    log_file3.write(f"[WEB_PERF] graph_ms={t_graph_ms:.1f} total_ms={t_total_ms:.1f} log={log_path}\n")
+                    log_file3.flush()
+                    log_web_chat(session_id, user_id, bot_id, merged_text, reply)
+                except Exception:
+                    pass
+
+                # Complete waiter only if still latest
+                async with inflight["lock"]:
+                    if inflight.get("latest_req_id") != req_id_local:
+                        return
+                    # consume pending messages
+                    inflight["pending_user_msgs"] = []
+                    w = inflight.get("waiter")
+                    if w is not None and (not w.done()):
+                        w.set_result(
+                            {
+                                "reply": reply,
+                                "segments": segments,
+                                "status": "success",
+                                "user_created_at": str(pending[0].get("ts") or received_iso),
+                                "ai_created_at": ai_sent_at,
+                                "merged_user_messages": len(pending),
+                            }
+                        )
+
+            inflight["fast_task"] = asyncio.create_task(_run_one(req_id))
+
+        # 3) Wait for reply or superseded
+        out = await waiter
+        if isinstance(out, dict) and out.get("status") == "superseded":
+            return JSONResponse(
+                status_code=409,
+                content={"status": "superseded", "detail": "superseded by a newer user message"},
+            )
+        return out
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()

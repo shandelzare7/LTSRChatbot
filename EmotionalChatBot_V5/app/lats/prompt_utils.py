@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
-from utils.prompt_helpers import format_stage_for_llm
+from utils.prompt_helpers import format_stage_act_for_llm
 
 
 _ASSISTANT_IDENTITY_PATTERNS = [
@@ -55,7 +55,11 @@ def filter_retrieved_memories(items: Any) -> List[str]:
 def build_system_memory_block(state: Dict[str, Any]) -> str:
     """System memory must NOT include chat_buffer; only summary + retrieved."""
     summary = sanitize_memory_text(state.get("conversation_summary") or "")
-    retrieved = filter_retrieved_memories(state.get("retrieved_memories") or [])
+    retrieval_ok = state.get("retrieval_ok")
+    if retrieval_ok is False:
+        retrieved = []
+    else:
+        retrieved = filter_retrieved_memories(state.get("retrieved_memories") or [])
     parts: List[str] = []
     if summary:
         parts.append("近期对话摘要：\n" + str(summary))
@@ -99,7 +103,8 @@ def summarize_state_for_planner(state: Dict[str, Any]) -> str:
     mood = state.get("mood_state") or {}
     rel = state.get("relationship_state") or {}
     stage_id = state.get("current_stage") or "experimenting"
-    stage_desc = format_stage_for_llm(stage_id)
+    # 怎么演：仅阶段角色/目标/策略，供 planner 用
+    stage_desc = format_stage_act_for_llm(stage_id)
     mode = state.get("current_mode")
     mode_id = getattr(mode, "id", None) if mode else None
     crit = None

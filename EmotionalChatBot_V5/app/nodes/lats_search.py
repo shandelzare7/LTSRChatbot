@@ -38,6 +38,9 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
                 "lats_rollouts",
                 "final_response",
                 "final_segments",
+                # 任务结算闭环（由 ReplyPlanner/LATS 输出，供 evolver 使用）
+                "attempted_task_ids",
+                "completed_task_ids",
             ]
         },
     )
@@ -249,6 +252,36 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
             print(f"[LATS] 最终输出: {len(final_segments)}条消息, score={final_score:.4f}, found={final_found}")
 
         print("[LATS] done")
+        attempted_task_ids: list[str] = []
+        completed_task_ids: list[str] = []
+        try:
+            if isinstance(best_reply_plan, dict):
+                a = best_reply_plan.get("attempted_task_ids")
+                c = best_reply_plan.get("completed_task_ids")
+                if isinstance(a, list):
+                    attempted_task_ids = [str(x) for x in a if str(x).strip()][:8]
+                if isinstance(c, list):
+                    completed_task_ids = [str(x) for x in c if str(x).strip()][:2]
+        except Exception:
+            pass
+
+        # 防御：只允许从 tasks_for_lats 的 id 中回写；并按 task_budget_max 截断 completed
+        try:
+            valid_ids = set()
+            req = requirements if isinstance(requirements, dict) else {}
+            tfl = req.get("tasks_for_lats", []) if isinstance(req, dict) else []
+            if isinstance(tfl, list):
+                for t in tfl:
+                    if isinstance(t, dict) and t.get("id"):
+                        valid_ids.add(str(t.get("id")))
+            if valid_ids:
+                attempted_task_ids = [x for x in attempted_task_ids if x in valid_ids]
+                completed_task_ids = [x for x in completed_task_ids if x in valid_ids]
+            tb = int(req.get("task_budget_max", 2) or 2) if isinstance(req, dict) else 2
+            tb = max(0, min(2, tb))
+            completed_task_ids = completed_task_ids[:tb]
+        except Exception:
+            pass
         return {
             "requirements": requirements,
             "style_profile": style_profile,
@@ -261,6 +294,8 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
             "lats_rollouts": rollouts,
             "final_response": final_text,
             "final_segments": final_segments,
+            "attempted_task_ids": attempted_task_ids,
+            "completed_task_ids": completed_task_ids,
         }
 
     return node

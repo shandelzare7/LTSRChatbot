@@ -32,7 +32,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
         name="Memory/Retriever",
         run_type="chain",
         tags=["node", "memory", "retrieval"],
-        metadata={"state_outputs": ["retrieved_memories"]},
+        metadata={"state_outputs": ["retrieved_memories", "retrieval_ok"]},
     )
     def memory_retriever_node(state: AgentState) -> Dict[str, Any]:
         """
@@ -248,6 +248,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
         relationship_id = state.get("relationship_id")
         
         retrieved: List[str] = []
+        had_error = False
         
         try:
             # 尝试使用 DB
@@ -277,6 +278,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
                                 break
                     except Exception as e:
                         print(f"[Memory Retriever] DB 检索失败: {e}")
+                        had_error = True
             
             # 如果 DB 失败或未配置，使用 LocalStore
             if not retrieved:
@@ -303,24 +305,16 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
                         break
         except Exception as e:
             print(f"[Memory Retriever] 检索失败: {e}")
+            had_error = True
         
         print(f"[Memory Retriever] 检索完成: {len(retrieved)} 条记忆")
-        
-        # 更新 retrieved_memories（合并到现有记忆，去重）
-        existing_retrieved = state.get("retrieved_memories") or []
-        existing_set = set(existing_retrieved)
-        new_retrieved = []
-        for r in retrieved:
-            if r not in existing_set:
-                new_retrieved.append(r)
-                existing_set.add(r)
-        
-        # 合并：新检索的结果优先，但保留原有记忆（最多保留 top_k 条）
-        all_retrieved = new_retrieved + [r for r in existing_retrieved if r not in set(new_retrieved)]
-        all_retrieved = all_retrieved[:top_k]
-        
+
+        # 最小策略：每轮覆盖写，避免 DB 检索失败时拼入旧 retrieved（制造噪声）
+        # 若本轮发生错误（尤其是 event loop 问题），则视为 retrieval_ok=False，直接清空 retrieved。
+        retrieval_ok = (not had_error) and bool(retrieved)
         return {
-            "retrieved_memories": all_retrieved,
+            "retrieved_memories": (retrieved[:top_k] if retrieval_ok else []),
+            "retrieval_ok": bool(retrieval_ok),
         }
     
     return memory_retriever_node

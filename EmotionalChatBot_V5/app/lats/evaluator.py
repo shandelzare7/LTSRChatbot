@@ -13,6 +13,26 @@ from app.state import ProcessorPlan, ReplyPlan, SimReport
 from utils.detailed_logging import log_computation, log_llm_response, log_prompt_and_params
 from utils.llm_json import parse_json_from_llm
 
+try:
+    from utils.yaml_loader import load_stage_by_id
+except Exception:
+    load_stage_by_id = None
+
+
+def _get_stage_judge_criteria(stage_id: str) -> str:
+    """从 config/stages/<stage_id>.yaml 的 judge.judge_criteria 取「怎么判」说明，供 stage judge 注入。"""
+    if not stage_id or load_stage_by_id is None:
+        return ""
+    try:
+        cfg = load_stage_by_id(str(stage_id))
+        judge = (cfg or {}).get("judge") or {}
+        criteria = judge.get("judge_criteria")
+        if criteria and isinstance(criteria, str) and criteria.strip():
+            return criteria.strip()
+    except Exception:
+        pass
+    return ""
+
 
 def _clamp01(x: float) -> float:
     try:
@@ -700,6 +720,9 @@ def judge_dimension_stage_via_llm(
     """Layer-2 Judge B: Knapp stage tasks/constraints fit."""
     bot_basic_info = state.get("bot_basic_info") or {}
     user_basic_info = state.get("user_basic_info") or {}
+    stage_id = str(state.get("current_stage") or (requirements.get("stage_targets") or {}).get("stage") or "experimenting")
+    judge_criteria = _get_stage_judge_criteria(stage_id)
+    criteria_block = f"\n\n## 本阶段评判要点（怎么判）\n{judge_criteria}" if judge_criteria else ""
     system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的关系阶段与节奏（别越界：太像客服/太亲密太快/或突然冷淡），并按 4 个维度给分。
 只输出严格 JSON：
 {{
@@ -713,7 +736,7 @@ def judge_dimension_stage_via_llm(
 
 ## Background
 bot_basic_info: {safe_text(bot_basic_info)}
-user_basic_info: {safe_text(user_basic_info)}
+user_basic_info: {safe_text(user_basic_info)}{criteria_block}
 """.strip()
     body_messages = get_chat_buffer_body_messages(state, limit=200)
     msgs = processor_plan.get("messages") or []
@@ -875,6 +898,9 @@ def judge_dimension_stage_batch_via_llm(
 
     bot_basic_info = state.get("bot_basic_info") or {}
     user_basic_info = state.get("user_basic_info") or {}
+    stage_id = str(state.get("current_stage") or (requirements.get("stage_targets") or {}).get("stage") or "experimenting")
+    judge_criteria = _get_stage_judge_criteria(stage_id)
+    criteria_block = f"\n\n## 本阶段评判要点（怎么判）\n{judge_criteria}" if judge_criteria else ""
     system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的关系阶段与节奏（别越界：太像客服/太亲密太快/或突然冷淡），并按 4 个维度给分。
 你将一次性评估多个候选（按 idx），只输出严格 JSON：
 {{
@@ -894,7 +920,7 @@ def judge_dimension_stage_batch_via_llm(
 
 ## Background
 bot_basic_info: {safe_text(bot_basic_info)}
-user_basic_info: {safe_text(user_basic_info)}
+user_basic_info: {safe_text(user_basic_info)}{criteria_block}
 """.strip()
 
     body_messages = get_chat_buffer_body_messages(state, limit=200)

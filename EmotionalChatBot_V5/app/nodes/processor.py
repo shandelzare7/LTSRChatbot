@@ -59,6 +59,52 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
+def _clip01(x: Any) -> float:
+    try:
+        v = float(x)
+    except Exception:
+        return 0.0
+    if v < 0.0:
+        return 0.0
+    if v > 1.0:
+        return 1.0
+    return v
+
+
+def _pad_to_01(v: Any, *, default: float = 0.5) -> float:
+    """
+    PAD values are commonly in -1..1, but sometimes already 0..1.
+    Normalize to 0..1 (missing -> default).
+    """
+    if v is None:
+        return _clip01(default)
+    try:
+        x = float(v)
+    except Exception:
+        return _clip01(default)
+    # Heuristic: if outside 0..1, treat as -1..1.
+    if x < 0.0 or x > 1.0:
+        return _clip01((x + 1.0) / 2.0)
+    return _clip01(x)
+
+
+def _extreme_deadzone(x01: float, *, low: float = 0.2, high: float = 0.8) -> Tuple[float, float]:
+    """
+    Only extremes matter; mid-range has no effect.
+    Returns (low_ext_strength, high_ext_strength), each 0..1.
+    """
+    x = _clip01(x01)
+    lo = _clip01(low)
+    hi = _clip01(high)
+    if hi <= lo:
+        lo, hi = 0.2, 0.8
+    if x <= lo:
+        return (0.0 if lo <= 0.0 else (lo - x) / lo), 0.0
+    if x >= hi:
+        return 0.0, (0.0 if hi >= 1.0 else (x - hi) / (1.0 - hi))
+    return 0.0, 0.0
+
+
 class HumanizationProcessor:
     def __init__(self, state: AgentState):
         self.state = state
@@ -83,16 +129,40 @@ class HumanizationProcessor:
         - fragmentation_tendency: 0..1（越大越爱碎片）
         - noise_level: 0..（神经质犹豫抖动）
         """
-        e = float(self.big5.get("extraversion", 0.0) or 0.0)
-        c = float(self.big5.get("conscientiousness", 0.0) or 0.0)
-        n = float(self.big5.get("neuroticism", 0.0) or 0.0)
+        # Big5 / relationship are expected to be 0..1; PAD mood can be -1..1 or 0..1.
+        e = _clip01(self.big5.get("extraversion", 0.0) or 0.0)
+        c = _clip01(self.big5.get("conscientiousness", 0.0) or 0.0)
+        n = _clip01(self.big5.get("neuroticism", 0.0) or 0.0)
 
-        ar = float(self.mood.get("arousal", 0.0) or 0.0)
-        busy = float(self.mood.get("busyness", 0.0) or 0.0)
-        pleasure = float(self.mood.get("pleasure", 0.0) or 0.0)
+        # PAD: (-1..1) -> (0..1). If values are already 0..1, keep them.
+        # Important: many pipelines use 0.0/0.0/0.0 to mean "neutral/unknown",
+        # so we follow style.py behavior: when all are 0, treat as default 0.5.
+        P_raw = float(self.mood.get("pleasure", 0.0) or 0.0)
+        A_raw = float(self.mood.get("arousal", 0.0) or 0.0)
+        D_raw = float(self.mood.get("dominance", 0.0) or 0.0)
 
-        # closeness（系统内部统一为 0-1）
-        closeness = _clamp(float(self.rel.get("closeness", 0.5) or 0.5), 0.0, 1.0)
+        if (P_raw < 0.0 or P_raw > 1.0) or (A_raw < 0.0 or A_raw > 1.0) or (D_raw < 0.0 or D_raw > 1.0):
+            pleasure01 = _clip01((P_raw + 1.0) / 2.0)
+            arousal01 = _clip01((A_raw + 1.0) / 2.0)
+            dominance01 = _clip01((D_raw + 1.0) / 2.0)
+        else:
+            pleasure01 = _clip01(P_raw)
+            arousal01 = _clip01(A_raw)
+            dominance01 = _clip01(D_raw)
+
+        if pleasure01 == 0.0 and arousal01 == 0.0 and dominance01 == 0.0:
+            pleasure01 = arousal01 = dominance01 = 0.5
+
+        pleasure_raw = P_raw
+        busy = _clip01(self.mood.get("busyness", 0.0) or 0.0)
+
+        # relationship (6D, 0..1), default 0.5
+        closeness = _clip01(self.rel.get("closeness", 0.5) or 0.5)
+        trust = _clip01(self.rel.get("trust", 0.5) or 0.5)
+        liking = _clip01(self.rel.get("liking", 0.5) or 0.5)
+        respect = _clip01(self.rel.get("respect", 0.5) or 0.5)
+        warmth = _clip01(self.rel.get("warmth", 0.5) or 0.5)
+        power = _clip01(self.rel.get("power", 0.5) or 0.5)
 
         # 1) Personality coefficients
         p_speed = 1.0 - (e * 0.2)
@@ -100,22 +170,61 @@ class HumanizationProcessor:
         p_noise = 0.1 + (max(0.0, n) * 0.4)
 
         # 2) State modifiers
-        m_arousal_boost = 1.0 - (ar * 0.3)
+        m_arousal_boost = 1.0 - (float(arousal01) * 0.3)
         m_busyness_drag = 1.0 + (busy * 1.5)
 
         # 3) Relational modifiers
         stage_factor = float(STAGE_DELAY_FACTORS.get(self.stage, 1.0))
         total_speed_factor = p_speed * p_caution * m_arousal_boost * m_busyness_drag * stage_factor
 
-        # 分段倾向：外向 + 亲密 + 兴奋（closeness 已经是 0-1）
-        frag_tendency = (e * 0.4) + (closeness * 0.4) + (ar * 0.2)
+        # -------------------------------
+        # Fragmentation tendency (0..1)
+        #
+        # - extraversion: EXTREMELY strong, linear (dominant)
+        # - conscientiousness: higher => less fragmentation
+        # - neuroticism: higher => more fragmentation
+        # - mood & relationship: multi-dimensional; only extremes affect (deadzone in the middle)
+        # -------------------------------
+        frag = 0.05
+        # Big5 (linear, extraversion dominates)
+        frag += 1.10 * float(e)
+        frag += -0.60 * float(c)
+        frag += 0.55 * float(n)
+
+        # Mood (extremes only)
+        ar_lo, ar_hi = _extreme_deadzone(float(arousal01))
+        p_lo, p_hi = _extreme_deadzone(float(pleasure01))
+        d_lo, d_hi = _extreme_deadzone(float(dominance01))
+        _, busy_hi = _extreme_deadzone(float(busy))
+
+        frag += 0.25 * ar_hi + (-0.15) * ar_lo        # high arousal => more; very low => less
+        frag += 0.15 * p_lo + (-0.05) * p_hi          # very low pleasure => more; very high => slightly less
+        frag += 0.10 * d_lo + (-0.05) * d_hi          # very low dominance => more; high => less
+        frag += (-0.20) * busy_hi                     # very busy => fewer segments
+
+        # Relationship (6D, extremes only)
+        clo_lo, clo_hi = _extreme_deadzone(float(closeness))
+        tru_lo, tru_hi = _extreme_deadzone(float(trust))
+        lik_lo, lik_hi = _extreme_deadzone(float(liking))
+        res_lo, res_hi = _extreme_deadzone(float(respect))
+        war_lo, war_hi = _extreme_deadzone(float(warmth))
+        pow_lo, pow_hi = _extreme_deadzone(float(power))
+
+        frag += 0.22 * clo_hi + (-0.12) * clo_lo
+        frag += 0.12 * tru_hi + (-0.06) * tru_lo
+        frag += 0.14 * lik_hi + (-0.07) * lik_lo
+        frag += 0.14 * war_hi + (-0.07) * war_lo
+        frag += (-0.10) * res_hi + 0.05 * res_lo      # high respect => fewer segments
+        frag += 0.08 * pow_lo + (-0.08) * pow_hi      # high power => fewer segments
+
+        frag_tendency = _clip01(frag)
 
         return {
             "speed_factor": _clamp(float(total_speed_factor), 0.2, 5.0),
             "fragmentation_tendency": _clamp(float(frag_tendency), 0.0, 1.0),
             "noise_level": _clamp(float(p_noise), 0.05, 0.8),
             # 额外返回供宏观策略使用的 mood（不强依赖）
-            "pleasure": _clamp(float(pleasure), -1.0, 1.0),
+            "pleasure": _clamp(float(pleasure_raw), -1.0, 1.0),
             "stage_factor": stage_factor,
         }
 
@@ -467,15 +576,20 @@ def _humanize_from_processor_plan(state: AgentState) -> HumanizedOutput | None:
 def humanize_response_node(state: AgentState, llm_invoker: Any = None) -> Dict[str, Any]:
     """
     LangGraph Node: 将原始回复转换为拟人化的气泡序列。
-    优先执行 state.processor_plan（保证模拟=真实）；否则才用 LLM/规则回退。
+    当启用 LLM 时优先用 LLM（更语义化的拆句与节奏），失败再回退到 plan/规则。
     """
-    result: HumanizedOutput
-    result = _humanize_from_processor_plan(state)
-    # If LATS doesn't provide delays/actions, default to deterministic rules for latency/cost.
-    # Enable LLM humanization only when explicitly requested.
     use_llm = str(state.get("processor_use_llm") or "").strip().lower() in ("1", "true", "yes", "on")
-    if not result and llm_invoker and use_llm:
+    result: HumanizedOutput | None = None
+
+    # 1) Prefer LLM when enabled.
+    if llm_invoker and use_llm:
         result = _humanize_via_llm(state, llm_invoker)
+
+    # 2) Fall back to executable plan (when available).
+    if not result:
+        result = _humanize_from_processor_plan(state)
+
+    # 3) Final fallback: deterministic rules.
     if not result:
         processor = HumanizationProcessor(state)
         result = processor.process()

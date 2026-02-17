@@ -14,6 +14,8 @@ CREATE TABLE bots (
     basic_info JSONB DEFAULT '{}'::jsonb,
     big_five JSONB DEFAULT '{}'::jsonb,
     persona JSONB DEFAULT '{}'::jsonb,
+    character_sidewrite TEXT,
+    backlog_tasks JSONB,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -82,7 +84,22 @@ CREATE TABLE derived_notes (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. Web 对话日志快照（用于 Render 等无持久磁盘环境）
+-- 8. Bot 任务清单（按 user+bot 维度）
+CREATE TABLE bot_tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+    task_type TEXT NOT NULL DEFAULT 'custom',
+    description TEXT NOT NULL DEFAULT '',
+    importance DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,
+    last_attempt_at TIMESTAMPTZ,
+    attempt_count INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_bot_tasks_user_bot ON bot_tasks(user_id, bot_id);
+
+-- 9. Web 对话日志快照（用于 Render 等无持久磁盘环境）
 CREATE TABLE web_chat_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

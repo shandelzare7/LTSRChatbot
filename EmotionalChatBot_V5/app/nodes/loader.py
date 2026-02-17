@@ -201,6 +201,9 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "conversation_summary": summary_clean,
                 "retrieved_memories": retrieved_clean,
                 "memory_context": _build_memory_context(summary_clean, retrieved_clean, merged_buffer),
+                # 任务池（供 planner/evolver 使用）：必须从 DB 透传回来，否则会一直是空
+                "bot_task_list": db_data.get("bot_task_list") or state.get("bot_task_list") or [],
+                "current_session_tasks": db_data.get("current_session_tasks") or state.get("current_session_tasks") or [],
                 "external_user_text": user_input,
                 "user_input": user_input,  # 向后兼容：下游请优先使用 external_user_text
                 "chat_buffer": merged_buffer,

@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, List
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from utils.llm_json import parse_json_from_llm
-from utils.prompt_helpers import format_mind_rules, format_relationship_for_llm, format_stage_for_llm
+from utils.prompt_helpers import format_mind_rules, format_relationship_for_llm, format_stage_act_for_llm
 from utils.tracing import trace_if_enabled
 from utils.detailed_logging import log_prompt_and_params, log_llm_response
 
@@ -68,7 +68,6 @@ def _format_detection_signals(detection_signals: Dict[str, Any]) -> str:
     if meta:
         parts.append("元信息：")
         parts.append(f"  - target_is_assistant: {meta.get('target_is_assistant', 0)}")
-        parts.append(f"  - playful_not_hostile: {meta.get('playful_not_hostile', 0)}")
         parts.append(f"  - quoted_or_reported_speech: {meta.get('quoted_or_reported_speech', 0)}")
     
     # stage_ctx
@@ -179,9 +178,9 @@ def reasoner_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, An
         }
         mode_behavior = mode_behavior_map.get(mode_id, "正常回应")
     
-    # knapp_stage（加载阶段描述信息）
+    # knapp_stage（怎么演：仅阶段角色/目标/策略，供规划用）
     knapp_stage_id = state.get("current_stage", "initiating")
-    knapp_stage_desc = format_stage_for_llm(knapp_stage_id)
+    knapp_stage_desc = format_stage_act_for_llm(knapp_stage_id)
     
     # retrieval_context_summary（记忆检索摘要，修复：统一 str 化）
     conversation_summary = state.get("conversation_summary") or ""

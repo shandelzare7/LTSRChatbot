@@ -105,6 +105,9 @@ class Bot(Base):
     basic_info: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     big_five: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     persona: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    # 创建 bot 时 LLM 生成：完整人物侧写 → 个性任务库（B1–B6 backlog）
+    character_sidewrite: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    backlog_tasks: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -232,6 +235,26 @@ class DerivedNote(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BotTask(Base):
+    """
+    Bot 对该用户的任务清单：提醒、跟进、待问等。
+    按 (user_id, bot_id) 维度列出，由 load_state 读入 state.bot_task_list，由 save_turn 或专用方法写回。
+    """
+    __tablename__ = "bot_tasks"
+    __table_args__ = (Index("idx_bot_tasks_user_bot", "user_id", "bot_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False)
+    task_type: Mapped[str] = mapped_column(Text, nullable=False, default="custom")  # remind / follow_up / ask / custom
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    importance: Mapped[float] = mapped_column(nullable=False, default=0.5)  # 0-1
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_attempt_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(nullable=False, default=0)
+
+
 class WebChatLog(Base):
     """
     Persisted web_chat_*.log snapshots (Render filesystem is ephemeral).
@@ -264,6 +287,24 @@ def _to_uuid_or_none(x: str) -> Optional[uuid.UUID]:
         return uuid.UUID(str(x))
     except Exception:
         return None
+
+
+def _bot_task_row_to_task(row: BotTask) -> Dict[str, Any]:
+    """将 BotTask ORM 行转为 state 用的 Task 字典（datetime 转 ISO 字符串）。"""
+    def _dt_iso(d: Optional[datetime]) -> Optional[str]:
+        if d is None:
+            return None
+        return d.isoformat() if hasattr(d, "isoformat") else str(d)
+    return {
+        "id": str(row.id),
+        "task_type": str(row.task_type or "custom"),
+        "description": str(row.description or ""),
+        "importance": float(row.importance) if row.importance is not None else 0.5,
+        "created_at": _dt_iso(row.created_at) or "",
+        "expires_at": _dt_iso(row.expires_at),
+        "last_attempt_at": _dt_iso(row.last_attempt_at),
+        "attempt_count": int(row.attempt_count) if row.attempt_count is not None else 0,
+    }
 
 
 def _to_langchain_messages(rows: List[Tuple[str, str, Any]]) -> List[BaseMessage]:
@@ -750,6 +791,60 @@ class DBManager:
                             "origin": "平时话不算多，但对喜欢的东西会突然很认真。",
                             "secret": "有时候嘴硬，其实挺在意对方的反馈。",
                         }
+                # 当前会话任务池：从 assets 恢复，供 task_planner 续用
+                current_session_tasks: List[Dict[str, Any]] = []
+                try:
+                    assets = user.assets or {}
+                    if isinstance(assets, dict):
+                        raw = assets.get("current_session_tasks")
+                        if isinstance(raw, list):
+                            current_session_tasks = [dict(t) for t in raw if isinstance(t, dict)]
+                except Exception:
+                    pass
+
+                # Bot 任务清单：该 user+bot 下的所有任务（表不存在时回退为空）
+                # 若当前无任务且 bot 有个性任务库（backlog_tasks），则为该 user 种子一份
+                bot_task_list = []
+                try:
+                    task_q = (
+                        select(BotTask)
+                        .where(BotTask.user_id == user.id, BotTask.bot_id == bot.id)
+                        .order_by(BotTask.created_at.asc())
+                    )
+                    task_rows = (await session.execute(task_q)).scalars().all()
+                    if not task_rows and getattr(bot, "backlog_tasks", None) and isinstance(bot.backlog_tasks, list):
+                        # 过滤“系统性/助手味”任务，避免进入 bot_tasks 表与下游 LATS
+                        try:
+                            from app.core.bot_creation_llm import _is_systemic_backlog_task  # type: ignore
+                        except Exception:
+                            _is_systemic_backlog_task = None  # type: ignore
+                        for t in bot.backlog_tasks:
+                            if not isinstance(t, dict):
+                                continue
+                            desc = str(t.get("description") or "").strip()
+                            if not desc:
+                                continue
+                            if _is_systemic_backlog_task and _is_systemic_backlog_task(desc):
+                                continue
+                            try:
+                                imp = float(t.get("importance", 0.5))
+                                imp = max(0.0, min(1.0, imp))
+                            except (TypeError, ValueError):
+                                imp = 0.5
+                            session.add(
+                                BotTask(
+                                    user_id=user.id,
+                                    bot_id=bot.id,
+                                    task_type=str(t.get("task_type") or t.get("category") or "backlog"),
+                                    description=desc,
+                                    importance=imp,
+                                )
+                            )
+                        await session.flush()
+                        task_rows = (await session.execute(task_q)).scalars().all()
+                    bot_task_list = [_bot_task_row_to_task(r) for r in task_rows]
+                except Exception:
+                    pass
                 return {
                     "relationship_id": str(user.id),
                     "relationship_state": normalized_dims,
@@ -764,6 +859,8 @@ class DBManager:
                     "bot_persona": bot_persona,
                     "user_basic_info": user_basic,
                     "chat_buffer": chat_buffer,
+                    "bot_task_list": bot_task_list,
+                    "current_session_tasks": current_session_tasks,
                 }
 
     async def clear_messages_for(self, user_id: str, bot_id: str) -> int:
@@ -901,7 +998,8 @@ class DBManager:
                     "latency": (state.get("humanized_output") or {}).get("total_latency_seconds"),
                 }
 
-                if user_input:
+                skip_user_write = bool(state.get("skip_user_message_write"))
+                if user_input and (not skip_user_write):
                     session.add(
                         Message(
                             user_id=user.id,
@@ -911,7 +1009,24 @@ class DBManager:
                             created_at=user_created_at,
                         )
                     )
-                if final_response:
+                final_segments = state.get("final_segments")
+                if final_segments and isinstance(final_segments, list):
+                    for idx, content in enumerate(final_segments):
+                        text = str(content or "").strip()
+                        if not text:
+                            continue
+                        seg_meta = dict(meta_ai)
+                        seg_meta["segment_index"] = idx
+                        session.add(
+                            Message(
+                                user_id=user.id,
+                                role="ai",
+                                content=text,
+                                meta=seg_meta,
+                                created_at=ai_created_at,
+                            )
+                        )
+                elif final_response:
                     session.add(
                         Message(
                             user_id=user.id,
@@ -977,7 +1092,12 @@ class DBManager:
                 user.dimensions = merged_dims
                 user.mood_state = dict(state.get("mood_state") or user.mood_state or {})
                 user.inferred_profile = dict(state.get("user_inferred_profile") or user.inferred_profile or {})
-                user.assets = dict(state.get("relationship_assets") or user.assets or {})
+                assets = dict(state.get("relationship_assets") or user.assets or {})
+                # 会话结束时把当前会话任务池写回，下一轮 loader 可恢复
+                session_tasks = state.get("current_session_tasks")
+                if isinstance(session_tasks, list):
+                    assets["current_session_tasks"] = [dict(t) for t in session_tasks if isinstance(t, dict)]
+                user.assets = assets
                 user.spt_info = dict(state.get("spt_info") or user.spt_info or {})
                 user.conversation_summary = state.get("conversation_summary") or user.conversation_summary
                 user.updated_at = func.now()  # type: ignore[assignment]
@@ -986,4 +1106,85 @@ class DBManager:
                     new_memory = state.get("new_memory_content")
                 if new_memory:
                     session.add(Memory(user_id=user.id, content=str(new_memory)))
+
+                # 写回 Bot 任务清单（若有更新；传 [] 即清空；表不存在时跳过）
+                bot_task_list = state.get("bot_task_list")
+                if isinstance(bot_task_list, list):
+                    try:
+                        bot = await self._get_or_create_bot(session, bot_id)
+                        await session.execute(delete(BotTask).where(BotTask.user_id == user.id, BotTask.bot_id == bot.id))
+                        for t in bot_task_list:
+                            if not isinstance(t, dict):
+                                continue
+                            task_id = _to_uuid_or_none(str(t.get("id") or ""))
+                            if not task_id:
+                                task_id = uuid.uuid4()
+                            created_at = _parse_dt(t.get("created_at")) or datetime.now(timezone.utc)
+                            expires_at = _parse_dt(t.get("expires_at"))
+                            last_attempt_at = _parse_dt(t.get("last_attempt_at"))
+                            session.add(
+                                BotTask(
+                                    id=task_id,
+                                    user_id=user.id,
+                                    bot_id=bot.id,
+                                    task_type=str(t.get("task_type") or "custom"),
+                                    description=str(t.get("description") or ""),
+                                    importance=float(t.get("importance", 0.5)),
+                                    created_at=created_at,
+                                    expires_at=expires_at,
+                                    last_attempt_at=last_attempt_at,
+                                    attempt_count=int(t.get("attempt_count", 0)),
+                                )
+                            )
+                    except Exception:
+                        pass
+
+    async def append_message(
+        self,
+        user_id: str,
+        bot_id: str,
+        *,
+        role: str,
+        content: str,
+        created_at: Optional[Any] = None,
+        meta: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """追加单条消息（不做整轮结算更新）。用于 Web 并发输入的“先落 user 消息”场景。"""
+
+        def _parse_dt(v: Any) -> Optional[datetime]:
+            if not v:
+                return None
+            if isinstance(v, datetime):
+                return v
+            try:
+                s = str(v).strip()
+                if not s:
+                    return None
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                return datetime.fromisoformat(s)
+            except Exception:
+                return None
+
+        r = str(role or "").strip()
+        if r not in ("user", "ai", "system"):
+            r = "user"
+        text = str(content or "")
+        if not text.strip():
+            return
+        ts = _parse_dt(created_at) or datetime.now(timezone.utc)
+        ts = ts.replace(microsecond=0)
+        m = meta if isinstance(meta, dict) else {}
+        async with self.Session() as session:
+            async with session.begin():
+                user = await self._get_or_create_user(session, bot_id, user_id)
+                session.add(
+                    Message(
+                        user_id=user.id,
+                        role=r,
+                        content=text,
+                        meta=m,
+                        created_at=ts,
+                    )
+                )
 

@@ -162,11 +162,25 @@ def get_mood_instruction(mood_state: Dict[str, Any]) -> str:
     return f"PAD={{P:{p:.2f}, A:{a:.2f}, D:{d:.2f}}}（数值越高代表越愉悦/越激动/越强势）"
 
 
-def format_stage_for_llm(stage_id: str) -> str:
+def format_stage_act_for_llm(stage_id: str) -> str:
     """
-    将 Knapp 阶段 ID 格式化为供 LLM 阅读的描述信息。
-    包含：阶段名称、角色、目标、策略等。
+    仅「怎么演」：阶段名称、角色、目标、策略等（来自 act 块），供 reasoner / inner_monologue / planner 等生成与规划用。
+    不包含 judge.detection_hints（怎么判留给 detection 与 stage judge）。
     """
+    return _format_stage_impl(stage_id, include_judge_hints=False)
+
+
+def format_stage_for_llm(stage_id: str, include_judge_hints: bool = True) -> str:
+    """
+    将 Knapp 阶段格式化为供 LLM 阅读的描述。
+    - include_judge_hints=True（默认）：怎么演 + 怎么判(detection_hints)，仅给 detection 节点用。
+    - include_judge_hints=False：等同 format_stage_act_for_llm，仅怎么演。
+    """
+    return _format_stage_impl(stage_id, include_judge_hints=include_judge_hints)
+
+
+def _format_stage_impl(stage_id: str, include_judge_hints: bool) -> str:
+    """内部实现：act 块为怎么演；可选追加 judge.detection_hints 为怎么判（仅 detection 用）。"""
     if load_stage_by_id is None:
         return f"阶段ID: {stage_id}"
     
@@ -175,15 +189,18 @@ def format_stage_for_llm(stage_id: str) -> str:
         if not stage_config:
             return f"阶段ID: {stage_id}"
         
+        # 怎么演：仅从 act 块取（兼容旧版顶层）
+        act = stage_config.get("act") or {}
+        role = act.get("role") or stage_config.get("role") or ""
+        stage_goal = act.get("stage_goal") or stage_config.get("stage_goal") or ""
+        strategy = act.get("strategy") or stage_config.get("strategy") or []
+        
         lines = []
         lines.append(f"**阶段ID**: {stage_id}")
         
         stage_name = stage_config.get("stage_name") or ""
         stage_number = stage_config.get("stage_number")
         phase = stage_config.get("phase") or ""
-        role = stage_config.get("role") or ""
-        stage_goal = stage_config.get("stage_goal") or ""
-        strategy = stage_config.get("strategy") or []
         
         if stage_name:
             lines.append(f"**阶段名称**: {stage_name}")
@@ -204,8 +221,15 @@ def format_stage_for_llm(stage_id: str) -> str:
             else:
                 lines.append(f"  {strategy}")
         
+        # 怎么判：仅 detection 调用时追加 judge.detection_hints
+        if include_judge_hints:
+            judge = stage_config.get("judge") or {}
+            hints = judge.get("detection_hints")
+            if hints and isinstance(hints, str) and hints.strip():
+                lines.append("**本阶段判读提示（供语境/越界判断）**:")
+                lines.append(hints.strip())
+        
         return "\n".join(lines)
     except Exception as e:
-        # 降级：只返回阶段ID
         return f"阶段ID: {stage_id}（加载描述失败: {e}）"
 

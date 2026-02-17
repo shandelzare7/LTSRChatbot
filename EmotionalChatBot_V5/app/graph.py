@@ -1,4 +1,6 @@
 """【编排层】构建 LangGraph：节点与边（含并行思考与 Critic 循环）。"""
+from __future__ import annotations
+
 import asyncio
 import inspect
 import os
@@ -24,11 +26,10 @@ _spec.loader.exec_module(_detection_module)
 
 create_detection_node = _detection_module.create_detection_node
 from app.nodes.inner_monologue import create_inner_monologue_node
-from app.nodes.mode_manager import create_mode_manager_node
-from app.nodes.emotion_update import create_emotion_update_node
 from app.nodes.reasoner import create_reasoner_node
 from app.nodes.memory_retriever import create_memory_retriever_node
 from app.nodes.style import create_style_node
+from app.nodes.task_planner import create_task_planner_node
 from app.nodes.lats_search import create_lats_search_node
 from app.nodes.processor import create_processor_node
 from app.nodes.final_validator import create_final_validator_node
@@ -39,6 +40,15 @@ from app.nodes.memory_writer import create_memory_writer_node
 from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node
 from app.services.memory import MockMemory
 from utils.yaml_loader import get_project_root, load_modes_from_dir
+
+
+def _no_reply_handler(state: dict) -> dict:
+    """word_budget=0 时短路：不调用 LATS，直接产出空回复并结束图。"""
+    return {
+        "final_response": "",
+        "processor_plan": {"messages": []},
+        "reply_plan": {"messages": []},
+    }
 
 
 def _load_modes() -> list[PsychoMode]:
@@ -70,6 +80,14 @@ def build_graph(
     llm = llm or get_llm(role="main")
     llm_fast = llm_fast or get_llm(role="fast")
     llm_judge = llm_judge or get_llm(role="judge")
+    # Processor LLM (segmentation + delay). Default to gpt-4o-mini (priority tier on official OpenAI endpoint).
+    processor_role = (os.getenv("LTSR_PROCESSOR_LLM_ROLE") or "fast").strip().lower() or "fast"
+    processor_model = (os.getenv("LTSR_PROCESSOR_LLM_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
+    try:
+        processor_temp = float((os.getenv("LTSR_PROCESSOR_LLM_TEMPERATURE") or "0.2").strip() or "0.2")
+    except Exception:
+        processor_temp = 0.2
+    llm_processor = get_llm(role=processor_role, model=processor_model, temperature=processor_temp)
     memory_service = memory_service or MockMemory()
     modes = modes or _load_modes()
     engine = PsychoEngine(modes=modes, llm_invoker=llm)
@@ -146,14 +164,13 @@ def build_graph(
 
     loader_node = create_loader_node(memory_service)
     detection_node = create_detection_node(llm_fast)
-    mode_manager_node = create_mode_manager_node(modes)
     inner_monologue_node = create_inner_monologue_node(llm)
-    emotion_update_node = create_emotion_update_node()
     reasoner_node = create_reasoner_node(llm)
     memory_retriever_node = create_memory_retriever_node(memory_service)
     style_node = create_style_node(llm)
+    task_planner_node = create_task_planner_node(llm_fast)
     lats_node = create_lats_search_node(llm, llm_soft_scorer=llm_judge)
-    processor_node = create_processor_node(llm)
+    processor_node = create_processor_node(llm_processor)
     final_validator_node = create_final_validator_node()
     evolver_node = create_evolver_node(llm_fast)
     stage_manager_node = create_stage_manager_node()
@@ -166,12 +183,11 @@ def build_graph(
         # Full (or fast-return) graph: loader -> ... -> final_validator -> (optional tail) -> END
         workflow.add_node("loader", _wrap_node("loader", loader_node))
         workflow.add_node("detection", _wrap_node("detection", detection_node))
-        workflow.add_node("mode_manager", _wrap_node("mode_manager", mode_manager_node))
         workflow.add_node("inner_monologue", _wrap_node("inner_monologue", inner_monologue_node))
-        workflow.add_node("emotion_update", _wrap_node("emotion_update", emotion_update_node))
         workflow.add_node("reasoner", _wrap_node("reasoner", reasoner_node))
         workflow.add_node("memory_retriever", _wrap_node("memory_retriever", memory_retriever_node))
         workflow.add_node("style", _wrap_node("style", style_node))
+        workflow.add_node("task_planner", _wrap_node("task_planner", task_planner_node))
         workflow.add_node("lats_search", _wrap_node("lats_search", lats_node))
         workflow.add_node("processor", _wrap_node("processor", processor_node))
         workflow.add_node("final_validator", _wrap_node("final_validator", final_validator_node))
@@ -182,12 +198,19 @@ def build_graph(
 
         workflow.set_entry_point("loader")
         workflow.add_edge("loader", "detection")
-        workflow.add_edge("detection", "mode_manager")
-        workflow.add_edge("mode_manager", "inner_monologue")
-        workflow.add_edge("inner_monologue", "emotion_update")
-        workflow.add_edge("emotion_update", "memory_retriever")
+        workflow.add_edge("detection", "inner_monologue")
+        workflow.add_edge("inner_monologue", "memory_retriever")
         workflow.add_edge("memory_retriever", "style")
-        workflow.add_edge("style", "lats_search")
+        workflow.add_edge("style", "task_planner")
+
+        def _route_after_task_planner(state: dict) -> str:
+            if state.get("no_reply") or (state.get("word_budget") == 0):
+                return "no_reply"
+            return "lats_search"
+
+        workflow.add_node("no_reply_handler", _wrap_node("no_reply_handler", _no_reply_handler))
+        workflow.add_conditional_edges("task_planner", _route_after_task_planner, {"no_reply": "no_reply_handler", "lats_search": "lats_search"})
+        workflow.add_edge("no_reply_handler", END)
         workflow.add_edge("lats_search", "processor")
         workflow.add_edge("processor", "final_validator")
 

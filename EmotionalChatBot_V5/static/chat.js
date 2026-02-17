@@ -247,7 +247,8 @@ function initChat() {
         const localIso = new Date().toISOString();
         const userMsgId = addMessage('user', message, { timestamp: localIso });
         messageInput.value = '';
-        sendBtn.disabled = true;
+        // 不要在等待期间禁用按钮：后端支持“中断上一轮并合并/重启”，
+        // 因此用户应当可以在等待时继续通过按钮或 Enter 发送下一条消息。
         
         try {
             const response = await fetch('/api/chat', {
@@ -267,11 +268,24 @@ function initChat() {
             
             const data = await response.json();
             if (data.status === 'success') {
-                // Best-effort: backfill server timestamps
                 if (userMsgId && data.user_created_at) {
                     setMessageTimestamp(userMsgId, data.user_created_at);
                 }
-                addMessage('bot', data.reply, { timestamp: data.ai_created_at || new Date().toISOString() });
+                const segments = Array.isArray(data.segments) ? data.segments : [];
+                if (segments.length >= 1) {
+                    addMessage('bot', segments[0], { timestamp: data.ai_created_at || new Date().toISOString() });
+                    const TYPING_DELAY_MS = 800;
+                    for (let i = 1; i < segments.length; i++) {
+                        const seg = segments[i];
+                        setTimeout(() => {
+                            addMessage('bot', seg);
+                            const el = document.getElementById('chat-messages');
+                            if (el) el.scrollTop = el.scrollHeight;
+                        }, TYPING_DELAY_MS * i);
+                    }
+                } else {
+                    addMessage('bot', data.reply, { timestamp: data.ai_created_at || new Date().toISOString() });
+                }
             } else {
                 addMessage('bot', '回复失败');
             }
@@ -279,7 +293,6 @@ function initChat() {
             console.error('发送消息失败:', error);
             addMessage('bot', '网络错误，请重试');
         } finally {
-            sendBtn.disabled = false;
             messageInput.focus();
         }
     };

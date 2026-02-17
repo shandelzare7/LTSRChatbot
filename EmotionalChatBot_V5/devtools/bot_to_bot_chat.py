@@ -3,7 +3,7 @@ bot_to_bot_chat.py
 
 用途：
 - 创建两个 Bot（Bot A 和 Bot B），在各自 Bot 下创建对应的 User（互相当对方用户）
-- 两 bot 互聊：共 3 次会话，每次 5 轮，首句从池中随机（避免千篇一律打招呼）
+- 两 bot 互聊：默认 3 次会话 × 每次 5 轮（可用环境变量 BOT2BOT_NUM_RUNS / BOT2BOT_ROUNDS_PER_RUN 覆盖），首句从池中随机
 - 记录对话内容和日志
 
 前置：
@@ -181,6 +181,40 @@ async def _ensure_schema(db: DBManager) -> None:
                 if "create extension" in stmt.lower():
                     continue
                 raise
+
+
+async def _ensure_migration_sidewrite_backlog(db: DBManager) -> None:
+    """执行 bots 表迁移：增加 character_sidewrite、backlog_tasks 列（若不存在）。"""
+    from sqlalchemy import text
+
+    migration_path = Path(__file__).resolve().parent / "migrate_add_bot_sidewrite_backlog.sql"
+    if not migration_path.exists():
+        return
+    sql = migration_path.read_text(encoding="utf-8")
+    # 按分号拆分，只丢弃纯注释段（整段 strip 后全是注释或空）
+    statements = []
+    for s in sql.split(";"):
+        stmt = s.strip()
+        if not stmt:
+            continue
+        # 去掉段内首尾的注释行，保留非注释行组成的语句
+        lines = [line for line in stmt.splitlines() if line.strip() and not line.strip().startswith("--")]
+        stmt = " ".join(lines).strip()
+        if stmt:
+            statements.append(stmt)
+    async with db.engine.connect() as conn:
+        ac = await conn.execution_options(isolation_level="AUTOCOMMIT")
+        for stmt in statements:
+            await ac.execute(text(stmt + ";"))
+    # 验证：若列仍不存在则说明 ALTER 未生效（例如连到别的库）
+    async with db.engine.connect() as conn:
+        try:
+            await conn.execute(text("SELECT character_sidewrite FROM bots LIMIT 1"))
+        except Exception as e:
+            raise RuntimeError(
+                "迁移后 bots.character_sidewrite 仍不存在，请检查 DATABASE_URL 是否指向目标库，并手动执行: "
+                "devtools/migrate_add_bot_sidewrite_backlog.sql"
+            ) from e
 
 
 async def create_bot_via_llm(
@@ -410,25 +444,17 @@ async def main() -> None:
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     original_stdout = sys.stdout
 
-    # 可变的当前日志句柄，供 log_line 使用（startup 用 startup 文件，每次会话用 runN 文件）
-    log_file = None
-    chat_log_file = None
-
+    log_file = None  # 整次运行共用一个 .log 文件，供 log_line 与 run_one_turn 写入
     def log_line(msg: str):
-        """写一行到当前日志/对话文件并打印到控制台。"""
+        """写一行到当前日志文件并打印到控制台。"""
         print(msg)
         if log_file is not None:
             log_file.write(msg + "\n")
             log_file.flush()
-        if chat_log_file is not None:
-            chat_log_file.write(msg + "\n")
-            chat_log_file.flush()
 
-    # 启动阶段：单独 startup 日志
-    startup_log_path = log_dir / f"bot_to_bot_chat_{ts}_startup.log"
-    startup_txt_path = log_dir / f"bot_to_bot_chat_{ts}_startup.txt"
-    log_file = open(startup_log_path, "w", encoding="utf-8")
-    chat_log_file = open(startup_txt_path, "w", encoding="utf-8")
+    # 整次运行只写一个文件：启动信息 + 所有会话/轮次都追加到同一 .log
+    single_log_path = log_dir / f"bot_to_bot_chat_{ts}.log"
+    log_file = open(single_log_path, "w", encoding="utf-8")
 
     db = DBManager.from_env()
     # schema 初始化：偶发情况下 DDL 可能等待锁；bot-to-bot 压测允许跳过/超时继续（表通常已存在）
@@ -438,6 +464,8 @@ async def main() -> None:
         log_line("=" * 60)
         try:
             await asyncio.wait_for(_ensure_schema(db), timeout=float(os.getenv("BOT2BOT_SCHEMA_TIMEOUT_S", "20")))
+            log_line("执行 migration: bots 表增加 character_sidewrite / backlog_tasks")
+            await _ensure_migration_sidewrite_backlog(db)
             log_line("✓ schema 已就绪")
         except asyncio.TimeoutError:
             log_line("⚠ schema 初始化超时（继续执行；若后续报表不存在，请先手动 init_schema.sql）")
@@ -454,97 +482,30 @@ async def main() -> None:
     bot_a = None
     bot_b = None
     
+    # 仅使用新生成的两个 Bot 做 bot-to-bot（支持 LLM 生成的全名，如李阳/林静怡 或 李浩然/苏雨桐）
+    BOT_A_NAMES = ["李阳", "李浩然"]
+    BOT_B_NAMES = ["林静怡", "苏雨桐"]
+
     async with db.Session() as session:
-        # 查找名为"小A"或包含"Bot A"的 bot
-        result_a = await session.execute(select(Bot).where(Bot.name.in_(["小A", "Bot A"])))
+        result_a = await session.execute(select(Bot).where(Bot.name.in_(BOT_A_NAMES)))
         bot_a = result_a.scalars().first()
         if bot_a:
             bot_a_id = str(bot_a.id)
-            log_line(f"✓ 找到已存在的 Bot A: {bot_a.name} (ID: {bot_a_id})")
+            log_line(f"✓ 找到 Bot A: {bot_a.name} (ID: {bot_a_id})")
         
-        # 查找名为"博特·比"/"小智"或包含"Bot B"的 bot
-        result_b = await session.execute(select(Bot).where(Bot.name.in_(["博特·比", "小智", "Bot B"])))
+        result_b = await session.execute(select(Bot).where(Bot.name.in_(BOT_B_NAMES)))
         bot_b = result_b.scalars().first()
         if bot_b:
             bot_b_id = str(bot_b.id)
-            log_line(f"✓ 找到已存在的 Bot B: {bot_b.name} (ID: {bot_b_id})")
+            log_line(f"✓ 找到 Bot B: {bot_b.name} (ID: {bot_b_id})")
     
-    # 如果 bot 不存在，则创建新的
     if not bot_a or not bot_b:
-        log_line("\n" + "=" * 60)
-        log_line("使用 LLM 创建新的 Bot")
-        log_line("=" * 60)
-        
-        # 获取 LLM 实例
-        llm = get_llm()
-        log_line(f"LLM 模型: {getattr(llm, 'model_name', 'unknown')}")
         log_line("")
-
-        if not bot_a:
-            # 创建两个 Bot ID（UUID 字符串）
-            bot_a_id = str(uuid.uuid4())
-            # 使用 LLM 创建 Bot A 的人设
-            log_line("创建 Bot A...")
-            bot_a_basic_info, bot_a_big_five, bot_a_persona = await create_bot_via_llm(
-                llm,
-                "Bot A",
-                "一个性格开朗、喜欢交流的聊天机器人，对新鲜事物充满好奇",
-                log_line,
-            )
-        else:
-            bot_a_basic_info = bot_a.basic_info
-            bot_a_big_five = bot_a.big_five
-            bot_a_persona = bot_a.persona
-
-        if not bot_b:
-            bot_b_id = str(uuid.uuid4())
-            # 使用 LLM 创建 Bot B 的人设
-            log_line("\n创建 Bot B...")
-            bot_b_basic_info, bot_b_big_five, bot_b_persona = await create_bot_via_llm(
-                llm,
-                "Bot B",
-                "一个性格温和、善于倾听的聊天机器人，喜欢深入思考问题",
-                log_line,
-            )
-        else:
-            bot_b_basic_info = bot_b.basic_info
-            bot_b_big_five = bot_b.big_five
-            bot_b_persona = bot_b.persona
-
-        log_line("\n" + "=" * 60)
-        log_line("将 Bot 写入数据库")
-        log_line("=" * 60)
-
-        # 手动创建 Bot 记录（如果不存在）
-        async with db.Session() as session:
-            async with session.begin():
-                if not bot_a:
-                    # 创建 Bot A
-                    bot_a_uuid = uuid.UUID(bot_a_id)
-                    bot_a = Bot(
-                        id=bot_a_uuid,
-                        name=str(bot_a_basic_info.get("name") or "Bot A"),
-                        basic_info=bot_a_basic_info,
-                        big_five=bot_a_big_five,
-                        persona=bot_a_persona,
-                    )
-                    session.add(bot_a)
-                    await session.flush()
-                    log_line(f"✓ Bot A 已创建: {bot_a.name} (ID: {bot_a_id})")
-
-                if not bot_b:
-                    # 创建 Bot B
-                    bot_b_uuid = uuid.UUID(bot_b_id)
-                    bot_b = Bot(
-                        id=bot_b_uuid,
-                        name=str(bot_b_basic_info.get("name") or "Bot B"),
-                        basic_info=bot_b_basic_info,
-                        big_five=bot_b_big_five,
-                        persona=bot_b_persona,
-                    )
-                    session.add(bot_b)
-                    await session.flush()
-                    log_line(f"✓ Bot B 已创建: {bot_b.name} (ID: {bot_b_id})")
+        log_line("未找到新 Bot（李阳、林静怡）。请先执行：")
+        log_line("  1) 删除旧 Bot: python -m devtools.delete_old_bots_keep_new")
+        log_line("  2) 创建新 Bot: python -m devtools.create_two_bots_for_render")
+        log_line("然后再运行本脚本。")
+        sys.exit(1)
 
     # 为每个 Bot 创建对应的 User 记录（external_id 使用 bot_id）
     # Bot A 作为 User A，Bot B 作为 User B
@@ -616,15 +577,6 @@ async def main() -> None:
             log_line(f"⚠ 清空失败（继续执行）: {e}")
 
     log_line("\n✓ User 初始化完成\n")
-    log_line("=" * 60)
-    log_line("Bot to Bot 对话开始（3 次会话 × 每次 5 轮，首句随机）")
-    log_line("每次会话单独写入: bot_to_bot_chat_<ts>_run1/2/3.log 与 _run1/2/3.txt")
-    log_line("=" * 60)
-    log_line("")
-    log_file.close()
-    chat_log_file.close()
-    log_file = None
-    chat_log_file = None
 
     # 构建 graph
     app = build_graph()
@@ -639,19 +591,16 @@ async def main() -> None:
         rounds_per_run = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "5") or 5)
     except Exception:
         rounds_per_run = 5
-    run_log_paths = []
-    run_txt_paths = []
     turn_times: list[float] = []  # 每轮回复耗时（秒），用于算平均
+    
+    log_line("=" * 60)
+    log_line(f"Bot to Bot 对话开始（{num_runs} 次会话 × 每次 {rounds_per_run} 轮，首句随机）")
+    log_line(f"本次运行全部写入: {single_log_path.name}")
+    log_line("=" * 60)
+    log_line("")
 
     for run in range(1, num_runs + 1):
-        # 本次会话使用独立的 .log 和 .txt
-        run_log_path = log_dir / f"bot_to_bot_chat_{ts}_run{run}.log"
-        run_txt_path = log_dir / f"bot_to_bot_chat_{ts}_run{run}.txt"
-        run_log_paths.append(run_log_path)
-        run_txt_paths.append(run_txt_path)
-        log_file = open(run_log_path, "w", encoding="utf-8")
-        chat_log_file = open(run_txt_path, "w", encoding="utf-8")
-        # 每次会话前清空，使 3 次互不干扰；首句随机
+        # 每次会话前清空，使多次会话互不干扰；首句随机
         if run > 1:
             try:
                 await db.clear_all_memory_for(user_b_external_id, bot_a_id, reset_profile=True)
@@ -753,38 +702,30 @@ async def main() -> None:
             current_message = reply
 
         if aborted_reason:
-            if log_file is not None:
-                log_file.close()
-            if chat_log_file is not None:
-                chat_log_file.close()
-            log_file = chat_log_file = None
             break
-        log_line(f"\n第 {run}/{num_runs} 次会话（5 轮）完成\n")
-        log_file.close()
-        chat_log_file.close()
-        log_file = chat_log_file = None
+        log_line(f"\n第 {run}/{num_runs} 次会话（{rounds_per_run} 轮）完成\n")
 
-    # 总结只打控制台（每次会话已有独立 log/txt）
+    if log_file is not None:
+        log_file.close()
+        log_file = None
+
+    # 总结只打控制台
     print("\n" + "=" * 60)
     if aborted_reason:
         print(f"Bot to Bot 对话结束（提前中止，原因: {aborted_reason}）")
     else:
         print(f"Bot to Bot 对话结束（{num_runs} 次会话 × {rounds_per_run} 轮完成）")
     print("=" * 60)
-    print(f"启动日志: {startup_log_path}")
-    print(f"启动记录: {startup_txt_path}")
-    for i, (lp, tp) in enumerate(zip(run_log_paths, run_txt_paths), 1):
-        print(f"  第{i}次会话 日志: {lp}")
-        print(f"  第{i}次会话 记录: {tp}")
+    print(f"日志文件: {single_log_path}")
     try:
-        total_size = sum(p.stat().st_size for p in run_log_paths if p.exists())
-        print(f"\n详细日志总大小: {total_size / (1024 * 1024):.2f}MB")
+        if single_log_path.exists():
+            print(f"文件大小: {single_log_path.stat().st_size / (1024 * 1024):.2f} MB")
     except Exception:
         pass
     if turn_times:
         avg_time = sum(turn_times) / len(turn_times)
         print(f"\n📊 回复耗时统计: 共 {len(turn_times)} 轮, 平均回复时间 = {avg_time:.2f} 秒")
-    print("\n✅ 完成！每次会话对应独立 .log 与 .txt 文件。")
+    print("\n✅ 完成！本次运行所有内容已写入同一日志文件。")
 
 
 if __name__ == "__main__":

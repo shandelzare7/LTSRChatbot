@@ -64,11 +64,19 @@ user_profile: {safe_text(user_profile)}
 ## Requirements (Checklist)
 {safe_text(requirements)}
 
+## 本轮任务与字数（TaskPlanner 输出，供 LATS 落地）
+- tasks_for_lats: 本轮可选的至多 3 条任务（带 id，便于回写完成）；可隐式完成（推测式落地）或显式完成（如追问/澄清）。
+- task_budget_max: 本轮**允许完成的任务数**。0=只做隐式完成（不追问、不显式确认）；1 或 2=最多显式完成 1 或 2 条。
+- word_budget: 回复总字数上限（约中文字数）。
+tasks_for_lats: {safe_text(requirements.get("tasks_for_lats", [])) if isinstance(requirements, dict) else "[]"}
+task_budget_max: {int(requirements.get("task_budget_max", 2) or 2)}
+word_budget: {int(requirements.get("word_budget", 60) or 60)}
+
 ## 任务
 请根据这一轮用户输入，在当前关系阶段/情绪/模式/风格目标/内容目标下，把你要发给用户的回复规划成 **多条消息**（像真人连续发消息那样）。
 
 关键：不是把长文本随便切碎；而是把“先回应/先态度或结论 → 再补充/解释/反问/边界/收束”等动作安排成合理节奏。
-第一条必须立刻可用（先回应用户/先给态度或结论），多条合起来满足 **plan_goals/style_targets/stage_targets/mode budget**。
+第一条必须立刻可用（先回应用户/先给态度或结论），多条合起来满足 **plan_goals/style_targets/stage_targets/mode budget**；若有 tasks_for_lats，在 task_budget_max 允许范围内可显式完成（否则倾向隐式完成），总字数不超过 word_budget。
 
 【强约束：不要助手味】
 - 禁止自称 AI/助手/模型/机器人
@@ -79,15 +87,20 @@ user_profile: {safe_text(user_profile)}
 - inner_monologue 只用于参考情绪与动机，不要把其中的自我标签/口号原句照抄进回复。
 
 ## 输出格式（只输出 JSON，不要任何额外文字）
-只输出你最终要发给用户的消息文本（多条消息用数组表示）：
+只输出你最终要发给用户的消息文本（多条消息用数组表示），并附带本轮任务结算字段：
 {{
-  "messages": ["第一条消息", "第二条消息"]
+  "messages": ["第一条消息", "第二条消息"],
+  "attempted_task_ids": ["task_id1", "task_id2"],
+  "completed_task_ids": ["task_id1"]
 }}
 
 硬性要求（必须满足）：
 - messages 至少 1 条，最多 max_messages 条（max_messages 会在输入中给出）。
 - 第一条必须“先回应用户/先给态度或结论”，不能是废话铺垫。
 - 每条消息必须自然连贯，像同一个人连续发的消息。
+- attempted_task_ids / completed_task_ids 只能从 tasks_for_lats 里的 id 选择；不确定就留空数组。
+- completed_task_ids 长度不得超过 task_budget_max，且最多 2 个。
+- 如果 task_budget_max=0：completed_task_ids 必须为空（可以 attempted，但不要显式追问/确认完成）。
 
 ## Hard Targets (MUST obey)
 - max_messages: {int(requirements.get("max_messages", max_messages) or max_messages)}
@@ -96,6 +109,8 @@ user_profile: {safe_text(user_profile)}
 - style_targets(12D): {safe_text(style_targets) if isinstance(style_targets, dict) else "（无）"}
 - stage_targets: {safe_text(stage_targets) if isinstance(stage_targets, dict) else "（无）"}
 - mode_behavior_targets: {safe_text(requirements.get("mode_behavior_targets", [])) if isinstance(requirements, dict) else "[]"}
+- task_budget_max: {int(requirements.get("task_budget_max", 2) or 2)}（本轮允许完成的任务数，0=仅隐式完成）
+- word_budget: {int(requirements.get("word_budget", 60) or 60)}（回复字数上限）
 
 ## Limits
 - max_messages: {int(max_messages)}
@@ -171,6 +186,13 @@ user_profile: {safe_text(user_profile)}
             return None
 
         out: ReplyPlan = {"messages": msgs}
+        # Task settlement fields (best-effort, optional)
+        attempted = data.get("attempted_task_ids")
+        completed = data.get("completed_task_ids")
+        if isinstance(attempted, list):
+            out["attempted_task_ids"] = [str(x) for x in attempted if str(x).strip()][:8]  # type: ignore[typeddict-item]
+        if isinstance(completed, list):
+            out["completed_task_ids"] = [str(x) for x in completed if str(x).strip()][:2]  # type: ignore[typeddict-item]
         print(f"  [计划生成] ✓ messages={len(msgs)}条")
         return out
     except Exception as e:
@@ -239,8 +261,8 @@ user_profile: {safe_text(user_profile)}
 ## 输出格式（只输出 JSON，不要任何额外文字）
 {{
   "candidates": [
-    {{"messages": ["第一条消息", "第二条消息"]}},
-    {{"messages": ["..."]}}
+    {{"messages": ["第一条消息", "第二条消息"], "attempted_task_ids": ["task_id1"], "completed_task_ids": ["task_id1"]}},
+    {{"messages": ["..."], "attempted_task_ids": [], "completed_task_ids": []}}
   ]
 }}
 
@@ -249,6 +271,8 @@ user_profile: {safe_text(user_profile)}
 - messages 至少 1 条，最多 max_messages 条（max_messages 会在输入中给出）。
 - 每个候选的第一条必须“先回应用户/先给态度或结论”，不能是废话铺垫。
 - {int(k)} 个候选之间必须“明显不同”（节奏/动作/互动策略不同），而不是同义改写。
+- attempted_task_ids / completed_task_ids（若给出）只能从 tasks_for_lats 的 id 中选；不确定就空数组。
+- completed_task_ids 长度不得超过 task_budget_max，且最多 2 个。
 
 ## Hard Targets (MUST obey)
 - candidates: {int(k)}
@@ -318,7 +342,14 @@ user_profile: {safe_text(user_profile)}
                     msgs.append(t)
             if not msgs:
                 continue
-            out.append({"messages": msgs})  # type: ignore[list-item]
+            rp: ReplyPlan = {"messages": msgs}
+            attempted = c.get("attempted_task_ids")
+            completed = c.get("completed_task_ids")
+            if isinstance(attempted, list):
+                rp["attempted_task_ids"] = [str(x) for x in attempted if str(x).strip()][:8]  # type: ignore[typeddict-item]
+            if isinstance(completed, list):
+                rp["completed_task_ids"] = [str(x) for x in completed if str(x).strip()][:2]  # type: ignore[typeddict-item]
+            out.append(rp)  # type: ignore[list-item]
 
         # Keep at most k
         return out[: int(k)]

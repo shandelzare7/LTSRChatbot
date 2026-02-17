@@ -55,13 +55,10 @@ def _dump_file_path() -> str:
 
 def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
     """
-    Best-effort Priority processing toggle for OpenAI.
-    Only apply when explicitly enabled via env and when the model is gpt-4o-mini
-    (user requested 'gpt4omini priority').
+    Best-effort OpenAI service tier routing.
+    Default behavior in this repo: all `gpt-4o-mini` calls use `priority` on the official
+    OpenAI endpoint (unless explicitly disabled).
     """
-    tier = (os.getenv("LTSR_OPENAI_SERVICE_TIER") or os.getenv("OPENAI_SERVICE_TIER") or "").strip()
-    if not tier:
-        return None
     m = str(model or "")
     if m != "gpt-4o-mini":
         return None
@@ -69,7 +66,19 @@ def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
     b = (base_url or "").strip()
     if b and "api.openai.com" not in b:
         return None
-    return tier
+    # Explicit disable switch (debug/perf comparisons)
+    disable = (os.getenv("LTSR_DISABLE_4OMINI_PRIORITY") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
+    if disable:
+        return None
+    # Allow override via env; default to priority for gpt-4o-mini
+    tier = (os.getenv("LTSR_OPENAI_SERVICE_TIER") or os.getenv("OPENAI_SERVICE_TIER") or "").strip()
+    return tier or "priority"
 
 
 _LLM_DUMP_SEQ = 0
