@@ -515,6 +515,12 @@ async def index(
     return get_bot_selection_html()
 
 
+@app.get("/bots", response_class=HTMLResponse)
+async def bot_selection_page():
+    """始终返回 bot 选择页，不检查会话；cookie 保留，从首页再点进同一 bot 即恢复原会话"""
+    return get_bot_selection_html()
+
+
 @app.get("/chat/{bot_id}", response_class=HTMLResponse)
 async def chat_with_bot(
     bot_id: str, request: Request, response: Response, 
@@ -1339,7 +1345,7 @@ def get_chat_html(bot_id: str) -> str:
                     <div id="user-db-id" class="user-id-bar"></div>
                 </div>
                 <div style="display:flex; gap:8px; align-items:center;">
-                    <a href="/" class="btn-secondary" style="text-decoration:none;">返回首页</a>
+                    <a href="/bots" class="btn-secondary" style="text-decoration:none;">返回首页</a>
                     <button id="notify-btn" class="btn-secondary" title="开启浏览器通知（需要授权）" style="display:none;">开启通知</button>
                 </div>
             </div>
