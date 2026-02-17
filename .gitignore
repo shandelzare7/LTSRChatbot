@@ -50,3 +50,6 @@ render_web_chat_latest_*.zip
 EmotionalChatBot_V5/CURRENT_SHARE_LINKS.md
 EmotionalChatBot_V5/SHARE_LINKS.txt
 EmotionalChatBot_V5/*.zip
+EmotionalChatBot_V5/render_backup/
+EmotionalChatBot_V5/render_log/
+EmotionalChatBot_V5/claude_cross_device_output.txt

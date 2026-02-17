@@ -805,10 +805,23 @@ async def chat(
                 # Write perf + persist web_chat log snapshot
                 try:
                     t_total_ms = (time.perf_counter() - t_total) * 1000.0
-                    log_file3, _ = get_or_create_log_file(session_id, user_id, bot_id)
+                    log_file3, log_path = get_or_create_log_file(session_id, user_id, bot_id)
                     log_file3.write(f"[WEB_PERF] graph_ms={t_graph_ms:.1f} total_ms={t_total_ms:.1f} log={log_path}\n")
                     log_file3.flush()
                     log_web_chat(session_id, user_id, bot_id, merged_text, reply)
+
+                    # 每轮对话后把当前 log 快照写入 DB（Render 无持久盘，依赖 web_chat_logs 表）
+                    try:
+                        content = log_path.read_text(encoding="utf-8", errors="replace")
+                        await db.upsert_web_chat_log(
+                            user_external_id=str(user_id),
+                            bot_id=str(bot_id),
+                            session_id=str(session_id),
+                            filename=log_path.name,
+                            content=content,
+                        )
+                    except Exception:
+                        pass
 
                     # 额外：把 log 备份按类归档写入 users.assets（不涉及记忆/结算，仅做运维备份）
                     try:

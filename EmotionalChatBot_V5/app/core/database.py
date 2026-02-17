@@ -1225,7 +1225,16 @@ class DBManager:
                 if merged_any:
                     print(f"[Memory/Write] user.basic_info merged: keys={list(existing_basic.keys())}")
 
-                assets = dict(state.get("relationship_assets") or user.assets or {})
+                # IMPORTANT: merge DB assets + state assets instead of overwriting.
+                # Reason: some operational backups (e.g. users.assets["log_backup"]) may be written
+                # by other code paths during the turn (web layer), and `state["relationship_assets"]`
+                # can be stale (especially in WEB_FAST_RETURN tail settlement). Overwriting would
+                # accidentally erase those backups.
+                assets_db = user.assets or {}
+                assets = dict(assets_db) if isinstance(assets_db, dict) else {}
+                assets_state = state.get("relationship_assets")
+                if isinstance(assets_state, dict):
+                    assets.update(dict(assets_state))
                 # 会话结束时把当前会话任务池写回，下一轮 loader 可恢复
                 session_tasks = state.get("current_session_tasks")
                 if isinstance(session_tasks, list):
