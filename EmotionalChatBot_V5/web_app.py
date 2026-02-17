@@ -790,17 +790,69 @@ async def chat(
                 if not reply:
                     reply = result.get("draft_response") or "（无回复）"
                 
-                # 延迟（delay/action）完全交给 processor 输出：这里仅透传 humanized_output.segments。
+                # 优先使用 humanized_output.segments（包含 delay 信息），否则回退到 final_segments（字符串数组）
                 humanized = result.get("humanized_output") or {}
                 segments_with_delay = humanized.get("segments") or []
                 if segments_with_delay and isinstance(segments_with_delay, list) and len(segments_with_delay) > 0:
-                    segments = segments_with_delay
+                    # 使用带 delay 的 segments（每个元素是 {"content": "...", "delay": 1.2, "action": "typing"}）
+                    # 兼容：某些输出可能 action 不是 typing，导致前端不累计 delay。这里统一规范。
+                    def _auto_delay_seconds(txt: str) -> float:
+                        t = str(txt or "")
+                        n = len(t)
+                        # 0.9s 基础 + 0.03s/字，封顶 4.0s（更明显“打字感”）
+                        d = 0.9 + 0.03 * n
+                        if d < 1.0:
+                            d = 1.0
+                        if d > 4.0:
+                            d = 4.0
+                        return round(float(d), 2)
+
+                    norm = []
+                    for i, seg in enumerate(segments_with_delay):
+                        if isinstance(seg, dict):
+                            content = seg.get("content")
+                            if content is None:
+                                content = seg.get("text")
+                            content = str(content or "")
+                            delay = seg.get("delay", None)
+                            if i == 0:
+                                # 第一条前端不应用 delay
+                                delay = 0.0
+                            else:
+                                if not isinstance(delay, (int, float)):
+                                    delay = _auto_delay_seconds(content)
+                                else:
+                                    # 给一个最小打字时间，避免“后边太快”
+                                    delay = max(float(delay), 1.0)
+                            norm.append({"content": content, "delay": float(delay), "action": "typing"})
+                        else:
+                            content = str(seg or "")
+                            norm.append({"content": content, "delay": 0.0 if i == 0 else _auto_delay_seconds(content), "action": "typing"})
+                    segments = norm
                 else:
-                    # 回退：无 humanized_output 时仅返回文本分段，不在 web 层计算 delay
+                    # 回退：使用 final_segments（字符串数组），转换为带默认 delay 的对象数组
                     segments_raw = result.get("final_segments") or []
                     if not segments_raw and reply:
                         segments_raw = [reply]
-                    segments = [str(x) for x in segments_raw if str(x or "").strip()]
+                    segments = []
+                    for i, seg in enumerate(segments_raw):
+                        if isinstance(seg, str):
+                            # 字符串：转换为对象，第一条 delay=0（前端会立即显示），后续使用默认 delay
+                            segments.append({
+                                "content": seg,
+                                "delay": 0.0 if i == 0 else 0.8,  # 第一条 delay=0（前端不应用），后续默认 0.8 秒
+                                "action": "typing"
+                            })
+                        elif isinstance(seg, dict) and "content" in seg:
+                            # 已经是对象格式，直接使用（前端会正确处理：第一条立即显示，后续只对 typing 应用 delay）
+                            segments.append(seg)
+                        else:
+                            # 其他格式，转换为字符串
+                            segments.append({
+                                "content": str(seg),
+                                "delay": 0.0 if i == 0 else 0.8,
+                                "action": "typing"
+                            })
 
                 ai_sent_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
                 if isinstance(result, dict):
