@@ -30,7 +30,7 @@ SELECT
   u.bot_id,
   b.name AS bot_name,
   u.external_id,
-  COALESCE(u.basic_info->>'name', u.basic_info->>'nickname', u.external_id) AS user_name
+  COALESCE(u.basic_info->>'name', u.external_id) AS user_name
 FROM users u
 JOIN bots b ON b.id = u.bot_id;
 """

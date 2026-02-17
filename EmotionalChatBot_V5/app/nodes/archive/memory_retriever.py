@@ -69,7 +69,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
 
         def _extract_seeds_from_text(text: str, max_seeds: int = 4) -> List[str]:
             """
-            最低配 seeds 提取：只从已有外部文本切分，不做“语义扩写”。
+            最低配 seeds 提取：只从已有外部文本切分，不做"语义扩写"。
             目的：即使没有 response_plan，也能基于用户话语/最近对话窗口做一次检索。
             """
             s = _norm(text)
@@ -117,7 +117,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
             except Exception:
                 last_window = []
 
-            # greeting 时也允许检索，但 seeds 必须更克制，避免“问候就召回一堆无关长记忆”
+            # greeting 时也允许检索，但 seeds 必须更克制，避免"问候就召回一堆无关长记忆"
             seeds = []
             if latest_user_text:
                 seeds.extend(_extract_seeds_from_text(latest_user_text, max_seeds=3 if _is_greeting(latest_user_text) else 4))
@@ -131,7 +131,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
                 seeds.append("low_closeness" if closeness < 0.35 else "closeness")
             except Exception:
                 pass
-            # 追加最近对话窗口的少量片段（仍属于“已有文本切分”，非自动扩写）
+            # 追加最近对话窗口的少量片段（仍属于"已有文本切分"，非自动扩写）
             if last_window:
                 seeds.extend(_extract_seeds_from_text(" ".join(last_window[-2:]), max_seeds=2))
 
@@ -204,7 +204,7 @@ def create_memory_retriever_node(memory_service: Any) -> Callable[[AgentState], 
             query_seeds = list(fallback_query_seeds)
 
         # 反思 patch -> 检索增强：把上一轮 LATS 的 search_patch 真正接入 retriever（跨轮生效）
-        # 注意：仍然遵守“禁止自动扩写”，这里只接受结构化 patch 明确给出的 seeds/entities
+        # 注意：仍然遵守"禁止自动扩写"，这里只接受结构化 patch 明确给出的 seeds/entities
         try:
             tree = state.get("lats_tree") or {}
             ap = tree.get("active_patch") if isinstance(tree, dict) else None

@@ -98,19 +98,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -223,19 +211,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -358,19 +334,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -518,19 +482,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -683,19 +635,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -849,19 +789,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -1015,19 +943,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -1204,19 +1120,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -1427,19 +1331,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,
@@ -1651,19 +1543,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "age_group": "teen",
     "occupation": "创业者"
   },
-  "user_inferred_profile": {
-    "interests": [
-      "电影",
-      "职场",
-      "旅行"
-    ],
-    "sensitive_topics": [
-      "露骨性内容",
-      "违法行为"
-    ],
-    "communication_style": "reserved, minimal replies",
-    "expressiveness_baseline": "high"
-  },
+    "user_inferred_profile": {},
   "relationship_assets": {
     "breadth_score": 0,
     "max_spt_depth": 1,

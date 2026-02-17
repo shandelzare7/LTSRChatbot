@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -27,4 +27,14 @@ class RelationshipAnalysis(BaseModel):
         description="Specific cues found in input (e.g., 'User shared a secret').",
     )
     deltas: RelationshipDeltas = Field(..., description="The calculated score changes.")
+
+    # --- User Profiling (optional, extracted from conversation) ---
+    basic_info_updates: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extracted user basic info from conversation: name/age/gender/occupation/location. Only non-empty when info is found.",
+    )
+    new_inferred_entries: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Other user profile observations: key=trait name, value=description.",
+    )
 

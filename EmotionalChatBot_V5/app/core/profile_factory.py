@@ -110,38 +110,20 @@ def generate_user_profile(user_external_id: str) -> Tuple[Dict[str, Any], Dict[s
     """
     rng = random.Random(_seed_from("user", user_external_id))
 
-    # 姓名与昵称分开：name 用于展示/称呼，nickname 为常用昵称
     first_names = ["明轩", "雨桐", "子涵", "浩然", "思琪", "俊熙", "欣怡", "宇航", "梓萱", "宇轩"]
-    nicknames = ["小鹿", "阿泽", "小雨", "星星", "柚子", "小鱼", "小茶"]
-    age_groups = ["teen", "20s", "30s", "40s"]
     locations = ["CN", "HK", "TW", "SG", "US", "EU"]
     occupations = ["学生", "上班族", "自由职业", "创业者", "未知"]
-    styles = [
-        "casual, short, emotive",
-        "polite, structured, asks questions",
-        "playful, uses memes occasionally",
-        "reserved, minimal replies",
-    ]
 
     user_basic_info = {
         "name": _choice(rng, first_names),
-        "nickname": _choice(rng, nicknames),
         "gender": _choice(rng, [None, "男", "女"]),
-        "age_group": _choice(rng, age_groups),
+        "age": _choice(rng, [18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 32, 35, 38, 40]),
         "location": _choice(rng, locations),
         "occupation": _choice(rng, occupations),
     }
 
-    user_inferred_profile = {
-        "communication_style": _choice(rng, styles),
-        "expressiveness_baseline": _choice(rng, ["low", "medium", "high"]),
-        "interests": rng.sample(
-            ["电影", "音乐", "游戏", "学习", "健身", "恋爱", "职场", "旅行", "情绪管理"], k=3
-        ),
-        "sensitive_topics": rng.sample(
-            ["人身攻击", "露骨性内容", "金钱诈骗", "违法行为", "隐私泄露"], k=2
-        ),
-    }
+    # inferred_profile 无固定字段，保留空对象供下游扩展或整块注入 prompt
+    user_inferred_profile: Dict[str, Any] = {}
 
     return user_basic_info, user_inferred_profile
 

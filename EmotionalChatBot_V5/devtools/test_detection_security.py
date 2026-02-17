@@ -305,18 +305,12 @@ def create_test_state(user_input: str) -> AgentState:
         },
         "user_basic_info": {
             "name": None,
-            "nickname": None,
             "gender": None,
-            "age_group": None,
+            "age": None,
             "location": None,
             "occupation": None,
         },
-        "user_inferred_profile": {
-            "communication_style": "casual",
-            "expressiveness_baseline": "medium",
-            "interests": [],
-            "sensitive_topics": [],
-        },
+        "user_inferred_profile": {},
         "relationship_state": {
             "closeness": 30.0,
             "trust": 30.0,

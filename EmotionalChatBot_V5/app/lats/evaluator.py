@@ -172,7 +172,7 @@ def hard_gate(processor_plan: ProcessorPlan, requirements: Dict[str, Any]) -> Li
     return fails
 
 
-CHOREO_SCORER_SYSTEM = """你是"拟人节奏评审"(ChoreographyEvaluator)。
+CHOREO_SCORER_SYSTEM = """你是常识经验丰富的语言学专家，现在担任拟人节奏评审。
 你将看到：背景信息、完整对话正文、以及候选将发送的 messages[]。
 
 你必须只输出严格 JSON（不要多余文字）：
@@ -194,7 +194,7 @@ CHOREO_SCORER_SYSTEM = """你是"拟人节奏评审"(ChoreographyEvaluator)。
 """.strip()
 
 
-CHOREO_SCORER_BATCH_SYSTEM = """你是"拟人节奏评审"(ChoreographyEvaluator)。
+CHOREO_SCORER_BATCH_SYSTEM = """你是常识经验丰富的语言学专家，现在担任拟人节奏评审。
 你将看到：背景信息、完整对话正文、以及多个候选（每个候选包含最终将发送的 messages[]）。
 
 你必须一次性评估所有候选，并严格输出 JSON（不要多余文字）：
@@ -387,7 +387,7 @@ final messages: {safe_text(msgs)}
         return out
 
 
-GATE1_CHECK_BATCH_SYSTEM = """你是 Gate1 审核员。
+GATE1_CHECK_BATCH_SYSTEM = """你是常识经验丰富的语言学专家，现在担任 Gate1 审核员。
 你将看到：bot_basic_info、user_basic_info、完整对话正文、以及多个候选回复（每个候选只包含最终将发送的 messages[]）。
 
 你只检查 3 点（不打分，只回答是否）：
@@ -687,7 +687,7 @@ def judge_dimension_relationship_via_llm(
     """Layer-2 Judge A: 6-dim relationship fit."""
     bot_basic_info = state.get("bot_basic_info") or {}
     user_basic_info = state.get("user_basic_info") or {}
-    system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的关系距离感与互动姿态，按 6 个维度给分（closeness/trust/liking/respect/warmth/power）。
+    system_prompt = f"""你是常识经验丰富的语言学专家。你只评估：候选回复是否符合对话中隐含的关系距离感与互动姿态，按 6 个维度给分（closeness/trust/liking/respect/warmth/power）。
 只输出严格 JSON：
 {{
   "score": 0.0,
@@ -723,7 +723,7 @@ def judge_dimension_stage_via_llm(
     stage_id = str(state.get("current_stage") or (requirements.get("stage_targets") or {}).get("stage") or "experimenting")
     judge_criteria = _get_stage_judge_criteria(stage_id)
     criteria_block = f"\n\n## 本阶段评判要点（怎么判）\n{judge_criteria}" if judge_criteria else ""
-    system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的关系阶段与节奏（别越界：太像客服/太亲密太快/或突然冷淡），并按 4 个维度给分。
+    system_prompt = f"""你是常识经验丰富的语言学专家。你只评估：候选回复是否符合对话中隐含的关系阶段与节奏（别越界：太像客服/太亲密太快/或突然冷淡），并按 4 个维度给分。
 只输出严格 JSON：
 {{
   "score": 0.0,
@@ -758,7 +758,7 @@ def judge_dimension_mood_busy_via_llm(
     """Layer-2 Judge C: PAD mood + busyness fit."""
     bot_basic_info = state.get("bot_basic_info") or {}
     user_basic_info = state.get("user_basic_info") or {}
-    system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的情绪与忙碌节奏（从用户措辞、上下文推断），并按 4 个维度给分（pleasure/arousal/dominance/busyness）。
+    system_prompt = f"""你是常识经验丰富的语言学专家。你只评估：候选回复是否符合对话中隐含的情绪与忙碌节奏（从用户措辞、上下文推断），并按 4 个维度给分（pleasure/arousal/dominance/busyness）。
 只输出严格 JSON：
 {{
   "score": 0.0,
@@ -828,7 +828,7 @@ def judge_dimension_relationship_batch_via_llm(
 
     bot_basic_info = state.get("bot_basic_info") or {}
     user_basic_info = state.get("user_basic_info") or {}
-    system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的关系距离感与互动姿态，按 6 个维度给分（closeness/trust/liking/respect/warmth/power）。
+    system_prompt = f"""你是常识经验丰富的语言学专家。你只评估：候选回复是否符合对话中隐含的关系距离感与互动姿态，按 6 个维度给分（closeness/trust/liking/respect/warmth/power）。
 你将一次性评估多个候选（按 idx），只输出严格 JSON：
 {{
   "results": [
@@ -901,7 +901,7 @@ def judge_dimension_stage_batch_via_llm(
     stage_id = str(state.get("current_stage") or (requirements.get("stage_targets") or {}).get("stage") or "experimenting")
     judge_criteria = _get_stage_judge_criteria(stage_id)
     criteria_block = f"\n\n## 本阶段评判要点（怎么判）\n{judge_criteria}" if judge_criteria else ""
-    system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的关系阶段与节奏（别越界：太像客服/太亲密太快/或突然冷淡），并按 4 个维度给分。
+    system_prompt = f"""你是常识经验丰富的语言学专家。你只评估：候选回复是否符合对话中隐含的关系阶段与节奏（别越界：太像客服/太亲密太快/或突然冷淡），并按 4 个维度给分。
 你将一次性评估多个候选（按 idx），只输出严格 JSON：
 {{
   "results": [
@@ -970,7 +970,7 @@ def judge_dimension_mood_busy_batch_via_llm(
 
     bot_basic_info = state.get("bot_basic_info") or {}
     user_basic_info = state.get("user_basic_info") or {}
-    system_prompt = f"""你是评审员。你只评估：候选回复是否符合对话中隐含的情绪与忙碌节奏（从用户措辞、上下文推断），并按 4 个维度给分（pleasure/arousal/dominance/busyness）。
+    system_prompt = f"""你是常识经验丰富的语言学专家。你只评估：候选回复是否符合对话中隐含的情绪与忙碌节奏（从用户措辞、上下文推断），并按 4 个维度给分（pleasure/arousal/dominance/busyness）。
 你将一次性评估多个候选（按 idx），只输出严格 JSON：
 {{
   "results": [

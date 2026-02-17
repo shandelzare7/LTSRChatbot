@@ -35,13 +35,18 @@ def plan_reply_via_llm(
     bot_basic_info = state.get("bot_basic_info") or {}
     bot_persona = state.get("bot_persona") or {}
     user_basic_info = state.get("user_basic_info") or {}
-    user_profile = state.get("user_profile") or state.get("user_inferred_profile") or {}
+    full_profile = state.get("user_inferred_profile") or state.get("user_profile") or {}
+    selected_keys = state.get("selected_profile_keys") or []
+    if selected_keys and isinstance(full_profile, dict):
+        user_profile = {k: full_profile[k] for k in selected_keys if k in full_profile}
+    else:
+        user_profile = full_profile
     plan_goals = requirements.get("plan_goals") if isinstance(requirements, dict) else None
     style_targets = requirements.get("style_targets") if isinstance(requirements, dict) else None
     stage_targets = requirements.get("stage_targets") if isinstance(requirements, dict) else None
 
     bot_name = safe_text((bot_basic_info or {}).get("name") or "Bot").strip() or "Bot"
-    user_name = safe_text((user_basic_info or {}).get("name") or (user_basic_info or {}).get("nickname") or "User").strip() or "User"
+    user_name = safe_text((user_basic_info or {}).get("name") or "User").strip() or "User"
 
     system_prompt = f"""你是 {bot_name}。
 你正在和 {user_name} 对话。
@@ -50,7 +55,7 @@ def plan_reply_via_llm(
 bot_basic_info: {safe_text(bot_basic_info)}
 bot_persona: {safe_text(bot_persona)}
 user_basic_info: {safe_text(user_basic_info)}
-user_profile: {safe_text(user_profile)}
+user_profile (selected): {safe_text(user_profile)}
 
 ## Memory (Summary + Retrieved)
 {system_memory}
@@ -65,8 +70,10 @@ user_profile: {safe_text(user_profile)}
 {safe_text(requirements)}
 
 ## 本轮任务与字数（TaskPlanner 输出，供 LATS 落地）
-- tasks_for_lats: 本轮可选的至多 3 条任务（带 id，便于回写完成）；可隐式完成（推测式落地）或显式完成（如追问/澄清）。
-- task_budget_max: 本轮**允许完成的任务数**。0=只做隐式完成（不追问、不显式确认）；1 或 2=最多显式完成 1 或 2 条。
+- tasks_for_lats: 本轮的任务列表（带 id，便于回写完成）。分为两种：
+  - **紧急任务**（is_urgent=true / task_type="urgent"）：本轮**必须**完成，不可跳过或推迟。回复中必须体现对该任务的响应。紧急任务不受 task_budget_max 限制。
+  - **普通任务**：可选完成；可隐式完成（推测式落地）或显式完成（如追问/澄清），受 task_budget_max 限制。
+- task_budget_max: 本轮**允许完成的普通任务数**。0=只做隐式完成；1 或 2=最多显式完成 1 或 2 条。紧急任务不计入此预算。
 - word_budget: 回复总字数上限（约中文字数）。
 tasks_for_lats: {safe_text(requirements.get("tasks_for_lats", [])) if isinstance(requirements, dict) else "[]"}
 task_budget_max: {int(requirements.get("task_budget_max", 2) or 2)}
@@ -76,7 +83,7 @@ word_budget: {int(requirements.get("word_budget", 60) or 60)}
 请根据这一轮用户输入，在当前关系阶段/情绪/模式/风格目标/内容目标下，把你要发给用户的回复规划成 **多条消息**（像真人连续发消息那样）。
 
 关键：不是把长文本随便切碎；而是把“先回应/先态度或结论 → 再补充/解释/反问/边界/收束”等动作安排成合理节奏。
-第一条必须立刻可用（先回应用户/先给态度或结论），多条合起来满足 **plan_goals/style_targets/stage_targets/mode budget**；若有 tasks_for_lats，在 task_budget_max 允许范围内可显式完成（否则倾向隐式完成），总字数不超过 word_budget。
+第一条必须立刻可用（先回应用户/先给态度或结论），多条合起来满足 **plan_goals/style_targets/stage_targets/mode budget**；若 tasks_for_lats 中有 is_urgent=true 的紧急任务，**必须**在回复中完成（不受 task_budget_max 限制）；普通任务在 task_budget_max 允许范围内可显式完成（否则倾向隐式完成），总字数不超过 word_budget。
 
 【强约束：不要助手味】
 - 禁止自称 AI/助手/模型/机器人
@@ -99,8 +106,9 @@ word_budget: {int(requirements.get("word_budget", 60) or 60)}
 - 第一条必须“先回应用户/先给态度或结论”，不能是废话铺垫。
 - 每条消息必须自然连贯，像同一个人连续发的消息。
 - attempted_task_ids / completed_task_ids 只能从 tasks_for_lats 里的 id 选择；不确定就留空数组。
-- completed_task_ids 长度不得超过 task_budget_max，且最多 2 个。
-- 如果 task_budget_max=0：completed_task_ids 必须为空（可以 attempted，但不要显式追问/确认完成）。
+- 紧急任务（is_urgent=true）必须出现在 completed_task_ids 中，不受 task_budget_max 限制。
+- 普通任务的 completed_task_ids 长度不得超过 task_budget_max，且最多 2 个。
+- 如果 task_budget_max=0：普通任务的 completed_task_ids 必须为空（可以 attempted，但不要显式追问/确认完成）；紧急任务仍必须完成。
 
 ## Hard Targets (MUST obey)
 - max_messages: {int(requirements.get("max_messages", max_messages) or max_messages)}
@@ -220,13 +228,18 @@ def plan_reply_candidates_via_llm(
     bot_basic_info = state.get("bot_basic_info") or {}
     bot_persona = state.get("bot_persona") or {}
     user_basic_info = state.get("user_basic_info") or {}
-    user_profile = state.get("user_profile") or state.get("user_inferred_profile") or {}
+    full_profile = state.get("user_inferred_profile") or state.get("user_profile") or {}
+    selected_keys = state.get("selected_profile_keys") or []
+    if selected_keys and isinstance(full_profile, dict):
+        user_profile = {k: full_profile[k] for k in selected_keys if k in full_profile}
+    else:
+        user_profile = full_profile
     plan_goals = requirements.get("plan_goals") if isinstance(requirements, dict) else None
     style_targets = requirements.get("style_targets") if isinstance(requirements, dict) else None
     stage_targets = requirements.get("stage_targets") if isinstance(requirements, dict) else None
 
     bot_name = safe_text((bot_basic_info or {}).get("name") or "Bot").strip() or "Bot"
-    user_name = safe_text((user_basic_info or {}).get("name") or (user_basic_info or {}).get("nickname") or "User").strip() or "User"
+    user_name = safe_text((user_basic_info or {}).get("name") or "User").strip() or "User"
 
     system_prompt = f"""你是 {bot_name}。
 你正在和 {user_name} 对话。
@@ -235,7 +248,7 @@ def plan_reply_candidates_via_llm(
 bot_basic_info: {safe_text(bot_basic_info)}
 bot_persona: {safe_text(bot_persona)}
 user_basic_info: {safe_text(user_basic_info)}
-user_profile: {safe_text(user_profile)}
+user_profile (selected): {safe_text(user_profile)}
 
 ## Memory (Summary + Retrieved)
 {system_memory}
@@ -272,7 +285,8 @@ user_profile: {safe_text(user_profile)}
 - 每个候选的第一条必须“先回应用户/先给态度或结论”，不能是废话铺垫。
 - {int(k)} 个候选之间必须“明显不同”（节奏/动作/互动策略不同），而不是同义改写。
 - attempted_task_ids / completed_task_ids（若给出）只能从 tasks_for_lats 的 id 中选；不确定就空数组。
-- completed_task_ids 长度不得超过 task_budget_max，且最多 2 个。
+- 紧急任务（is_urgent=true / task_type="urgent"）必须出现在每个候选的 completed_task_ids 中，不受 task_budget_max 限制。
+- 普通任务的 completed_task_ids 长度不得超过 task_budget_max，且最多 2 个。
 
 ## Hard Targets (MUST obey)
 - candidates: {int(k)}

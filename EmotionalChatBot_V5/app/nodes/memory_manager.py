@@ -76,7 +76,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         if not user_input and not bot_text:
             return {}
 
-        prompt = f"""你是“记忆系统”的写入器。你的任务是：基于【旧摘要】+【本轮对话】，输出一个严格的 JSON，用于更新摘要并沉淀稳定记忆。
+        prompt = f"""你是经验丰富的记录总结专家，擅长从对话中提炼关键信息并形成结构化记录。请基于【旧摘要】+【本轮对话】，输出一个严格的 JSON，用于更新摘要并沉淀稳定记忆。
 
 要求（重要，影响稳定性）：
 1) 摘要要“可持续更新”：在旧摘要基础上增量更新，不要推翻重写；保持精炼、客观、可复用。

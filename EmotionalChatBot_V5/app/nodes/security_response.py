@@ -157,7 +157,7 @@ def _select_strategy_and_reply(
 【大五人格（bot_big_five）】
 {bot_big_five}
 
-【Detection 安全检测结论（来自 detection 节点）】
+【SecurityCheck 安全检测结论（来自 security_check 节点）】
 - is_injection_attempt: {is_injection}
 - is_ai_test: {is_ai_test}
 - is_user_treating_as_assistant: {is_treat_as_assistant}

@@ -809,6 +809,24 @@ async def chat(
                     log_file3.write(f"[WEB_PERF] graph_ms={t_graph_ms:.1f} total_ms={t_total_ms:.1f} log={log_path}\n")
                     log_file3.flush()
                     log_web_chat(session_id, user_id, bot_id, merged_text, reply)
+
+                    # 额外：把 log 备份按类归档写入 users.assets（不涉及记忆/结算，仅做运维备份）
+                    try:
+                        await db.append_user_log_backup(
+                            user_external_id=str(user_id),
+                            bot_id=str(bot_id),
+                            session_id=str(session_id),
+                            kind="web_chat_turn",
+                            payload={
+                                "session_id": str(session_id),
+                                "user_input": str(merged_text or ""),
+                                "bot_reply": str(reply or ""),
+                                "ai_sent_at": str(ai_sent_at or ""),
+                                "user_received_at": str(received_iso or ""),
+                            },
+                        )
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 

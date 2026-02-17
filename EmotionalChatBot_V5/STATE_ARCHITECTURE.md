@@ -63,23 +63,17 @@
 ```python
 {
     "name": "张三",
-    "nickname": "三哥",
     "gender": "男",
-    "age_group": "25-30",
+    "age": 28,
     "location": "上海",
     "occupation": "程序员"
 }
 ```
 
 #### UserInferredProfile
-AI 分析出的用户隐性侧写：
+AI 分析出的用户隐性侧写（无固定字段，可扩展 JSON；整块注入 prompt）：
 ```python
-{
-    "communication_style": "casual, uses emojis, short",
-    "expressiveness_baseline": "medium",  # low/medium/high
-    "interests": ["编程", "游戏", "电影"],
-    "sensitive_topics": ["工作压力", "前任"]
-}
+{}  # 默认空对象，可由后续分析或配置扩展
 ```
 
 ### 3. Physics Layer (物理层) - "我们的关系和我的心情"

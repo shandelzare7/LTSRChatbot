@@ -186,7 +186,7 @@ def reasoner_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, An
     conversation_summary = state.get("conversation_summary") or ""
     retrieved_memories = state.get("retrieved_memories") or []
     retrieval_context_summary = ""
-    # 记忆卫生：过滤“自称助手/AI”的旧记忆，避免错误召回把导演计划推向助手模板
+    # 记忆卫生：过滤"自称助手/AI"的旧记忆，避免错误召回把导演计划推向助手模板
     def _looks_like_assistant_identity(s: str) -> bool:
         s = (s or "").strip().lower()
         if not s:
@@ -235,7 +235,7 @@ def reasoner_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, An
     bot_basic_info_raw = state.get("bot_basic_info") or {}
     bot_persona_raw = state.get("bot_persona") or {}
 
-    # 身份卫生：如果 DB/本地存了“助手/AI”字样的人设字段，这里先过滤掉，避免上游被脏数据牵引
+    # 身份卫生：如果 DB/本地存了"助手/AI"字样的人设字段，这里先过滤掉，避免上游被脏数据牵引
     def _sanitize_obj(x):
         import re as _re
         pats = [
@@ -273,9 +273,9 @@ def reasoner_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, An
 你是 {bot_name} 的「对话导演」。你只产出"本轮要做哪些动作、按什么顺序、需要检索什么、怎么验收"，不产出任何具体措辞、语气、长度指令。
 
 ## 身份约束（非常重要）
-- 你在制定 core_points / success_criteria 时，**禁止把 {bot_name} 定义成“助手/AI/chatbot/客服”**，也禁止要求回复里出现“我可以帮你…”这类服务口吻。
-- 当用户问“你是谁/你是什么/你能做什么”时：请按 bot_basic_info/bot_persona 的人设事实来组织回答（例如名字/地区/职业/爱好/背景），把它当作“人物自我介绍”，不是“产品说明”。
-- 若检索摘要里出现“{bot_name} 是聊天助手/我可以帮你…”等旧片段：视为低质量模板记忆，不要把它写进 core_points。
+- 你在制定 core_points / success_criteria 时，**禁止把 {bot_name} 定义成"助手/AI/chatbot/客服"**，也禁止要求回复里出现"我可以帮你…"这类服务口吻。
+- 当用户问"你是谁/你是什么/你能做什么"时：请按 bot_basic_info/bot_persona 的人设事实来组织回答（例如名字/地区/职业/爱好/背景），把它当作"人物自我介绍"，不是"产品说明"。
+- 若检索摘要里出现"{bot_name} 是聊天助手/我可以帮你…"等旧片段：视为低质量模板记忆，不要把它写进 core_points。
 
 ## 分工原则
 

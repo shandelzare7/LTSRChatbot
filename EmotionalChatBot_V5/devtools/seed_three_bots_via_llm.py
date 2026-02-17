@@ -100,7 +100,7 @@ def _ensure_user_basic_info(data: dict, fallback_name: str) -> dict:
     basic_info = data.get("basic_info") or data
     if not isinstance(basic_info, dict):
         basic_info = {}
-    if not basic_info.get("name") and not basic_info.get("nickname"):
+    if not basic_info.get("name"):
         basic_info["name"] = fallback_name
     return basic_info
 
@@ -153,7 +153,7 @@ async def create_three_bots_and_users_via_llm(db: DBManager, add_only: bool = Fa
     bots_data = data.get("bots") or []
     users_data = data.get("users") or []
     while len(users_data) < 3:
-        users_data.append({"basic_info": {"name": f"用户{len(users_data)+1}", "nickname": f"小{len(users_data)+1}"}})
+        users_data.append({"basic_info": {"name": f"用户{len(users_data)+1}", "age": 22}})
 
     async with db.Session() as session:
         async with session.begin():
@@ -170,6 +170,7 @@ async def create_three_bots_and_users_via_llm(db: DBManager, add_only: bool = Fa
                     basic_info=basic_info,
                     big_five=big_five,
                     persona=persona,
+                    mood_state={"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
                 )
                 session.add(bot)
                 await session.flush()
@@ -186,7 +187,6 @@ async def create_three_bots_and_users_via_llm(db: DBManager, add_only: bool = Fa
                     basic_info=user_basic,
                     current_stage="initiating",
                     dimensions=relationship_template,
-                    mood_state={"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
                     inferred_profile={},
                     assets={"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
                     spt_info={},

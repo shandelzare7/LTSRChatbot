@@ -2,7 +2,7 @@
 6维关系演化引擎 (Relationship Engine)
 
 动静分离：
-- 静态的“信号判断标准”放在 `config/relationship_signals.yaml`
+- 静态的"信号判断标准"放在 `config/relationship_signals.yaml`
 - 动态的 State 由本模块处理
 
 双层处理：
@@ -145,15 +145,23 @@ def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState]
         chat_buffer = safe.get("chat_buffer") or []
         body_messages = list(chat_buffer[-20:])
 
-        # LLM 输出：严格 JSON
+        # LLM 输出：严格 JSON，先用 parse_json_from_llm 抽取，失败时打日志并用 fallback
+        raw = ""
+        data = None
         try:
             resp = llm_invoker.invoke(
                 [SystemMessage(content=sys_prompt), *body_messages, HumanMessage(content=user_msg)]
             )
-            raw = getattr(resp, "content", str(resp))
-            data = json.loads(str(raw).strip())
+            raw = (getattr(resp, "content", str(resp)) or "").strip()
+            raw = str(raw) if raw else ""
+            data = parse_json_from_llm(raw) if raw else None
+            if data is None and raw:
+                data = json.loads(raw)
         except Exception as e:
-            print(f"[Relationship Analyzer] parse error: {e}")
+            pass
+        if data is None:
+            preview = (raw[:200] + "…") if len(raw) > 200 else raw
+            print(f"[Relationship Analyzer] parse error (raw empty or invalid JSON), preview: {preview!r}")
             data = {
                 "thought_process": "Fallback: unable to parse model output; assume neutral.",
                 "detected_signals": [],
@@ -170,10 +178,36 @@ def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState]
         analysis_dict = analysis.model_dump() if hasattr(analysis, "model_dump") else analysis.dict()
         deltas_dict = analysis.deltas.model_dump() if hasattr(analysis.deltas, "model_dump") else analysis.deltas.dict()
 
-        return {
+        result: Dict[str, Any] = {
             "latest_relationship_analysis": analysis_dict,
             "relationship_deltas": deltas_dict,  # raw deltas（-3..3）
         }
+
+        # --- User Profiling: merge basic_info_updates & new_inferred_entries ---
+        basic_updates = analysis_dict.get("basic_info_updates") or {}
+        inferred_updates = analysis_dict.get("new_inferred_entries") or {}
+        if basic_updates and isinstance(basic_updates, dict):
+            existing_basic = dict(safe.get("user_basic_info") or {})
+            for k in ("name", "age", "gender", "occupation", "location"):
+                new_val = basic_updates.get(k)
+                if new_val is not None and str(new_val).strip():
+                    old_val = existing_basic.get(k)
+                    if old_val is None or (isinstance(old_val, str) and not old_val.strip()):
+                        existing_basic[k] = new_val
+            result["user_basic_info"] = existing_basic
+        if inferred_updates and isinstance(inferred_updates, dict):
+            existing_profile = dict(safe.get("user_inferred_profile") or {})
+            for k, v in inferred_updates.items():
+                if isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip():
+                    existing_profile[k.strip()] = v.strip()
+            result["user_inferred_profile"] = existing_profile
+        # 可观测：本轮是否写入了画像
+        if basic_updates or inferred_updates:
+            b_keys = list(basic_updates.keys()) if isinstance(basic_updates, dict) else []
+            i_keys = list(inferred_updates.keys()) if isinstance(inferred_updates, dict) else []
+            print(f"[Evolver] user profiling: basic_info_updates={b_keys}, new_inferred_entries={i_keys}")
+
+        return result
 
     return node
 
@@ -210,10 +244,10 @@ def create_relationship_updater_node() -> Callable[[AgentState], dict]:
             raw_delta = _normalize_delta(raw_val)
 
             if greeting_gate:
-                # 对“喜欢/温暖/尊重”的正向增量降权（礼貌寒暄 ≠ 强烈欣赏）
+                # 对"喜欢/温暖/尊重"的正向增量降权（礼貌寒暄 ≠ 强烈欣赏）
                 if dim in ("liking", "warmth", "respect") and raw_delta > 0:
                     raw_delta *= 0.35
-                # 对“熟悉/信任”给极小稳定增量（更符合现实：先熟一点，再慢慢喜欢）
+                # 对"熟悉/信任"给极小稳定增量（更符合现实：先熟一点，再慢慢喜欢）
                 if dim in ("closeness", "trust") and abs(raw_delta) < 1e-6:
                     raw_delta = 0.02
 
@@ -222,7 +256,7 @@ def create_relationship_updater_node() -> Callable[[AgentState], dict]:
                 continue
 
             real_change = float(calculate_damped_delta(score, raw_delta))
-            # 进一步保护：寒暄阶段不允许 liking/warmth 发生“大跃迁”
+            # 进一步保护：寒暄阶段不允许 liking/warmth 发生"大跃迁"
             if greeting_gate and dim in ("liking", "warmth", "respect") and real_change > 0:
                 real_change = min(real_change, 0.06)
             new_score = _clamp(score + real_change, 0.0, 1.0)  # 0-1 范围
@@ -275,7 +309,9 @@ def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], 
 
 
 # -------------------------------------------------------------------
-# 任务完成检测与会话池更新（当前会话任务池：移除已完成，backlog/daily 递补；未完成 backlog 写回 DB）
+# 任务完成检测与会话池更新
+# 纯 Python 逻辑：依赖 LATS/ReplyPlanner 回写的 completed_task_ids / attempted_task_ids，
+# 不额外调用 LLM。
 # -------------------------------------------------------------------
 
 def _detect_completed_tasks_and_replenish(
@@ -283,9 +319,9 @@ def _detect_completed_tasks_and_replenish(
     llm_invoker: Any,
 ) -> Dict[str, Any]:
     """
-    用 LLM 判断 current_session_tasks 中哪些在本轮完成；
-    移除已完成的，对 backlog 类型的从 bot_task_list 也移除（未完成 backlog 随 save_turn 写回 DB）；
-    递补：再补 3 个 backlog 进 current_session_tasks（daily 不进入持久化池）。
+    根据 LATS/ReplyPlanner 回写的 completed_task_ids / attempted_task_ids 结算任务；
+    移除已完成的，对 backlog 类型的从 bot_task_list 也移除；
+    递补：再补 backlog 进 current_session_tasks（daily 不进入持久化池）。
     """
     from app.nodes.task_planner import (
         BACKLOG_SESSION_TARGET,
@@ -299,7 +335,7 @@ def _detect_completed_tasks_and_replenish(
     final_response = (state.get("final_response") or state.get("draft_response") or "").strip()
     user_input = (state.get("user_input") or "").strip()
 
-    # 优先使用 LATS/ReplyPlanner 的结构化回写（最小闭环），避免额外 LLM 结算调用
+    # 使用 LATS/ReplyPlanner 的结构化回写；无结构化字段时保守处理（不额外调 LLM）
     completed_ids: set = set()
     attempted_ids: set = set()
     try:
@@ -312,30 +348,7 @@ def _detect_completed_tasks_and_replenish(
     except Exception:
         pass
 
-    # fallback：仅在“没有结构化字段”的旧版本状态下，才用 LLM 判断完成（兼容旧行为）
-    has_structured = isinstance(state.get("attempted_task_ids"), list) or isinstance(state.get("completed_task_ids"), list)
-    if (not has_structured) and (not completed_ids) and current_session_tasks and llm_invoker and (final_response or tasks_for_lats):
-        task_descriptions = "\n".join(
-            f"- id={t.get('id')!r}: {str(t.get('description') or '')[:80]}"
-            for t in current_session_tasks[:20]
-        )
-        prompt = f"""根据「用户本轮发言」和「助手本轮回复」判断下面任务列表中哪些在本轮被完成（显式或隐式完成均可）。
-只输出 JSON：{{"completed_ids": ["id1", "id2", ...]}}，仅包含已完成的 id，未完成的不列。
-用户发言：{user_input[:200]}
-助手回复：{final_response[:400]}
-任务列表：
-{task_descriptions}
-只输出 JSON，不要其他文字。"""
-        try:
-            resp = llm_invoker.invoke([HumanMessage(content=prompt)])
-            raw = (getattr(resp, "content", "") or str(resp)).strip()
-            data = parse_json_from_llm(raw)
-            if isinstance(data, dict) and isinstance(data.get("completed_ids"), list):
-                completed_ids = {str(x) for x in data["completed_ids"] if x}
-        except Exception:
-            pass
-
-    # attempted_ids fallback：没有显式 attempted，就用 tasks_for_lats 的 id 当作“尝试过”
+    # attempted_ids fallback：没有显式 attempted，就用 tasks_for_lats 的 id 当作"尝试过"
     if not attempted_ids and isinstance(tasks_for_lats, list):
         for t in tasks_for_lats:
             if isinstance(t, dict) and t.get("id"):
@@ -352,7 +365,7 @@ def _detect_completed_tasks_and_replenish(
             cleaned.append(t)
     current_session_tasks = cleaned
 
-    # 对“尝试过但未完成”的任务加急：attempt_count += 1，last_attempt_at=now（写回 DB 的 bot_task_list）
+    # 对"尝试过但未完成"的任务加急：attempt_count += 1，last_attempt_at=now（写回 DB 的 bot_task_list）
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     bumped = 0
     if attempted_ids:
@@ -410,7 +423,7 @@ def _detect_completed_tasks_and_replenish(
                 break
 
     # backlog 池容量控制：历史 bug 可能导致 backlog 在 current_session_tasks 中膨胀；
-    # 这里强制收敛到固定目标数，只在“数量不足”时补齐。
+    # 这里强制收敛到固定目标数，只在"数量不足"时补齐。
     backlog_items = [t for t in current_session_tasks if str(t.get("task_type") or "").strip() == "backlog"]
     immediate_items = [t for t in current_session_tasks if str(t.get("task_type") or "").strip() == "immediate"]
     backlog_in_pool = len(backlog_items)
@@ -476,6 +489,29 @@ def _detect_completed_tasks_and_replenish(
                 f"[Evolver] completed={len(completed_ids)} attempted={len(attempted_ids)} bumped={bumped} "
                 f"backlog_pool={backlog_in_pool}->{sum(1 for t in current_session_tasks if str(t.get('task_type') or '').strip() == 'backlog')}, "
                 f"trimmed_backlog={trimmed_backlog}, added_backlog={added_backlog}, session_tasks={len(current_session_tasks)}"
+            )
+    except Exception:
+        pass
+
+    # 紧急任务报告：高亮输出紧急任务完成情况
+    try:
+        urgent_in_lats = [
+            t for t in (tasks_for_lats or [])
+            if isinstance(t, dict) and (t.get("task_type") == "urgent" or t.get("is_urgent"))
+        ]
+        if urgent_in_lats:
+            urgent_ids = {str(t.get("id") or "") for t in urgent_in_lats}
+            urgent_completed = urgent_ids & completed_ids
+            urgent_attempted = urgent_ids & attempted_ids
+            urgent_not_done = urgent_ids - completed_ids
+            print(
+                f"[URGENT TASK REPORT] ========================================\n"
+                f"[URGENT TASK REPORT]  Total urgent tasks: {len(urgent_in_lats)}\n"
+                f"[URGENT TASK REPORT]  Completed: {sorted(urgent_completed) if urgent_completed else '(none)'}\n"
+                f"[URGENT TASK REPORT]  Attempted but not completed: {sorted(urgent_attempted - urgent_completed) if (urgent_attempted - urgent_completed) else '(none)'}\n"
+                f"[URGENT TASK REPORT]  Not attempted: {sorted(urgent_not_done - urgent_attempted) if (urgent_not_done - urgent_attempted) else '(none)'}\n"
+                f"[URGENT TASK REPORT]  Descriptions: {[t.get('description', '')[:60] for t in urgent_in_lats]}\n"
+                f"[URGENT TASK REPORT] ========================================"
             )
     except Exception:
         pass

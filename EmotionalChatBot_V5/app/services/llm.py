@@ -577,11 +577,10 @@ def get_llm(
             # fast/judge use OpenAI official by default (can override via LTSR_LLM_* envs)
             k = (os.getenv("OPENAI_API_KEY_OPENAI") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
             if r == "fast":
-                return k or None, "https://api.openai.com/v1", "gpt-4o", None
+                return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
             if r == "judge":
-                # Judge needs structured JSON stability; default to gpt-4o (override to mini if cost-sensitive)
-                return k or None, "https://api.openai.com/v1", "gpt-4o", None
-            return k or None, "https://api.openai.com/v1", "gpt-4o", None
+                return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
 
         if preset == "deepseek_route_b":
             # All roles use DeepSeek
@@ -591,9 +590,9 @@ def get_llm(
         # openai (default)
         k = (os.getenv("OPENAI_API_KEY_OPENAI") or "").strip() or (os.getenv("OPENAI_API_KEY") or "").strip()
         if r == "fast":
-            return k or None, "https://api.openai.com/v1", "gpt-4o", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
         if r == "judge":
-            return k or None, "https://api.openai.com/v1", "gpt-4o", None
+            return k or None, "https://api.openai.com/v1", "gpt-4o-mini", None
         return k or None, "https://api.openai.com/v1", "gpt-4o", None
 
     preset_key, preset_base_url, preset_model, preset_temp = _resolve_by_preset()

@@ -78,26 +78,18 @@ class BotPersona(TypedDict, total=False):
 class UserBasicInfo(TypedDict):
     """用户的显性信息 (Explicit Facts)"""
     name: Optional[str]
-    nickname: Optional[str]
     gender: Optional[str]
-    age_group: Optional[str]
+    age: Optional[int]
     location: Optional[str]
     occupation: Optional[str]
 
 
-class UserInferredProfile(TypedDict):
+class UserInferredProfile(TypedDict, total=False):
     """
-    AI 分析出的用户隐性侧写 (Inferred by Analyzer)
-    用于校准 Bot 的态度
+    AI 分析出的用户隐性侧写 (Inferred by Analyzer)，用于校准 Bot 的态度。
+    无固定字段，为可扩展 JSON；下游将整块注入 prompt。
     """
-    # 沟通风格 (e.g. "casual, uses emojis, short")
-    communication_style: str 
-    # 表达欲基准 (low/medium/high) - 用于判断用户情绪权重
-    expressiveness_baseline: str
-    # 兴趣图谱 (用于主动发起话题)
-    interests: List[str]
-    # 雷区/禁忌 (用于 Guardrail)
-    sensitive_topics: List[str]
+    pass
 
 
 # ==========================================
@@ -409,8 +401,9 @@ class AgentState(TypedDict, total=False):
     memory_context: str
     
     # --- Analysis Artifacts (中间产物) ---
-    # Reasoner 输出：内心独白与回复策略（供 Generator 使用）
+    # inner_monologue 节点输出：内心独白文本 + 选中的 inferred_profile 键名列表
     inner_monologue: Optional[str]
+    selected_profile_keys: Optional[List[str]]
     response_strategy: Optional[str]
     # Analyzer 输出的意图
     user_intent: Optional[str]
@@ -428,6 +421,12 @@ class AgentState(TypedDict, total=False):
     detection_brief: Optional[Dict[str, Any]]      # gist, references, unknowns, subtext, understanding_confidence, reaction_seed
     detection_stage_judge: Optional[Dict[str, Any]]  # current_stage, implied_stage, delta, direction, evidence_spans
     detection_immediate_tasks: Optional[List[Dict[str, Any]]]  # 当轮任务，交给 planner 写入任务库
+    # 紧急任务：Detection 产生的当轮必须执行的任务（直接注入 LATS，不参与打分）
+    detection_urgent_tasks: Optional[List[Dict[str, Any]]]
+    # 紧急任务：从 DB 加载的开发者/bot/user 级别紧急任务（直接注入 LATS，执行后从 DB 删除）
+    db_urgent_tasks: Optional[List[Dict[str, Any]]]
+    # 内部标记：本轮是否消费了 DB 紧急任务（供 save_turn 清除用）
+    _urgent_tasks_consumed: Optional[bool]
     # 兼容/日志用（不再用于路由；路由改由 word_budget/no_reply）
     detection_result: Optional[str]
     detection_category: Optional[str]
@@ -437,7 +436,7 @@ class AgentState(TypedDict, total=False):
     intuition_thought: Optional[str]
     # 关系滤镜：由 Inner Monologue 生成，此刻对 TA 的主观关系感受（字符串，非 relationship_state 数值）
     relationship_filter: Optional[str]
-    # 安全检测结果：由 Detection 节点生成，用于路由到安全响应节点
+    # 安全检测结果：由 SecurityCheck 节点生成，用于路由到安全响应节点
     # {"is_injection_attempt": bool, "is_ai_test": bool, "is_user_treating_as_assistant": bool, "needs_security_response": bool, "reasoning": str}
     security_check: Optional[Dict[str, Any]]
     

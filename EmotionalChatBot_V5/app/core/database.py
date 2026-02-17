@@ -97,6 +97,9 @@ class Base(DeclarativeBase):
 # -----------------------------
 
 
+_PADB_DEFAULT = lambda: {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}
+
+
 class Bot(Base):
     __tablename__ = "bots"
 
@@ -108,6 +111,13 @@ class Bot(Base):
     # 创建 bot 时 LLM 生成：完整人物侧写 → 个性任务库（B1–B6 backlog）
     character_sidewrite: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     backlog_tasks: Mapped[Optional[List[Dict[str, Any]]]] = mapped_column(JSONB, nullable=True)
+    # PAD(B) 情绪：Bot 维度的情绪状态，该 Bot 下所有用户共享
+    mood_state: Mapped[Dict[str, Any]] = mapped_column(
+        JSONB, nullable=False,
+        default=_PADB_DEFAULT,
+    )
+    # 紧急任务（Bot 级别，该 Bot 下所有用户共享）；开发者可直接写入 DB，loader 读取后当轮必须执行，执行后自动清空
+    urgent_tasks: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -136,14 +146,12 @@ class User(Base):
         JSONB, nullable=False,
         default=lambda: get_random_relationship_template(),
     )
-    mood_state: Mapped[Dict[str, Any]] = mapped_column(
-        JSONB, nullable=False,
-        default=lambda: {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
-    )
     inferred_profile: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     assets: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     spt_info: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     conversation_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 紧急任务（User 级别，仅针对该 bot-user 关系）；开发者可直接写入 DB，loader 读取后当轮必须执行，执行后自动清空
+    urgent_tasks: Mapped[List[Dict[str, Any]]] = mapped_column(JSONB, nullable=False, default=list)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     bot: Mapped[Bot] = relationship("Bot")
@@ -613,7 +621,6 @@ class DBManager:
             basic_info=user_basic_info,
             current_stage="initiating",
             dimensions=relationship_template,
-            mood_state={"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
             inferred_profile=user_inferred,
             assets={"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
             spt_info={},
@@ -638,6 +645,7 @@ class DBManager:
                 basic_info=bot_basic_info,
                 big_five=bot_big_five,
                 persona=bot_persona,
+                mood_state=_PADB_DEFAULT(),
             )
             session.add(bot)
             await session.flush()
@@ -654,6 +662,7 @@ class DBManager:
             basic_info=bot_basic_info,
             big_five=bot_big_five,
             persona=bot_persona,
+            mood_state=_PADB_DEFAULT(),
         )
         session.add(bot)
         await session.flush()
@@ -689,7 +698,7 @@ class DBManager:
 
                 user_basic = dict(user.basic_info or {})
                 if user_basic.get("name") is None:
-                    user_basic["name"] = user_basic.get("nickname") or "User"
+                    user_basic["name"] = "User"
 
                 # 关系维度：统一 0-1 量纲并补齐缺失 key（缺失不应默认为 0）
                 dims = dict(user.dimensions or {})
@@ -845,10 +854,32 @@ class DBManager:
                     bot_task_list = [_bot_task_row_to_task(r) for r in task_rows]
                 except Exception:
                     pass
+                # 紧急任务：合并 Bot 级别 + User 级别，标记来源层级以便 save_turn 定向清除
+                db_urgent_tasks: List[Dict[str, Any]] = []
+                try:
+                    for t in (bot.urgent_tasks or []):
+                        if isinstance(t, dict) and str(t.get("description") or "").strip():
+                            ut = dict(t)
+                            ut.setdefault("source", "developer")
+                            ut["_level"] = "bot"
+                            db_urgent_tasks.append(ut)
+                    for t in (user.urgent_tasks or []):
+                        if isinstance(t, dict) and str(t.get("description") or "").strip():
+                            ut = dict(t)
+                            ut.setdefault("source", "developer")
+                            ut["_level"] = "user"
+                            db_urgent_tasks.append(ut)
+                    if db_urgent_tasks:
+                        print(f"[URGENT TASK] Loaded {len(db_urgent_tasks)} urgent task(s) from DB "
+                              f"(bot={sum(1 for t in db_urgent_tasks if t.get('_level')=='bot')}, "
+                              f"user={sum(1 for t in db_urgent_tasks if t.get('_level')=='user')})")
+                except Exception as e:
+                    print(f"[URGENT TASK] Failed to load urgent tasks: {e}")
+
                 return {
                     "relationship_id": str(user.id),
                     "relationship_state": normalized_dims,
-                    "mood_state": user.mood_state or {},
+                    "mood_state": bot.mood_state or {},
                     "current_stage": user.current_stage,
                     "user_inferred_profile": user.inferred_profile or {},
                     "relationship_assets": user.assets or {},
@@ -861,6 +892,7 @@ class DBManager:
                     "chat_buffer": chat_buffer,
                     "bot_task_list": bot_task_list,
                     "current_session_tasks": current_session_tasks,
+                    "db_urgent_tasks": db_urgent_tasks,
                 }
 
     async def clear_messages_for(self, user_id: str, bot_id: str) -> int:
@@ -902,7 +934,6 @@ class DBManager:
                     # 重置时也随机选择一个关系维度模板
                     relationship_template = get_random_relationship_template()
                     user.dimensions = relationship_template
-                    user.mood_state = {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}
                     user.assets = {"topic_history": [], "breadth_score": 0, "max_spt_depth": 1}
                     user.spt_info = {}
                 user.updated_at = func.now()  # type: ignore[assignment]
@@ -949,6 +980,87 @@ class DBManager:
                         )
                     )
 
+    async def append_user_log_backup(
+        self,
+        *,
+        user_external_id: str,
+        bot_id: str,
+        session_id: str,
+        kind: str,
+        payload: Dict[str, Any],
+        max_entries_per_session: int = 200,
+        max_sessions: int = 50,
+    ) -> None:
+        """
+        Append a categorized log backup entry into the `users.assets` JSONB field.
+
+        This is NOT memory/notes. It is an operational/logging backup stored on the User row:
+        users.assets["log_backup"]["sessions"][session_id]["entries"] += [{...}]
+
+        We cap:
+        - sessions: keep last `max_sessions`
+        - entries per session: keep last `max_entries_per_session`
+        """
+        now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        sid = str(session_id or "")
+        if not sid:
+            return
+
+        entry: Dict[str, Any] = {
+            "ts": now_iso,
+            "kind": str(kind or "unknown"),
+            "payload": payload or {},
+        }
+
+        async with self.Session() as session:
+            async with session.begin():
+                user = await self._get_or_create_user(session, bot_id, user_external_id)
+                assets = dict(user.assets or {}) if isinstance(user.assets, dict) else {}
+
+                backup = assets.get("log_backup")
+                backup = dict(backup) if isinstance(backup, dict) else {}
+                sessions = backup.get("sessions")
+                sessions = dict(sessions) if isinstance(sessions, dict) else {}
+
+                srec = sessions.get(sid)
+                srec = dict(srec) if isinstance(srec, dict) else {}
+                entries = srec.get("entries")
+                entries = list(entries) if isinstance(entries, list) else []
+
+                entries.append(entry)
+                if max_entries_per_session and len(entries) > int(max_entries_per_session):
+                    entries = entries[-int(max_entries_per_session) :]
+
+                srec["entries"] = entries
+                srec["updated_at"] = now_iso
+                srec.setdefault("created_at", now_iso)
+                sessions[sid] = srec
+
+                # Cap number of sessions by updated_at
+                if max_sessions and len(sessions) > int(max_sessions):
+                    def _sess_updated_at(item: tuple[str, Any]) -> str:
+                        try:
+                            v = item[1]
+                            if isinstance(v, dict):
+                                return str(v.get("updated_at") or v.get("created_at") or "")
+                        except Exception:
+                            pass
+                        return ""
+
+                    keys_sorted = sorted(list(sessions.items()), key=_sess_updated_at)
+                    drop_n = max(0, len(keys_sorted) - int(max_sessions))
+                    for i in range(drop_n):
+                        try:
+                            sessions.pop(keys_sorted[i][0], None)
+                        except Exception:
+                            pass
+
+                backup["sessions"] = sessions
+                backup["updated_at"] = now_iso
+                backup.setdefault("created_at", now_iso)
+                assets["log_backup"] = backup
+                user.assets = assets
+
     async def save_turn(self, user_id: str, bot_id: str, state: Dict[str, Any], new_memory: Optional[str] = None) -> None:
         """
         Writer：事务写入一轮对话。user 挂在 bot 下；写入 messages 并更新 user 的关系状态与可选 memories。
@@ -983,6 +1095,7 @@ class DBManager:
         async with self.Session() as session:
             async with session.begin():
                 user = await self._get_or_create_user(session, bot_id, user_id)
+                bot = await self._get_or_create_bot(session, bot_id)
 
                 user_input = str(state.get("user_input") or "")
                 final_response = str(state.get("final_response") or state.get("draft_response") or "")
@@ -1090,8 +1203,28 @@ class DBManager:
                 # 打印一行审计日志，方便追查谁把值写炸
                 print(f"[Relationship] audit dims: {audited}")
                 user.dimensions = merged_dims
-                user.mood_state = dict(state.get("mood_state") or user.mood_state or {})
-                user.inferred_profile = dict(state.get("user_inferred_profile") or user.inferred_profile or {})
+                bot.mood_state = dict(state.get("mood_state") or bot.mood_state or _PADB_DEFAULT())
+                new_inferred = dict(state.get("user_inferred_profile") or user.inferred_profile or {})
+                user.inferred_profile = new_inferred
+                if state.get("user_inferred_profile"):
+                    _ik = list(new_inferred.keys()) if new_inferred else []
+                    print(f"[Memory/Write] user.inferred_profile updated: keys={_ik}")
+
+                # user.basic_info: merge incoming updates (only fill None/empty fields)
+                incoming_basic = dict(state.get("user_basic_info") or {})
+                existing_basic = dict(user.basic_info or {})
+                merged_any = False
+                for _bk in ("name", "age", "gender", "location", "occupation"):
+                    _bv = incoming_basic.get(_bk)
+                    if _bv is not None and str(_bv).strip():
+                        _old = existing_basic.get(_bk)
+                        if _old is None or (isinstance(_old, str) and not _old.strip()):
+                            existing_basic[_bk] = _bv
+                            merged_any = True
+                user.basic_info = existing_basic
+                if merged_any:
+                    print(f"[Memory/Write] user.basic_info merged: keys={list(existing_basic.keys())}")
+
                 assets = dict(state.get("relationship_assets") or user.assets or {})
                 # 会话结束时把当前会话任务池写回，下一轮 loader 可恢复
                 session_tasks = state.get("current_session_tasks")
@@ -1138,6 +1271,25 @@ class DBManager:
                             )
                     except Exception:
                         pass
+
+                # 紧急任务清除：执行过的紧急任务从 DB 中删除（一次性消费）
+                try:
+                    urgent_consumed = state.get("_urgent_tasks_consumed", False)
+                    if urgent_consumed:
+                        cleared_bot = len(bot.urgent_tasks or [])
+                        cleared_user = len(user.urgent_tasks or [])
+                        if cleared_bot > 0:
+                            bot.urgent_tasks = []
+                        if cleared_user > 0:
+                            user.urgent_tasks = []
+                        if cleared_bot or cleared_user:
+                            print(
+                                f"[URGENT TASK] ========================================\n"
+                                f"[URGENT TASK]  Cleared {cleared_bot} bot-level + {cleared_user} user-level urgent task(s) from DB\n"
+                                f"[URGENT TASK] ========================================"
+                            )
+                except Exception as e:
+                    print(f"[URGENT TASK] Failed to clear urgent tasks from DB: {e}")
 
     async def append_message(
         self,

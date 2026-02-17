@@ -155,7 +155,7 @@ async def main() -> None:
                 "basic_info": user.basic_info,
                 "current_stage": user.current_stage,
                 "dimensions": user.dimensions,
-                "mood_state": user.mood_state,
+                "mood_state": getattr(bot, "mood_state", None) or {},
             })
 
             print("\n== MESSAGES ==")

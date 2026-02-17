@@ -64,26 +64,6 @@ from main import _make_initial_state
 from utils.llm_json import parse_json_from_llm
 
 
-def _age_to_age_group(age: int | None) -> str:
-    if age is None:
-        return "20s"
-    try:
-        a = int(age)
-    except Exception:
-        return "20s"
-    # bot-to-bot：bot basic_info 偶尔会有脏数据（例如 age=5）。
-    # 这里把不合理年龄归一化，避免对方画像被映射成 teen，影响语境与沉浸感。
-    if a < 18 or a > 35:
-        return "20s"
-    if a < 20:
-        return "teen"
-    if a < 30:
-        return "20s"
-    if a < 40:
-        return "30s"
-    return "40s"
-
-
 def _region_to_location(region: str | None) -> str:
     r = str(region or "").strip()
     if not r:
@@ -104,51 +84,26 @@ def _user_profiles_from_bot(bot_basic_info: dict, bot_persona: dict, bot_big_fiv
     big5 = dict(bot_big_five or {})
 
     name = str(basic.get("name") or "对方").strip() or "对方"
-    age = basic.get("age")
-    age_group = _age_to_age_group(age if isinstance(age, (int, float, str)) else None)
+    try:
+        age = int(basic.get("age")) if basic.get("age") is not None else 22
+    except (TypeError, ValueError):
+        age = 22
+    if age < 18 or age > 40:
+        age = 22
     location = _region_to_location(basic.get("region"))
-
-    hobbies = []
-    try:
-        hobbies = list((((persona.get("collections") or {}).get("hobbies")) or []))
-    except Exception:
-        hobbies = []
-    hobbies = [str(x).strip() for x in hobbies if str(x).strip()][:6]
-
-    speaking_style = str(basic.get("speaking_style") or "").strip()
-    comm_style = "casual, short, emotive"
-    if speaking_style:
-        # 简单把 speaking_style 作为沟通风格补充（不让“推断画像”反客为主）
-        comm_style = f"casual; {speaking_style}"
-
-    extraversion = None
-    try:
-        extraversion = float(big5.get("extraversion"))
-    except Exception:
-        extraversion = None
-    expressiveness = "medium"
-    if isinstance(extraversion, float):
-        expressiveness = "high" if extraversion >= 0.66 else ("low" if extraversion <= 0.33 else "medium")
 
     user_basic_info = {
         "name": name,
-        "nickname": name,
         "gender": basic.get("gender"),
-        "age_group": age_group,
+        "age": age,
         "location": location,
         "occupation": basic.get("occupation"),
         # 标记：该 user 是 bot-to-bot 中的“对方 bot 代理画像”
         "bot_proxy": True,
     }
 
-    user_inferred_profile = {
-        # 关键：inner_monologue / reasoner 主要读取 inferred_profile 来“塑形对方是谁”
-        "communication_style": comm_style,
-        "expressiveness_baseline": expressiveness,
-        "interests": hobbies,
-        "sensitive_topics": ["违法行为", "隐私泄露", "露骨性内容", "金钱诈骗"],
-        "bot_proxy": True,
-    }
+    # inferred_profile 无固定字段；bot-to-bot 仅标记代理来源
+    user_inferred_profile = {"bot_proxy": True}
     return user_basic_info, user_inferred_profile
 
 
@@ -523,46 +478,73 @@ async def main() -> None:
     log_line(f"Bot B 下 User A: load_state({user_a_external_id!r}, {bot_b_id[:8]}...)")
     _ = await db.load_state(user_a_external_id, bot_b_id)
 
-    # bot-to-bot 关键修复：把 user 画像绑定到“对方 bot 的 persona/basic_info”，避免随机人类画像污染
-    try:
-        async with db.Session() as session:
-            async with session.begin():
-                # 重新拉一遍 bot，确保拿到 DB 中的完整字段
-                bot_a_db = (await session.execute(select(Bot).where(Bot.id == uuid.UUID(bot_a_id)))).scalar_one()
-                bot_b_db = (await session.execute(select(Bot).where(Bot.id == uuid.UUID(bot_b_id)))).scalar_one()
-
-                # Bot A 视角：user_b_external_id 代表“Bot B 这个人”
-                u_ab = (
-                    (await session.execute(
-                        select(User).where(User.bot_id == uuid.UUID(bot_a_id), User.external_id == user_b_external_id)
-                    ))
-                    .scalars()
-                    .first()
-                )
-                if u_ab:
-                    user_basic, user_inferred = _user_profiles_from_bot(
-                        bot_b_db.basic_info or {}, bot_b_db.persona or {}, bot_b_db.big_five or {}
+    # 空人设测试：BOT2BOT_EMPTY_USER_PROFILE=1 时两边 User 用空 basic_info/inferred_profile，用于验证画像管线
+    use_empty_profile = str(os.getenv("BOT2BOT_EMPTY_USER_PROFILE", "0")).lower() in ("1", "true", "yes", "on")
+    if use_empty_profile:
+        try:
+            async with db.Session() as session:
+                async with session.begin():
+                    u_ab = (
+                        (await session.execute(
+                            select(User).where(User.bot_id == uuid.UUID(bot_a_id), User.external_id == user_b_external_id)
+                        ))
+                        .scalars()
+                        .first()
                     )
-                    u_ab.basic_info = user_basic
-                    u_ab.inferred_profile = user_inferred
-
-                # Bot B 视角：user_a_external_id 代表“Bot A 这个人”
-                u_ba = (
-                    (await session.execute(
-                        select(User).where(User.bot_id == uuid.UUID(bot_b_id), User.external_id == user_a_external_id)
-                    ))
-                    .scalars()
-                    .first()
-                )
-                if u_ba:
-                    user_basic, user_inferred = _user_profiles_from_bot(
-                        bot_a_db.basic_info or {}, bot_a_db.persona or {}, bot_a_db.big_five or {}
+                    if u_ab:
+                        u_ab.basic_info = {}
+                        u_ab.inferred_profile = {}
+                    u_ba = (
+                        (await session.execute(
+                            select(User).where(User.bot_id == uuid.UUID(bot_b_id), User.external_id == user_a_external_id)
+                        ))
+                        .scalars()
+                        .first()
                     )
-                    u_ba.basic_info = user_basic
-                    u_ba.inferred_profile = user_inferred
-        log_line("✓ bot-to-bot: 已将 User 画像绑定为“对方 Bot 人设”")
-    except Exception as e:
-        log_line(f"⚠ bot-to-bot: 绑定对方画像失败（将继续使用默认画像）: {e}")
+                    if u_ba:
+                        u_ba.basic_info = {}
+                        u_ba.inferred_profile = {}
+            log_line("✓ bot-to-bot: 已设为空人设 User（测试 basic_info / inferred_profile 管线）")
+        except Exception as e:
+            log_line(f"⚠ bot-to-bot: 空人设设置失败: {e}")
+    else:
+        # bot-to-bot 关键修复：把 user 画像绑定到“对方 bot 的 persona/basic_info”，避免随机人类画像污染
+        try:
+            async with db.Session() as session:
+                async with session.begin():
+                    bot_a_db = (await session.execute(select(Bot).where(Bot.id == uuid.UUID(bot_a_id)))).scalar_one()
+                    bot_b_db = (await session.execute(select(Bot).where(Bot.id == uuid.UUID(bot_b_id)))).scalar_one()
+
+                    u_ab = (
+                        (await session.execute(
+                            select(User).where(User.bot_id == uuid.UUID(bot_a_id), User.external_id == user_b_external_id)
+                        ))
+                        .scalars()
+                        .first()
+                    )
+                    if u_ab:
+                        user_basic, user_inferred = _user_profiles_from_bot(
+                            bot_b_db.basic_info or {}, bot_b_db.persona or {}, bot_b_db.big_five or {}
+                        )
+                        u_ab.basic_info = user_basic
+                        u_ab.inferred_profile = user_inferred
+
+                    u_ba = (
+                        (await session.execute(
+                            select(User).where(User.bot_id == uuid.UUID(bot_b_id), User.external_id == user_a_external_id)
+                        ))
+                        .scalars()
+                        .first()
+                    )
+                    if u_ba:
+                        user_basic, user_inferred = _user_profiles_from_bot(
+                            bot_a_db.basic_info or {}, bot_a_db.persona or {}, bot_a_db.big_five or {}
+                        )
+                        u_ba.basic_info = user_basic
+                        u_ba.inferred_profile = user_inferred
+            log_line("✓ bot-to-bot: 已将 User 画像绑定为“对方 Bot 人设”")
+        except Exception as e:
+            log_line(f"⚠ bot-to-bot: 绑定对方画像失败（将继续使用默认画像）: {e}")
 
     # 可选：仅在“第一次”压测前清空（BOT2BOT_CLEAR_BEFORE_RUN=1）
     if str(os.getenv("BOT2BOT_CLEAR_BEFORE_RUN", "0")).lower() in ("1", "true", "yes", "on"):

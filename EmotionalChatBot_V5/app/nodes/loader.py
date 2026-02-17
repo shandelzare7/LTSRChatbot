@@ -144,7 +144,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"
             db_data: Dict[str, Any] = await db.load_state(str(user_id), str(bot_id))
             bot_name = (db_data.get("bot_basic_info") or {}).get("name") or "?"
-            user_name = (db_data.get("user_basic_info") or {}).get("name") or (db_data.get("user_basic_info") or {}).get("nickname") or "?"
+            user_name = (db_data.get("user_basic_info") or {}).get("name") or "?"
             print(f"[Loader] 从 DB 加载 user_id={user_id}, bot_id={bot_id}, bot_name={bot_name}, user_name={user_name}")
             history = db_data.get("chat_buffer") or []
             merged_buffer = _merge_and_dedup_buffers(list(history), list(chat_buffer))

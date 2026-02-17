@@ -115,7 +115,6 @@ async def get_or_create_user_by_name(db: DBManager, name: str, bot_id: str) -> t
                     basic_info=user_basic_info,
                     current_stage="initiating",
                     dimensions=relationship_template,
-                    mood_state={"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
                     inferred_profile=user_inferred,
                     assets={"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
                     spt_info={},

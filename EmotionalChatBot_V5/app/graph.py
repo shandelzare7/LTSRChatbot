@@ -25,9 +25,8 @@ _detection_module = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_detection_module)
 
 create_detection_node = _detection_module.create_detection_node
+from app.nodes.security_check import create_security_check_node
 from app.nodes.inner_monologue import create_inner_monologue_node
-from app.nodes.reasoner import create_reasoner_node
-from app.nodes.memory_retriever import create_memory_retriever_node
 from app.nodes.style import create_style_node
 from app.nodes.task_planner import create_task_planner_node
 from app.nodes.lats_search import create_lats_search_node
@@ -50,6 +49,11 @@ def _no_reply_handler(state: dict) -> dict:
         "processor_plan": {"messages": []},
         "reply_plan": {"messages": []},
     }
+
+
+def _after_security_handler(state: dict) -> dict:
+    """安全检查通过后的汇合占位节点（no-op），用于 fan-out 并行分支。"""
+    return {}
 
 
 def _load_modes() -> list[PsychoMode]:
@@ -164,11 +168,10 @@ def build_graph(
         return _call_sync
 
     loader_node = create_loader_node(memory_service)
-    detection_node = create_detection_node(llm_fast)
+    security_check_node = create_security_check_node(llm_fast)
+    detection_node = create_detection_node(llm)
     security_response_node = create_security_response_node(llm_fast)
     inner_monologue_node = create_inner_monologue_node(llm)
-    reasoner_node = create_reasoner_node(llm)
-    memory_retriever_node = create_memory_retriever_node(memory_service)
     style_node = create_style_node(llm)
     task_planner_node = create_task_planner_node(llm_fast)
     lats_node = create_lats_search_node(llm, llm_soft_scorer=llm_judge)
@@ -184,12 +187,12 @@ def build_graph(
     if entry_point == "loader":
         # Full (or fast-return) graph: loader -> ... -> final_validator -> (optional tail) -> END
         workflow.add_node("loader", _wrap_node("loader", loader_node))
+        workflow.add_node("security_check", _wrap_node("security_check", security_check_node))
         workflow.add_node("detection", _wrap_node("detection", detection_node))
         # Security short-circuit node (must be registered before edges reference it)
         workflow.add_node("security_response", _wrap_node("security_response", security_response_node))
+        workflow.add_node("after_security", _wrap_node("after_security", _after_security_handler))
         workflow.add_node("inner_monologue", _wrap_node("inner_monologue", inner_monologue_node))
-        workflow.add_node("reasoner", _wrap_node("reasoner", reasoner_node))
-        workflow.add_node("memory_retriever", _wrap_node("memory_retriever", memory_retriever_node))
         workflow.add_node("style", _wrap_node("style", style_node))
         workflow.add_node("task_planner", _wrap_node("task_planner", task_planner_node))
         workflow.add_node("lats_search", _wrap_node("lats_search", lats_node))
@@ -201,30 +204,32 @@ def build_graph(
         workflow.add_node("memory_writer", _wrap_node("memory_writer", memory_writer_node))
 
         workflow.set_entry_point("loader")
-        workflow.add_edge("loader", "detection")
-        
-        # ✅ 路由：根据 security_check 决定是进入安全响应节点还是正常流程
-        def _route_after_detection(state: dict) -> str:
-            security_check = state.get("security_check") or {}
-            needs_security_response = security_check.get("needs_security_response", False)
-            if needs_security_response:
+        workflow.add_edge("loader", "security_check")
+
+        # ✅ 路由：security_check 先短路；通过后再并行执行 detection + inner_monologue
+        def _route_after_security_check(state: dict) -> str:
+            sc = state.get("security_check") or {}
+            if sc.get("needs_security_response", False):
                 return "security_response"
-            return "inner_monologue"
-        
+            return "after_security"
+
         workflow.add_conditional_edges(
-            "detection",
-            _route_after_detection,
+            "security_check",
+            _route_after_security_check,
             {
                 "security_response": "security_response",
-                "inner_monologue": "inner_monologue",
-            }
+                "after_security": "after_security",
+            },
         )
         
         # ✅ 安全响应节点直接结束（跳过 LATS 等流程）
         workflow.add_edge("security_response", END)
-        
-        workflow.add_edge("inner_monologue", "memory_retriever")
-        workflow.add_edge("memory_retriever", "style")
+
+        # 并行分支：after_security fan-out -> (detection, inner_monologue) -> join at style
+        workflow.add_edge("after_security", "detection")
+        workflow.add_edge("after_security", "inner_monologue")
+        workflow.add_edge("detection", "style")
+        workflow.add_edge("inner_monologue", "style")
         workflow.add_edge("style", "task_planner")
 
         def _route_after_task_planner(state: dict) -> str:

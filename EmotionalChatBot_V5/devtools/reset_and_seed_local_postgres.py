@@ -190,7 +190,7 @@ async def main() -> None:
                 {
                     "current_stage": user.current_stage,
                     "dimensions": user.dimensions,
-                    "mood_state": user.mood_state,
+                    "mood_state": getattr(bot, "mood_state", None) or {},
                     "inferred_profile": user.inferred_profile,
                     "assets": user.assets,
                     "spt_info": user.spt_info,

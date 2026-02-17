@@ -53,6 +53,7 @@ STAGE_DELAY_FACTORS: Dict[str, float] = {
 AVG_READING_SPEED = 0.05  # 秒/字符（约 20字/秒）
 BASE_TYPING_SPEED = 5.0  # 字符/秒
 MIN_BUBBLE_LENGTH = 2  # 防止切太碎
+MIN_SEGMENT_DELAY_SECONDS = 1.2  # 第二条及以后最小间隔，避免「秒出」
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -292,6 +293,39 @@ class HumanizationProcessor:
 
         return 0.0, "online"
 
+    def compute_delays_for_messages(self, msgs: List[str]) -> Tuple[List[float], List[str]]:
+        """
+        对已给定的消息列表（如 LATS 的 processor_plan.messages）纯由 processor 计算每条延迟。
+        与 process() 使用相同的读/想/打字节奏与阶段因子，不重新分段。
+        """
+        if not msgs:
+            return [], []
+        dyn = self._calculate_dynamics_modifiers()
+        macro_delay, macro_reason = self._calculate_macro_delay(dyn)
+        user_input = str(self.state.get("user_input") or "")
+        full_len = sum(len(m) for m in msgs)
+        t_read = 0.5 + (len(user_input) * AVG_READING_SPEED)
+        cognitive_load = full_len * 0.02
+        t_think = (1.0 + cognitive_load) * float(dyn["speed_factor"])
+        noise = random.gauss(1.0, float(dyn["noise_level"]))
+        t_think *= _clamp(float(noise), 0.5, 2.0)
+        typing_speed = BASE_TYPING_SPEED / float(dyn["speed_factor"])
+        typing_speed = _clamp(float(typing_speed), 0.5, 30.0)
+        base_delay = float(macro_delay + t_read + t_think)
+        delays: List[float] = []
+        actions: List[str] = []
+        for i, seg_text in enumerate(msgs):
+            motor_noise = random.uniform(0.9, 1.1)
+            t_type = (len(seg_text) / typing_speed) * motor_noise if seg_text else 0.0
+            t_type = _clamp(float(t_type), MIN_SEGMENT_DELAY_SECONDS, 30.0) if i > 0 else _clamp(float(t_type), 0.05, 30.0)
+            act = "idle" if macro_delay > 300.0 and i == 0 else "typing"
+            actions.append(act)
+            if i == 0:
+                delays.append(round(base_delay + t_type, 2))
+            else:
+                delays.append(round(t_type, 2))
+        return delays, actions
+
     # ------------------------------------------
     # Segmentation
     # ------------------------------------------
@@ -378,7 +412,7 @@ class HumanizationProcessor:
         for i, seg_text in enumerate(segments_text):
             motor_noise = random.uniform(0.9, 1.1)
             t_type = (len(seg_text) / typing_speed) * motor_noise if seg_text else 0.0
-            t_type = _clamp(float(t_type), 0.05, 30.0)
+            t_type = _clamp(float(t_type), MIN_SEGMENT_DELAY_SECONDS if i > 0 else 0.05, 30.0)
 
             if i == 0:
                 # 第一段：delay = 宏观等待 + 读 + 想 + 打字
@@ -430,7 +464,7 @@ def _build_processor_system_prompt(state: Dict[str, Any]) -> str:
     schedule = f"作息: {BOT_SCHEDULE.get('sleep_start', 23)}:00 入睡, {BOT_SCHEDULE.get('sleep_end', 7)}:00 起床"
 
     return f"""# Role
-你是拟人化输出编排员。根据对话上下文、记忆和当前状态，将「待拆句的回复」拆成多条气泡，并为每条指定发送前的等待时间（delay，秒）和动作（action）。
+你是语感优秀、常识经验丰富的语言学专家。凭借你对自然语言节奏和真人聊天习惯的深刻理解，根据对话上下文、记忆和当前状态，将「待拆句的回复」拆成多条气泡，并为每条指定发送前的等待时间（delay，秒）和动作（action）。
 
 # Memory (Summary + Retrieved)
 {system_memory}
@@ -533,26 +567,43 @@ def _humanize_via_llm(state: AgentState, llm_invoker: Any) -> HumanizedOutput | 
 
 
 def _humanize_from_processor_plan(state: AgentState) -> HumanizedOutput | None:
-    """优先执行 LATS/编译器产出的 ProcessorPlan，保证模拟=真实。"""
+    """
+    执行 LATS/编译器产出的 ProcessorPlan。
+    ReplyPlan 已去掉延迟参数，仅含 messages；延迟由本 processor 纯计算。
+    若 plan 带 delays/actions 且长度匹配则沿用，否则用 HumanizationProcessor 计算延迟。
+    """
     plan = state.get("processor_plan") or {}
     if not isinstance(plan, dict):
         return None
     msgs = plan.get("messages")
-    delays = plan.get("delays")
-    actions = plan.get("actions")
     if not isinstance(msgs, list) or not msgs:
         return None
-    if not isinstance(delays, list) or len(delays) != len(msgs):
+    # 归一化为字符串列表
+    texts: List[str] = []
+    for m in msgs:
+        if isinstance(m, str):
+            t = (m or "").strip()
+        elif isinstance(m, dict):
+            t = str(m.get("content") or "").strip()
+        else:
+            t = str(m or "").strip()
+        if t:
+            texts.append(t)
+    if not texts:
         return None
-    if not isinstance(actions, list) or len(actions) != len(msgs):
-        # actions 可缺省：默认 typing
-        actions = ["typing"] * len(msgs)
+
+    delays = plan.get("delays")
+    actions = plan.get("actions")
+    if isinstance(delays, list) and len(delays) == len(texts) and isinstance(actions, list) and len(actions) == len(texts):
+        # 已有完整 delays/actions，直接使用
+        pass
+    else:
+        # 纯 processor 计算延迟（与 ReplyPlan 无延迟参数一致）
+        proc = HumanizationProcessor(state)
+        delays, actions = proc.compute_delays_for_messages(texts)
 
     segments: List[ResponseSegment] = []
-    for i, (m, d, a) in enumerate(zip(msgs, delays, actions)):
-        text = str(m or "").strip()
-        if not text:
-            continue
+    for i, (text, d, a) in enumerate(zip(texts, delays, actions)):
         try:
             delay_val = float(d)
         except Exception:

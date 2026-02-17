@@ -16,9 +16,6 @@ behavior_contract:
   forbidden_actions:
     - explicit_ai_disclosure
     - policy_lecture
-  notes:
-    - 内容要对齐用户问题与当前话题，不要自顾自扩写。
-    - 若信息不足，优先提出1个澄清问题而不是长篇建议。
 
 lats_budget:
   enabled: true

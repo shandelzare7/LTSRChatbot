@@ -7,7 +7,7 @@ CREATE TYPE knapp_stage AS ENUM (
     'differentiating', 'circumscribing', 'stagnating', 'avoiding', 'terminating'
 );
 
--- 2. 机器人表 (Bots) - 顶层
+-- 2. 机器人表 (Bots) - 顶层；PAD(B) 情绪存在 bot 上，该 bot 下所有用户共享
 CREATE TABLE bots (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL,
@@ -16,10 +16,12 @@ CREATE TABLE bots (
     persona JSONB DEFAULT '{}'::jsonb,
     character_sidewrite TEXT,
     backlog_tasks JSONB,
+    mood_state JSONB DEFAULT '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'::jsonb,
+    urgent_tasks JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. 用户表 (Users) - 挂在 bot 下，每个 user 绑定一个 bot
+-- 3. 用户表 (Users) - 挂在 bot 下，每个 user 绑定一个 bot（PAD(B) 已移至 bots 表）
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     bot_id UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
@@ -28,11 +30,11 @@ CREATE TABLE users (
     basic_info JSONB DEFAULT '{}'::jsonb,
     current_stage knapp_stage DEFAULT 'initiating',
     dimensions JSONB DEFAULT '{"closeness": 0.3, "trust": 0.3, "liking": 0.3, "respect": 0.3, "warmth": 0.3, "power": 0.5}'::jsonb,
-    mood_state JSONB DEFAULT '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'::jsonb,
     inferred_profile JSONB DEFAULT '{}'::jsonb,
     assets JSONB DEFAULT '{}'::jsonb,
     spt_info JSONB DEFAULT '{}'::jsonb,
     conversation_summary TEXT,
+    urgent_tasks JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(bot_id, external_id)
@@ -127,6 +129,6 @@ SELECT
   u.bot_id,
   b.name AS bot_name,
   u.external_id,
-  COALESCE(u.basic_info->>'name', u.basic_info->>'nickname', u.external_id) AS user_name
+  COALESCE(u.basic_info->>'name', u.external_id) AS user_name
 FROM users u
 JOIN bots b ON b.id = u.bot_id;
