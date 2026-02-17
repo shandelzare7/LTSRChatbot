@@ -449,6 +449,37 @@ async function selectBot(botId) {
     }
 }
 
+// 通过 User DB ID 恢复会话
+async function resumeByUserId() {
+    const input = document.getElementById('resume-user-id');
+    if (!input) return;
+    const userId = input.value.trim();
+    if (!userId) {
+        alert('请输入 User ID');
+        return;
+    }
+    try {
+        const response = await fetch('/api/session/resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ user_db_id: userId }),
+        });
+        if (!response.ok) {
+            const error = await response.json();
+            alert('恢复会话失败: ' + (error.detail || '未知错误'));
+            return;
+        }
+        const data = await response.json();
+        if (data.status === 'ready') {
+            window.location.href = '/';
+        }
+    } catch (error) {
+        console.error('恢复会话失败:', error);
+        alert('恢复会话失败，请重试');
+    }
+}
+
 // 生成分享链接
 async function generateShareLink(botId) {
     try {
@@ -534,6 +565,16 @@ function initChat() {
     // 自动请求推送权限（隐藏按钮，直接弹出权限请求）
     autoRequestNotificationPermission().catch(() => {});
 
+    // 显示 User DB ID（如果有）
+    fetchSessionStatus().then(status => {
+        if (status && status.user_db_id) {
+            const el = document.getElementById('user-db-id');
+            if (el) {
+                el.textContent = 'User ID: ' + status.user_db_id;
+            }
+        }
+    }).catch(() => {});
+
     // 先加载历史（如果有），再决定是否插入开场白
     loadAndRenderChatHistory()
         .then(() => ensureFirstBotMessage())
@@ -595,8 +636,9 @@ function initChat() {
                     // Notify only once per bot turn (use the first segment).
                     maybeNotifyBotMessage(firstContent).catch(() => {});
                     
-                    // 后续消息：只要 segment 提供了 delay（秒），就累计等待；
-                    // 否则仅对 action === "typing" 使用默认打字 delay。
+                    // 后续消息：WebUI 只应用“打字延迟”。
+                    // - action === "typing": 应用 delay（若无则用默认）
+                    // - action === "idle": 不等待，立即显示（不应用宏观拟人化延迟）
                     let cumulativeDelayMs = 0;
                     const DEFAULT_TYPING_DELAY_MS = 1200; // 如果后端没有提供 delay，使用默认值（更明显的打字感）
                     
@@ -605,17 +647,18 @@ function initChat() {
                         const content = typeof seg === 'string' ? seg : (seg.content || seg);
                         const action = typeof seg === 'object' && seg !== null ? (seg.action || 'typing') : 'typing';
                         
-                        // delay（秒）→ 毫秒；如果后端明确提供了 delay，则无论 action 都累计等待
-                        let providedDelayMs = null;
-                        if (typeof seg === 'object' && seg !== null && typeof seg.delay === 'number') {
-                            providedDelayMs = Math.max(0, seg.delay * 1000);
+                        let delayMs = 0;
+                        if (action === 'typing') {
+                            if (typeof seg === 'object' && seg !== null && typeof seg.delay === 'number') {
+                                delayMs = Math.max(0, seg.delay * 1000);
+                            } else {
+                                delayMs = DEFAULT_TYPING_DELAY_MS;
+                            }
+                        } else {
+                            // idle: do not wait
+                            delayMs = 0;
                         }
-
-                        if (providedDelayMs !== null) {
-                            cumulativeDelayMs += providedDelayMs;
-                        } else if (action === 'typing') {
-                            cumulativeDelayMs += DEFAULT_TYPING_DELAY_MS;
-                        }
+                        cumulativeDelayMs += delayMs;
 
                         setTimeout(() => {
                             addMessage('bot', content);

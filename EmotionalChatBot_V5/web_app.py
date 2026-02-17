@@ -292,6 +292,10 @@ class SessionInitRequest(BaseModel):
 
 
 # Push subscription payload
+class SessionResumeRequest(BaseModel):
+    user_db_id: str
+
+
 class PushSubscribeRequest(BaseModel):
     subscription: dict
 
@@ -635,6 +639,54 @@ async def init_session(
         raise HTTPException(status_code=500, detail=f"初始化会话失败: {str(e)}")
 
 
+@app.post("/api/session/resume")
+async def resume_session(
+    request: Request, response: Response, data: SessionResumeRequest
+):
+    """通过 User 数据库 ID (UUID) 恢复之前的会话"""
+    try:
+        import uuid as uuid_lib
+        try:
+            user_uuid = uuid_lib.UUID(data.user_db_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="无效的 User ID 格式，需要 UUID")
+
+        db = get_db_manager()
+        async with db.Session() as session:
+            result = await session.execute(
+                select(User).where(User.id == user_uuid)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                raise HTTPException(status_code=404, detail="未找到该 User ID 对应的用户")
+
+            bot_id_str = str(user.bot_id)
+            external_id = user.external_id
+
+            # 获取 bot 名称
+            result = await session.execute(
+                select(Bot).where(Bot.id == user.bot_id)
+            )
+            bot = result.scalar_one_or_none()
+            bot_name = bot.name if bot else None
+
+        # 创建会话并设置持久 Cookie
+        new_session_id = create_session(external_id, bot_id_str)
+        _set_persistent_session_cookies(response, user_id=external_id, bot_id=bot_id_str, session_id=new_session_id)
+
+        return {
+            "session_id": new_session_id,
+            "bot_id": bot_id_str,
+            "bot_name": bot_name,
+            "user_db_id": str(user_uuid),
+            "status": "ready",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"恢复会话失败: {str(e)}")
+
+
 @app.post("/api/chat")
 async def chat(
     request: Request,
@@ -790,45 +842,11 @@ async def chat(
                 if not reply:
                     reply = result.get("draft_response") or "（无回复）"
                 
-                # 优先使用 humanized_output.segments（包含 delay 信息），否则回退到 final_segments（字符串数组）
+                # 优先使用 processor 产出的 humanized_output.segments（包含 delay/action），web 层不篡改 delay。
                 humanized = result.get("humanized_output") or {}
                 segments_with_delay = humanized.get("segments") or []
                 if segments_with_delay and isinstance(segments_with_delay, list) and len(segments_with_delay) > 0:
-                    # 使用带 delay 的 segments（每个元素是 {"content": "...", "delay": 1.2, "action": "typing"}）
-                    # 兼容：某些输出可能 action 不是 typing，导致前端不累计 delay。这里统一规范。
-                    def _auto_delay_seconds(txt: str) -> float:
-                        t = str(txt or "")
-                        n = len(t)
-                        # 0.9s 基础 + 0.03s/字，封顶 4.0s（更明显“打字感”）
-                        d = 0.9 + 0.03 * n
-                        if d < 1.0:
-                            d = 1.0
-                        if d > 4.0:
-                            d = 4.0
-                        return round(float(d), 2)
-
-                    norm = []
-                    for i, seg in enumerate(segments_with_delay):
-                        if isinstance(seg, dict):
-                            content = seg.get("content")
-                            if content is None:
-                                content = seg.get("text")
-                            content = str(content or "")
-                            delay = seg.get("delay", None)
-                            if i == 0:
-                                # 第一条前端不应用 delay
-                                delay = 0.0
-                            else:
-                                if not isinstance(delay, (int, float)):
-                                    delay = _auto_delay_seconds(content)
-                                else:
-                                    # 给一个最小打字时间，避免“后边太快”
-                                    delay = max(float(delay), 1.0)
-                            norm.append({"content": content, "delay": float(delay), "action": "typing"})
-                        else:
-                            content = str(seg or "")
-                            norm.append({"content": content, "delay": 0.0 if i == 0 else _auto_delay_seconds(content), "action": "typing"})
-                    segments = norm
+                    segments = segments_with_delay
                 else:
                     # 回退：使用 final_segments（字符串数组），转换为带默认 delay 的对象数组
                     segments_raw = result.get("final_segments") or []
@@ -1136,6 +1154,7 @@ async def get_session_status(
     bot_name = None
     bot_basic_info = {}
     has_history = False
+    user_db_id = None
 
     try:
         db = get_db_manager()
@@ -1167,6 +1186,7 @@ async def get_session_status(
                 )
                 user = result.scalar_one_or_none()
                 if user:
+                    user_db_id = str(user.id)
                     result = await db_session.execute(
                         select(Message.id).where(Message.user_id == user.id).limit(1)
                     )
@@ -1179,6 +1199,7 @@ async def get_session_status(
         "has_session": True,
         "bot_id": bot_id_str,
         "user_id": user_external_id,
+        "user_db_id": user_db_id,
         "bot_name": bot_name,
         "bot_basic_info": bot_basic_info,
         "has_history": has_history,
@@ -1285,6 +1306,13 @@ def get_bot_selection_html() -> str:
     <div class="container">
         <div class="bot-selection">
             <h1>🤖 选择一个 Chatbot 开始对话</h1>
+            <div class="resume-session">
+                <h3>通过 User ID 恢复之前的会话</h3>
+                <div class="resume-session-row">
+                    <input type="text" id="resume-user-id" class="message-input" placeholder="输入 User ID (UUID)..." autocomplete="off" />
+                    <button class="btn-primary" onclick="resumeByUserId()">恢复会话</button>
+                </div>
+            </div>
             <div id="bot-list" class="bot-list">
                 <div class="loading">加载中...</div>
             </div>
@@ -1313,7 +1341,10 @@ def get_chat_html(bot_id: str) -> str:
     <div class="container">
         <div class="chat-container">
             <div class="chat-header">
-                <h2>💬 对话中</h2>
+                <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
+                    <h2 style="margin:0;">💬 对话中</h2>
+                    <div id="user-db-id" class="user-id-bar"></div>
+                </div>
                 <div style="display:flex; gap:8px; align-items:center;">
                     <button id="notify-btn" class="btn-secondary" title="开启浏览器通知（需要授权）" style="display:none;">开启通知</button>
                 </div>

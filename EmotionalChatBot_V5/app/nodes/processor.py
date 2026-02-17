@@ -592,15 +592,9 @@ def _humanize_from_processor_plan(state: AgentState) -> HumanizedOutput | None:
     if not texts:
         return None
 
-    delays = plan.get("delays")
-    actions = plan.get("actions")
-    if isinstance(delays, list) and len(delays) == len(texts) and isinstance(actions, list) and len(actions) == len(texts):
-        # 已有完整 delays/actions，直接使用
-        pass
-    else:
-        # 纯 processor 计算延迟（与 ReplyPlan 无延迟参数一致）
-        proc = HumanizationProcessor(state)
-        delays, actions = proc.compute_delays_for_messages(texts)
+    # 延迟/节奏统一由 processor 计算；不沿用 plan 内可能残留的 delays/actions（避免上游组件覆盖节奏）。
+    proc = HumanizationProcessor(state)
+    delays, actions = proc.compute_delays_for_messages(texts)
 
     segments: List[ResponseSegment] = []
     for i, (text, d, a) in enumerate(zip(texts, delays, actions)):
