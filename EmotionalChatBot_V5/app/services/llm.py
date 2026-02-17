@@ -301,6 +301,8 @@ class TimedLLM:
 # ----------------------------
 
 _LLM_STATS: dict[str, dict[str, Any]] = {}
+# Per-node stats: node_name -> stats_key -> {calls, total_ms}; used so parallel nodes don't mix deltas.
+_LLM_STATS_BY_NODE: dict[str, dict[str, dict[str, Any]]] = {}
 
 
 def _stats_enabled() -> bool:
@@ -309,18 +311,22 @@ def _stats_enabled() -> bool:
 
 def reset_llm_stats() -> None:
     """Reset in-memory counters for a fresh run."""
-    global _LLM_STATS
+    global _LLM_STATS, _LLM_STATS_BY_NODE
     _LLM_STATS = {}
+    _LLM_STATS_BY_NODE = {}
 
 
-def get_llm_stats() -> dict[str, dict[str, Any]]:
-    """Return a shallow copy of the current stats dict."""
+def get_llm_stats(node_name: Optional[str] = None) -> dict[str, dict[str, Any]]:
+    """Return a shallow copy of stats. If node_name is set, return only stats attributed to that node (for correct per-node deltas when nodes run in parallel)."""
+    if node_name is not None:
+        by_node = _LLM_STATS_BY_NODE.get(node_name) or {}
+        return {k: dict(v) for k, v in by_node.items()}
     return {k: dict(v) for k, v in _LLM_STATS.items()}
 
 
-def llm_stats_snapshot() -> dict[str, dict[str, Any]]:
-    """Alias for get_llm_stats(), kept for clarity at call sites."""
-    return get_llm_stats()
+def llm_stats_snapshot(node_name: Optional[str] = None) -> dict[str, dict[str, Any]]:
+    """Snapshot for diff. Pass node_name to get per-node stats so parallel nodes don't mix counts."""
+    return get_llm_stats(node_name=node_name)
 
 
 def llm_stats_diff(before: dict[str, dict[str, Any]], after: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -351,6 +357,16 @@ def _record_llm_call(*, role: str, base_url: str, model: str, kind: str, dt_ms: 
         _LLM_STATS[k] = rec
     rec["calls"] = int(rec.get("calls", 0) or 0) + 1
     rec["total_ms"] = float(rec.get("total_ms", 0.0) or 0.0) + float(dt_ms or 0.0)
+    # Attribute to current node so per-node snapshot diff is correct when nodes run in parallel.
+    node = get_current_node()
+    if node:
+        by_node = _LLM_STATS_BY_NODE.setdefault(node, {})
+        nrec = by_node.get(k)
+        if nrec is None:
+            nrec = {"calls": 0, "total_ms": 0.0}
+            by_node[k] = nrec
+        nrec["calls"] = int(nrec.get("calls", 0) or 0) + 1
+        nrec["total_ms"] = float(nrec.get("total_ms", 0.0) or 0.0) + float(dt_ms or 0.0)
 
 
 class InstrumentedLLM:

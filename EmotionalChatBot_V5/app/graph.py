@@ -121,14 +121,14 @@ def build_graph(
         async def _call_async(state: Any) -> Any:
             tok = set_current_node(name)
             prof = _ensure_profile(state)
-            before = llm_stats_snapshot()
+            before = llm_stats_snapshot(node_name=name)
             t0 = time.perf_counter()
             try:
                 out = await fn(state)
             finally:
                 reset_current_node(tok)
             dt_ms = (time.perf_counter() - t0) * 1000.0
-            after = llm_stats_snapshot()
+            after = llm_stats_snapshot(node_name=name)
             prof["nodes"].append(
                 {
                     "name": name,
@@ -143,14 +143,14 @@ def build_graph(
         def _call_sync(state: Any) -> Any:
             tok = set_current_node(name)
             prof = _ensure_profile(state)
-            before = llm_stats_snapshot()
+            before = llm_stats_snapshot(node_name=name)
             t0 = time.perf_counter()
             try:
                 out = fn(state)
             finally:
                 reset_current_node(tok)
             dt_ms = (time.perf_counter() - t0) * 1000.0
-            after = llm_stats_snapshot()
+            after = llm_stats_snapshot(node_name=name)
             prof["nodes"].append(
                 {
                     "name": name,

@@ -369,7 +369,6 @@ def compile_requirements(state: Dict[str, Any]) -> RequirementsChecklist:
         # 规划层先验：未被请求时，不要主动“建议/教程/步骤”
         try:
             mbt = list(requirements.get("mode_behavior_targets") or [])
-            mbt.append("未被请求时不要给建议/步骤/教程；优先闲聊、呼应对方、抛1个轻问题。")
             requirements["mode_behavior_targets"] = [str(x).strip() for x in mbt if str(x).strip()][:8]
         except Exception:
             pass

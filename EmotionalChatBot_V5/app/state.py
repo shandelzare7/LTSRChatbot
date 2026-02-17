@@ -6,6 +6,14 @@ from typing import TypedDict, List, Dict, Any, Optional, Union, Annotated, Liter
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
 
+
+def _merge_profile(left: Optional[Dict[str, Any]], right: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """合并并行节点写入的 _profile（拼接 nodes 列表），供 LTSR_PROFILE_STEPS 使用。"""
+    a = left or {}
+    b = right or {}
+    nodes = list(a.get("nodes") or []) + list(b.get("nodes") or [])
+    return {**a, **b, "nodes": nodes}
+
 # 时间戳在 state 中通常为 ISO 字符串，便于 JSON 序列化
 TimestampStr = str
 
@@ -448,7 +456,8 @@ class AgentState(TypedDict, total=False):
 
     # --- Profiling (devtools) ---
     # 节点级耗时与 LLM 调用增量（由 app/graph.py 的 profiling wrapper 写入；devtools 使用）
-    _profile: Optional[Dict[str, Any]]
+    # 并行节点（如 detection + inner_monologue）会同时写入，用 reducer 合并 nodes 列表
+    _profile: Annotated[Optional[Dict[str, Any]], _merge_profile]
     
     # --- Output Drivers (The 12 Dimensions) ---
     # 这里的 Key 对应 12 维输出定义
