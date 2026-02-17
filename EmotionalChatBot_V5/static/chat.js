@@ -455,7 +455,7 @@ async function resumeByUserId() {
     if (!input) return;
     const userId = input.value.trim();
     if (!userId) {
-        alert('请输入 User ID');
+        alert('请输入会话ID');
         return;
     }
     try {
@@ -565,13 +565,37 @@ function initChat() {
     // 自动请求推送权限（隐藏按钮，直接弹出权限请求）
     autoRequestNotificationPermission().catch(() => {});
 
-    // 显示 User DB ID（如果有）
+    // 显示会话ID（若有）及复制按钮
     fetchSessionStatus().then(status => {
         if (status && status.user_db_id) {
             const el = document.getElementById('user-db-id');
-            if (el) {
-                el.textContent = 'User ID: ' + status.user_db_id;
-            }
+            if (!el) return;
+            const uuid = status.user_db_id;
+            el.innerHTML = '';
+            const text = document.createElement('span');
+            text.className = 'user-id-text';
+            text.textContent = '会话ID: ' + uuid;
+            el.appendChild(text);
+            const copyBtn = document.createElement('button');
+            copyBtn.type = 'button';
+            copyBtn.className = 'user-id-copy';
+            copyBtn.setAttribute('aria-label', '复制');
+            copyBtn.title = '复制会话ID';
+            copyBtn.innerHTML = '📋';
+            el.appendChild(copyBtn);
+            copyBtn.addEventListener('click', function () {
+                navigator.clipboard.writeText(uuid).then(function () {
+                    var t = copyBtn.title;
+                    copyBtn.title = '已复制';
+                    copyBtn.innerHTML = '✓';
+                    setTimeout(function () {
+                        copyBtn.title = t;
+                        copyBtn.innerHTML = '📋';
+                    }, 1500);
+                }).catch(function () {
+                    copyBtn.title = '复制失败';
+                });
+            });
         }
     }).catch(() => {});
 

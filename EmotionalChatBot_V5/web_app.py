@@ -655,7 +655,7 @@ async def resume_session(
         try:
             user_uuid = uuid_lib.UUID(data.user_db_id)
         except ValueError:
-            raise HTTPException(status_code=400, detail="无效的 User ID 格式，需要 UUID")
+            raise HTTPException(status_code=400, detail="无效的会话ID格式，需要 UUID")
 
         db = get_db_manager()
         async with db.Session() as session:
@@ -664,7 +664,7 @@ async def resume_session(
             )
             user = result.scalar_one_or_none()
             if not user:
-                raise HTTPException(status_code=404, detail="未找到该 User ID 对应的用户")
+                raise HTTPException(status_code=404, detail="未找到该会话ID对应的用户")
 
             bot_id_str = str(user.bot_id)
             external_id = user.external_id
@@ -1306,9 +1306,9 @@ def get_bot_selection_html() -> str:
         <div class="bot-selection">
             <h1>🤖 选择一个 Chatbot 开始对话</h1>
             <div class="resume-session">
-                <h3>通过 User ID 恢复之前的会话</h3>
+                <h3>通过会话ID 恢复之前的会话</h3>
                 <div class="resume-session-row">
-                    <input type="text" id="resume-user-id" class="message-input" placeholder="输入 User ID (UUID)..." autocomplete="off" />
+                    <input type="text" id="resume-user-id" class="message-input" placeholder="输入会话ID (UUID)..." autocomplete="off" />
                     <button class="btn-primary" onclick="resumeByUserId()">恢复会话</button>
                 </div>
             </div>
