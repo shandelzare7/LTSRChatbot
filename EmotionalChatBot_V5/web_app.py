@@ -1177,20 +1177,13 @@ async def get_session_status(
                 bot_name = bot.name
                 bot_basic_info = bot.basic_info or {}
 
-                # 是否有历史消息（不使用 _get_or_create_user，避免状态查询意外写入）
+                # 确保 User 存在，以便页头能显示 user_db_id（否则要等首次发消息才创建）
+                user = await db._get_or_create_user(db_session, str(bot.id), user_external_id)
+                user_db_id = str(user.id)
                 result = await db_session.execute(
-                    select(User).where(
-                        User.bot_id == bot.id,
-                        User.external_id == user_external_id,
-                    )
+                    select(Message.id).where(Message.user_id == user.id).limit(1)
                 )
-                user = result.scalar_one_or_none()
-                if user:
-                    user_db_id = str(user.id)
-                    result = await db_session.execute(
-                        select(Message.id).where(Message.user_id == user.id).limit(1)
-                    )
-                    has_history = result.scalar_one_or_none() is not None
+                has_history = result.scalar_one_or_none() is not None
     except Exception:
         # 状态接口尽量不因数据库异常影响页面；前端会降级显示通用开场白
         pass
