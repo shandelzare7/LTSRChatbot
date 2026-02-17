@@ -102,7 +102,7 @@ def detection_node_with_security(state: AgentState) -> dict:
 # 在 Reply Planner 中使用安全标志的示例
 # ==========================================
 
-def plan_reply_with_security_check(state: Dict[str, Any], ...) -> Any:
+def plan_reply_with_security_check(state: Dict[str, Any], original_system_prompt: str) -> Any:
     """
     在 Reply Planner 中检查安全标志，防止模仿用户风格。
     """
