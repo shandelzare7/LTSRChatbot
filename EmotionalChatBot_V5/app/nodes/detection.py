@@ -205,9 +205,7 @@ AI测试模式（任一匹配即为 true）：
                     "is_user_treating_as_assistant": bool(sc.get("is_user_treating_as_assistant", False)),
                     "reasoning": str(sc.get("reasoning", "正常对话")),
                 }
-                # 规则兜底：本项目中“把 bot 当助手”属于角色接管/越界，等价视作注入攻击
-                if security_check.get("is_user_treating_as_assistant"):
-                    security_check["is_injection_attempt"] = True
+                # 计算是否需要安全响应：三个条件中任意一个为 True 即进入安全响应路由
                 needs_security_response = (
                     security_check["is_injection_attempt"]
                     or security_check["is_ai_test"]
@@ -227,6 +225,7 @@ AI测试模式（任一匹配即为 true）：
             print(f"[Detection] 安全检测阶段异常: {e}，使用默认值")
             security_check["needs_security_response"] = False
         # 解析失败但未抛异常（如返回非 JSON）时，确保字段齐全
+        # 三个条件中任意一个为 True 即进入安全响应路由
         security_check.setdefault(
             "needs_security_response",
             bool(security_check.get("is_injection_attempt"))

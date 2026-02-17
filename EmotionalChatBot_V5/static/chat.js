@@ -122,35 +122,130 @@ async function maybeNotifyBotMessage(text) {
     }
 }
 
+// 自动请求推送权限（隐藏按钮，直接弹出权限请求）
+async function autoRequestNotificationPermission() {
+    try {
+        const supportsLocal = ('Notification' in window);
+        const supportsPush = ('serviceWorker' in navigator) && ('PushManager' in window);
+        
+        // 如果都不支持，直接返回
+        if (!supportsLocal && !supportsPush) {
+            return;
+        }
+        
+        // 如果已经授权，直接返回
+        if (Notification.permission === 'granted') {
+            // 如果支持推送但还没订阅，尝试订阅
+            if (supportsPush && !_pushEnabled()) {
+                await _trySubscribePush();
+            }
+            return;
+        }
+        
+        // 如果被拒绝，不自动请求（避免骚扰用户）
+        if (Notification.permission === 'denied') {
+            return;
+        }
+        
+        // 先注册 Service Worker（不触发权限请求）
+        const reg = await _registerServiceWorkerIfPossible();
+        
+        // 延迟一下再请求权限（避免页面加载时立即弹出，给用户一点时间）
+        setTimeout(async () => {
+            try {
+                // 优先尝试 Web Push
+                if (supportsPush && reg && reg.pushManager) {
+                    const ok = await _trySubscribePush();
+                    if (ok) return;
+                }
+                
+                // 回退：本地通知
+                if (supportsLocal) {
+                    const perm = await Notification.requestPermission();
+                    if (perm === 'granted') {
+                        _setNotifyEnabled(true);
+                    }
+                }
+            } catch (e) {
+                // 忽略错误
+            }
+        }, 1000); // 延迟1秒，让页面先加载完成
+    } catch (e) {
+        // 忽略错误
+    }
+}
+
+// 尝试订阅推送（内部辅助函数）
+async function _trySubscribePush() {
+    try {
+        const supportsLocal = ('Notification' in window);
+        const supportsPush = ('serviceWorker' in navigator) && ('PushManager' in window);
+        if (!supportsPush) return false;
+        
+        // 请求通知权限
+        const perm = supportsLocal ? await Notification.requestPermission() : 'granted';
+        if (perm !== 'granted') return false;
+        
+        const reg = await _registerServiceWorkerIfPossible();
+        if (!reg || !reg.pushManager) return false;
+        
+        // 检查是否已经订阅
+        const existingSub = await reg.pushManager.getSubscription();
+        if (existingSub) {
+            // 已经订阅，保存状态
+            _setPushEnabled(true);
+            return true;
+        }
+        
+        // 获取 VAPID 公钥并订阅
+        const pub = await getVapidPublicKey();
+        const sub = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(pub),
+        });
+        
+        const payload = { subscription: sub.toJSON ? sub.toJSON() : sub };
+        const r = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+        });
+        if (!r.ok) return false;
+        
+        _setPushEnabled(true);
+        _setNotifyEnabled(false); // 推送启用时禁用本地通知
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// VAPID 公钥获取和转换函数（从 setupNotificationButton 中提取）
+function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+}
+
+async function getVapidPublicKey() {
+    const resp = await fetch('/api/push/public-key', { credentials: 'include' });
+    if (!resp.ok) throw new Error('get public key failed');
+    const data = await resp.json();
+    if (!data || !data.public_key) throw new Error('missing public key');
+    return String(data.public_key);
+}
+
 async function setupNotificationButton() {
+    // 按钮已隐藏，但保留函数以防将来需要
     const btn = document.getElementById('notify-btn');
-    if (!btn) return;
-    const supportsLocal = ('Notification' in window);
-    const supportsPush = ('serviceWorker' in navigator) && ('PushManager' in window);
-    if (!supportsLocal && !supportsPush) {
+    if (btn) {
         btn.style.display = 'none';
-        return;
     }
-
-    // Register SW best-effort (does not prompt permission).
-    _registerServiceWorkerIfPossible().catch(() => {});
-
-    function urlBase64ToUint8Array(base64String) {
-        const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-        const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-        const rawData = window.atob(base64);
-        const outputArray = new Uint8Array(rawData.length);
-        for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
-        return outputArray;
-    }
-
-    async function getVapidPublicKey() {
-        const resp = await fetch('/api/push/public-key', { credentials: 'include' });
-        if (!resp.ok) throw new Error('get public key failed');
-        const data = await resp.json();
-        if (!data || !data.public_key) throw new Error('missing public key');
-        return String(data.public_key);
-    }
+    // 这个函数现在不再使用，推送权限由 autoRequestNotificationPermission 自动请求
 
     async function subscribePush() {
         if (!supportsPush) return false;
@@ -436,8 +531,8 @@ function initChat() {
     
     if (!messageInput || !sendBtn) return;
 
-    // Notification setup (opt-in via button)
-    setupNotificationButton().catch(() => {});
+    // 自动请求推送权限（隐藏按钮，直接弹出权限请求）
+    autoRequestNotificationPermission().catch(() => {});
 
     // 先加载历史（如果有），再决定是否插入开场白
     loadAndRenderChatHistory()
@@ -493,17 +588,44 @@ function initChat() {
                 }
                 const segments = Array.isArray(data.segments) ? data.segments : [];
                 if (segments.length >= 1) {
-                    addMessage('bot', segments[0], { timestamp: data.ai_created_at || new Date().toISOString() });
+                    // 第一条消息：立即显示（不应用任何 delay）
+                    const firstSeg = segments[0];
+                    const firstContent = typeof firstSeg === 'string' ? firstSeg : (firstSeg.content || firstSeg);
+                    addMessage('bot', firstContent, { timestamp: data.ai_created_at || new Date().toISOString() });
                     // Notify only once per bot turn (use the first segment).
-                    maybeNotifyBotMessage(segments[0]).catch(() => {});
-                    const TYPING_DELAY_MS = 800;
+                    maybeNotifyBotMessage(firstContent).catch(() => {});
+                    
+                    // 后续消息：只对 action === "typing" 的 segment 应用打字 delay
+                    let cumulativeDelayMs = 0;
+                    const DEFAULT_TYPING_DELAY_MS = 800; // 如果后端没有提供 delay，使用默认值
+                    
                     for (let i = 1; i < segments.length; i++) {
                         const seg = segments[i];
-                        setTimeout(() => {
-                            addMessage('bot', seg);
-                            const el = document.getElementById('chat-messages');
-                            if (el) el.scrollTop = el.scrollHeight;
-                        }, TYPING_DELAY_MS * i);
+                        const content = typeof seg === 'string' ? seg : (seg.content || seg);
+                        const action = typeof seg === 'object' && seg !== null ? (seg.action || 'typing') : 'typing';
+                        
+                        // 只对 action === "typing" 的 segment 应用打字 delay
+                        if (action === 'typing') {
+                            // 获取 delay（秒），转换为毫秒
+                            let delayMs = DEFAULT_TYPING_DELAY_MS;
+                            if (typeof seg === 'object' && seg !== null && typeof seg.delay === 'number') {
+                                delayMs = Math.max(0, seg.delay * 1000); // 秒转毫秒，确保非负
+                            }
+                            cumulativeDelayMs += delayMs;
+                            
+                            setTimeout(() => {
+                                addMessage('bot', content);
+                                const el = document.getElementById('chat-messages');
+                                if (el) el.scrollTop = el.scrollHeight;
+                            }, cumulativeDelayMs);
+                        } else {
+                            // action !== "typing"（如 "idle"）：立即显示，不累积 delay
+                            setTimeout(() => {
+                                addMessage('bot', content);
+                                const el = document.getElementById('chat-messages');
+                                if (el) el.scrollTop = el.scrollHeight;
+                            }, cumulativeDelayMs);
+                        }
                     }
                 } else {
                     addMessage('bot', data.reply, { timestamp: data.ai_created_at || new Date().toISOString() });
