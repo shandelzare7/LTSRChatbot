@@ -52,7 +52,7 @@ STAGE_DELAY_FACTORS: Dict[str, float] = {
 }
 
 AVG_READING_SPEED = 0.05
-BASE_TYPING_SPEED = 5.0
+BASE_TYPING_SPEED = 1.8
 MIN_BUBBLE_LENGTH = 2
 MIN_SEGMENT_DELAY_SECONDS = 1.2
 
@@ -338,18 +338,18 @@ def _build_processor_system_prompt(state: Dict[str, Any], dyn: Dict[str, float])
 原文：我今天去看了电影《流浪地球2》，特效真的很棒，你要一起去二刷吗？
 输出：
 [
-  {{"content": "我今天去看了电影流浪地球2，特效真的很棒，你要一起去二刷吗？", "delay": 2.5, "action": "typing"}}
+  {{"content": "我今天去看了电影流浪地球2，特效真的很棒，你要一起去二刷吗？", "delay": 4.0, "action": "typing"}}
 ]
 
 【示例 2 - 倾向较高，碎片化连发，自然语义切分，句末无句号/逗号，保留问号】
 原文：哎呀，今天真是累死我了（老板又让我加班）！而且路上还堵车……你想吃点什么吗？我给你点外卖。
 输出：
 [
-  {{"content": "哎呀今天真是累死我了", "delay": 1.5, "action": "typing"}},
-  {{"content": "老板又让我加班", "delay": 2.0, "action": "typing"}},
-  {{"content": "而且路上还堵车", "delay": 1.5, "action": "typing"}},
-  {{"content": "你想吃点什么吗？", "delay": 2.0, "action": "typing"}},
-  {{"content": "我给你点外卖", "delay": 1.5, "action": "typing"}}
+  {{"content": "哎呀今天真是累死我了", "delay": 2.8, "action": "typing"}},
+  {{"content": "老板又让我加班", "delay": 3.2, "action": "typing"}},
+  {{"content": "而且路上还堵车", "delay": 2.8, "action": "typing"}},
+  {{"content": "你想吃点什么吗？", "delay": 3.2, "action": "typing"}},
+  {{"content": "我给你点外卖", "delay": 2.8, "action": "typing"}}
 ]
 
 # Hard Constraints（最重要）
@@ -407,10 +407,10 @@ def _humanize_via_llm(state: AgentState, llm_invoker: Any, dyn: Dict[str, float]
                 continue
             d = item.get("delay")
             try:
-                delay_val = float(d) if d is not None else 0.5
+                delay_val = float(d) if d is not None else 2.5
             except (TypeError, ValueError):
-                delay_val = 0.5
-            delay_val = max(0.0, min(60.0, delay_val))
+                delay_val = 2.5
+            delay_val = max(0.5, min(60.0, delay_val))
             action = item.get("action")
             if action not in ("typing", "idle"):
                 action = "typing"

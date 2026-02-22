@@ -831,16 +831,25 @@ async def chat(
                 if not reply and result.get("final_segments"):
                     reply = " ".join(result["final_segments"])
                 if not reply:
-                    reply = result.get("draft_response") or "（无回复）"
+                    bot_name = (state.get("bot_basic_info") or {}).get("name") or "Ta"
+                    reply = result.get("draft_response") or f"（{bot_name}决定不回你了）"
 
                 # 本轮回复耗时（秒），追加到 reply_duration_seconds_list 供下一轮 strategy_resolver 判定是否走 fast
                 new_reply_duration_list = (result.get("reply_duration_seconds_list") or []) + [t_graph_ms / 1000.0]
 
                 # 优先使用 processor 产出的 humanized_output.segments（包含 delay/action），web 层不篡改 delay。
+                # 归一化：保证每条 segment 的 content 为字符串，避免前端显示 [object Object]。
+                def _normalize_segment(s):
+                    if isinstance(s, str):
+                        return {"content": s, "delay": 0.0, "action": "typing"}
+                    if isinstance(s, dict) and "content" in s:
+                        return {**s, "content": str(s["content"]) if not isinstance(s.get("content"), str) else s["content"]}
+                    return {"content": str(s), "delay": 0.0, "action": "typing"}
+
                 humanized = result.get("humanized_output") or {}
                 segments_with_delay = humanized.get("segments") or []
                 if segments_with_delay and isinstance(segments_with_delay, list) and len(segments_with_delay) > 0:
-                    segments = segments_with_delay
+                    segments = [_normalize_segment(s) for s in segments_with_delay]
                 else:
                     # 回退：使用 final_segments（字符串数组），转换为带默认 delay 的对象数组
                     segments_raw = result.get("final_segments") or []
@@ -852,17 +861,17 @@ async def chat(
                             # 字符串：转换为对象，第一条 delay=0（前端会立即显示），后续使用默认 delay
                             segments.append({
                                 "content": seg,
-                                "delay": 0.0 if i == 0 else 0.8,  # 第一条 delay=0（前端不应用），后续默认 0.8 秒
+                                "delay": 0.0 if i == 0 else 2.8,  # 第一条 delay=0（前端不应用），后续默认 2.8 秒
                                 "action": "typing"
                             })
                         elif isinstance(seg, dict) and "content" in seg:
-                            # 已经是对象格式，直接使用（前端会正确处理：第一条立即显示，后续只对 typing 应用 delay）
-                            segments.append(seg)
+                            # 已经是对象格式，归一化 content 为字符串后使用
+                            segments.append(_normalize_segment(seg))
                         else:
                             # 其他格式，转换为字符串
                             segments.append({
                                 "content": str(seg),
-                                "delay": 0.0 if i == 0 else 0.8,
+                                "delay": 0.0 if i == 0 else 2.8,
                                 "action": "typing"
                             })
 
@@ -977,7 +986,7 @@ async def chat(
                                 except Exception:
                                     bot_name = ""
                                 title = bot_name or "Chatbot"
-                                body = str(segments[0] if segments else reply)[:200]
+                                body = (str(segments[0].get("content", "")) if segments else str(reply or ""))[:200]
                                 await _send_web_push(subscription=sub, title=title, body=body, url="/", tag="ltsr-bot-message")
                         except Exception:
                             # never block chat on push failures

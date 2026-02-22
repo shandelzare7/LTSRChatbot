@@ -117,6 +117,16 @@ function setMessageTimestamp(messageId, isoString) {
     meta.dataset.iso = String(isoString);
 }
 
+function segmentToDisplayString(seg) {
+    if (typeof seg === 'string') return seg;
+    if (seg && typeof seg === 'object' && seg !== null) {
+        var c = seg.content;
+        if (typeof c === 'string') return c;
+        if (c != null) return String(c);
+    }
+    return String(seg);
+}
+
 function addMessage(role, content, options) {
     options = options || {};
     const chatMessages = document.getElementById('chat-messages');
@@ -128,7 +138,7 @@ function addMessage(role, content, options) {
     row.className = `b-msg-row ${role === 'user' ? 'msg-me' : 'msg-bot'}`;
     const bubble = document.createElement('div');
     bubble.className = `msg msg--${role === 'user' ? 'me' : 'bot'}`;
-    bubble.textContent = content;
+    bubble.textContent = typeof content === 'string' ? content : segmentToDisplayString(content);
     row.appendChild(bubble);
     const meta = document.createElement('div');
     meta.className = 'msg-meta';
@@ -427,14 +437,14 @@ function initChat() {
                     var segments = Array.isArray(data.segments) ? data.segments : [];
                     if (segments.length >= 1) {
                         var firstSeg = segments[0];
-                        var firstContent = typeof firstSeg === 'string' ? firstSeg : (firstSeg.content || firstSeg);
+                        var firstContent = segmentToDisplayString(firstSeg);
                         addMessage('bot', firstContent, { timestamp: data.ai_created_at || new Date().toISOString() });
                         maybeNotifyBotMessage(firstContent).catch(function () {});
-                        var DEFAULT_TYPING_DELAY_MS = 1200;
+                        var DEFAULT_TYPING_DELAY_MS = 3800;
                         var cumulativeDelayMs = 0;
                         for (var i = 1; i < segments.length; i++) {
                             var seg = segments[i];
-                            var content = typeof seg === 'string' ? seg : (seg.content || seg);
+                            var content = segmentToDisplayString(seg);
                             var action = (seg && typeof seg === 'object' && seg.action) ? seg.action : 'typing';
                             var delayMs = action === 'typing' ? (typeof seg.delay === 'number' ? Math.max(0, seg.delay * 1000) : DEFAULT_TYPING_DELAY_MS) : 0;
                             cumulativeDelayMs += delayMs;

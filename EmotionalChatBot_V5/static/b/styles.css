@@ -284,13 +284,23 @@ body::after {
     align-items: center;
 }
 .b-chat-header .avatar {
-    width: 36px;
-    height: 36px;
-    font-size: 14px;
+    width: 40px;
+    height: 40px;
+    font-size: 18px;
+    font-weight: 600;
 }
 .b-chat-header .h1 {
-    font-size: 18px;
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     margin: 0;
+}
+.b-chat-header .btn-secondary {
+    font-size: 14px;
+    padding: 8px 14px;
+}
+.b-chat-header-right {
+    flex-shrink: 0;
 }
 
 /* 消息区域 */
@@ -321,11 +331,11 @@ body::after {
 /* 聊天气泡 */
 .msg {
     max-width: 100%;
-    padding: 12px 14px;
+    padding: 14px 16px;
     border-radius: var(--r-lg);
-    line-height: 1.55;
+    line-height: 1.5;
     box-shadow: var(--shadow-sm);
-    font-size: 14px;
+    font-size: 15px;
 }
 .msg--bot {
     background: rgba(255, 255, 255, 0.92);
@@ -338,10 +348,11 @@ body::after {
     border-radius: 16px 16px 6px 16px;
 }
 .msg-meta {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--muted);
     margin-top: 6px;
     text-align: right;
+    letter-spacing: 0.02em;
 }
 
 /* 输入条（聊天底部） */
@@ -356,12 +367,12 @@ body::after {
 }
 .chat-input {
     display: flex;
-    gap: 10px;
+    gap: 12px;
     align-items: flex-end;
     background: rgba(17, 24, 39, 0.03);
     border: 1px solid rgba(107, 114, 211, 0.2);
     border-radius: 14px;
-    padding: 10px 12px;
+    padding: 12px 14px;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 .chat-input:focus-within {
@@ -376,12 +387,20 @@ body::after {
     background: transparent;
     resize: none;
     font: inherit;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.5;
-    min-height: 24px;
+    min-height: 44px;
+    padding: 12px 4px 12px 0;
+    color: var(--text);
+}
+.chat-input input[type="text"]::placeholder {
+    color: var(--muted);
 }
 .chat-input .btn-send {
     flex-shrink: 0;
+    min-height: 44px;
+    padding: 12px 18px;
+    font-size: 15px;
 }
 
 /* 加载 / 错误态 */
@@ -396,7 +415,7 @@ body::after {
 
 /* 会话 ID 条（聊天页） */
 .b-user-id {
-    font-size: 12px;
+    font-size: 13px;
     color: var(--muted);
     display: flex;
     align-items: center;
@@ -408,7 +427,7 @@ body::after {
     cursor: pointer;
     padding: 2px 6px;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 13px;
 }
 .b-user-id .user-id-copy:hover {
     background: rgba(17, 24, 39, 0.06);

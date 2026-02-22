@@ -260,8 +260,10 @@ def _compute_momentum_next(state: Dict[str, Any]) -> float:
     r_base_01 = R_BASE_WEIGHTS[0] * att + R_BASE_WEIGHTS[1] * lik + R_BASE_WEIGHTS[2] * clo
     r_base = _float_0_10(r_base_01 * 10.0, R_BASE_NEUTRAL)
     h_user = _float_0_10(detection.get("hostility_level"), 0.0)
+    # 敌意对冲量的惩罚系数（降低后检测到敌意不会过度打压动量）
+    hostility_penalty_coef = float(_MOMENTUM_FORMULA_CONFIG.get("hostility_penalty_coef", 0.75))
 
-    e_turn = (e_user * 0.3) + (t_bot * 0.4) + (r_base * 0.3) - (h_user * 1.5)
+    e_turn = (e_user * 0.3) + (t_bot * 0.4) + (r_base * 0.3) - (h_user * hostility_penalty_coef)
 
     arousal = _arousal_clamped(mood.get("arousal"))
     ar_coef = float((_MOMENTUM_FORMULA_CONFIG.get("arousal") or {}).get("multiplier_coef", 0.5))
