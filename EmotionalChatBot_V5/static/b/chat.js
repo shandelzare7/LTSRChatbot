@@ -157,18 +157,30 @@ async function loadAndRenderChatHistory() {
     return history.length;
 }
 
-// 从 basic_info 或占位生成 2～3 个 chip 文案
+// 最多 2 个 chip，优先 persona（quirks/hobbies），文案简短不拥挤
 function chipsForBot(bot) {
-    const basicInfo = bot.basic_info || {};
+    const maxChips = 2;
+    function short(s) {
+        if (s == null || typeof s !== 'string') return '';
+        var t = s.trim();
+        return t.length > 6 ? t.slice(0, 6) : t;
+    }
     const list = [];
-    if (basicInfo.occupation) list.push(basicInfo.occupation);
-    if (basicInfo.age) list.push(basicInfo.age + '岁');
-    if (list.length >= 2) return list.slice(0, 3);
-    const placeholders = ['温柔', '倾听', '建议型'];
-    placeholders.forEach(function (p) {
-        if (list.length < 3 && list.indexOf(p) === -1) list.push(p);
+    const persona = bot.persona || {};
+    const collections = persona.collections || {};
+    const quirks = [].concat(collections.quirks || []).slice(0, 1);
+    const hobbies = [].concat(collections.hobbies || []).slice(0, 1);
+    quirks.forEach(function (q) { if (short(q) && list.length < maxChips) list.push(short(q)); });
+    hobbies.forEach(function (h) { if (short(h) && list.length < maxChips) list.push(short(h)); });
+    if (list.length >= maxChips) return list;
+    const basicInfo = bot.basic_info || {};
+    if (basicInfo.occupation && list.indexOf(short(basicInfo.occupation)) === -1 && list.length < maxChips) list.push(short(basicInfo.occupation));
+    if (list.length < maxChips && basicInfo.age && list.indexOf(basicInfo.age + '岁') === -1) list.push(basicInfo.age + '岁');
+    if (list.length >= maxChips) return list;
+    ['温柔', '倾听'].forEach(function (p) {
+        if (list.length < maxChips && list.indexOf(p) === -1) list.push(p);
     });
-    return list.slice(0, 3);
+    return list.slice(0, maxChips);
 }
 
 // 头像首字（或 emoji）

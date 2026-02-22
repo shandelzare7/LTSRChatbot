@@ -572,6 +572,7 @@ async def list_bots():
                         "id": str(bot.id),
                         "name": bot.name or "Unnamed Bot",
                         "basic_info": bot.basic_info or {},
+                        "persona": bot.persona if isinstance(getattr(bot, "persona", None), dict) else {},
                     }
                     for bot in bots
                 ]
