@@ -240,11 +240,11 @@ def _arousal_clamped(x: Any) -> float:
 def _compute_momentum_next(state: Dict[str, Any]) -> float:
     """
     全参数动量公式：计算本轮结束后的新动量 M_next (0~1)。
-    - 步骤 1: E_turn = (E_user*0.3) + (T_bot*0.4) + (R_base*0.3) - (H_user*1.5)
-    - 步骤 2: Multiplier_arousal = 1.0 + (Arousal * 0.5)，Arousal ∈ [-1,1]
+    - 步骤 1: E_turn = (E_user*0.3) + (T_bot*0.4) + (R_base*0.3) - (H_user*hostility_penalty_coef)
+    - 步骤 2: Multiplier_arousal = 1.0 + (Arousal * coef)，Arousal ∈ [-1,1]
     - 步骤 3: Score_raw = [ (M_prev*100)*(1-α) + (E_turn*Multiplier_arousal)*α ] - Penalty_fatigue
-    - 步骤 4: Ceiling = 100*(1 - Busyness²), Score_final = min(Score_raw, Ceiling)
-    - M_next = Score_final / 100，clamp 到 [0, 1]
+    - 步骤 4: Ceiling = 100*(1 - Busyness*0.5), Score_final = min(Score_raw, Ceiling)，clamp 到 [0,100]，M_next = Score_final/100
+    - E_turn 中 topic_appeal 权重由 e_turn_t_bot_weight 配置（默认 0.4，可调大以增强 interesting 奖励）
     """
     detection = state.get("detection") or {}
     mood = state.get("mood_state") or {}
@@ -262,8 +262,10 @@ def _compute_momentum_next(state: Dict[str, Any]) -> float:
     h_user = _float_0_10(detection.get("hostility_level"), 0.0)
     # 敌意对冲量的惩罚系数（降低后检测到敌意不会过度打压动量）
     hostility_penalty_coef = float(_MOMENTUM_FORMULA_CONFIG.get("hostility_penalty_coef", 0.75))
+    # E_turn 里 topic_appeal（interesting）的权重，提高即增加「有意思」对动量的奖励
+    weight_t_bot = float(_MOMENTUM_FORMULA_CONFIG.get("e_turn_t_bot_weight", 0.4))
 
-    e_turn = (e_user * 0.3) + (t_bot * 0.4) + (r_base * 0.3) - (h_user * hostility_penalty_coef)
+    e_turn = (e_user * 0.3) + (t_bot * weight_t_bot) + (r_base * 0.3) - (h_user * hostility_penalty_coef)
 
     arousal = _arousal_clamped(mood.get("arousal"))
     ar_coef = float((_MOMENTUM_FORMULA_CONFIG.get("arousal") or {}).get("multiplier_coef", 0.5))

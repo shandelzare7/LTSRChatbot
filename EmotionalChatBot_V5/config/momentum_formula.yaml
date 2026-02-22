@@ -5,6 +5,9 @@ ema_alpha: 0.15
 # 检测到的敌意 (hostility_level 0-10) 对冲量的惩罚系数，原 1.5，降低后敌意不会过度打压动量
 hostility_penalty_coef: 0.75
 
+# E_turn 中 topic_appeal（话题对 Bot 吸引力/interesting）的权重，原 0.4，提高后「有意思」的话题更抬动量
+e_turn_t_bot_weight: 0.55
+
 # PAD Arousal 参与计算时的范围与乘数
 # _arousal_clamped 将 arousal 归一化到 [range_min, range_max]
 # Multiplier_arousal = 1.0 + (Arousal * multiplier_coef)
