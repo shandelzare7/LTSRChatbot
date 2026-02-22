@@ -1,15 +1,76 @@
 """入口加载节点：优先从 DB 读取状态（Load Early），无 DB 时落本地文件（再无则回退内存）。"""
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+import math
 import os
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from app.state import AgentState
 
 from app.lats.prompt_utils import sanitize_memory_text, filter_retrieved_memories
 from utils.external_text import sanitize_external_text, detect_internal_leak
+from utils.prompt_helpers import knapp_baseline_momentum
+
+# 距上次消息超过此时长视为新 Session，按 Knapp 阶段重新初始化 conversation_momentum
+COLD_START_THRESHOLD_SEC = 4 * 3600  # 4 小时
+# 短期离线残留：指数衰减系数 λ，M_init = M_last * exp(-λ * Δt)，Δt 单位为小时
+MOMENTUM_DECAY_LAMBDA = 0.5
+
+
+def _parse_timestamp_to_seconds(ts_str: Optional[str]) -> Optional[float]:
+    """解析 ISO 时间戳，返回相对当前时间的秒数（正数表示过去）。解析失败返回 None。"""
+    if not ts_str or not isinstance(ts_str, str):
+        return None
+    try:
+        s = ts_str.strip()
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        return max(0.0, (now - dt).total_seconds())
+    except Exception:
+        return None
+
+
+def _seconds_since_last_message(buf: List[BaseMessage]) -> Optional[float]:
+    """从消息列表最后一条的 timestamp 计算距现在的秒数；无缓冲或无有效时间戳返回 None。"""
+    if not buf:
+        return None
+    last = buf[-1]
+    kwargs = getattr(last, "additional_kwargs", None) or {}
+    return _parse_timestamp_to_seconds(kwargs.get("timestamp"))
+
+
+def _resolve_conversation_momentum(
+    seconds_since_last: Optional[float],
+    current_stage: Any,
+    stored_momentum: Any,
+    default: float = 0.5,
+) -> float:
+    """
+    1) 冷启动：距上次消息 >= COLD_START_THRESHOLD_SEC 或无时间戳 → 按 Knapp 阶段基线。
+    2) 短期离线残留：间隔 < 4h → M_init = M_last * exp(-λ * Δt)，Δt 为小时，λ = MOMENTUM_DECAY_LAMBDA。
+    无存储值时用 default=0.5，避免未持久化时退化为 1.0 导致 momentum 锁死。
+    """
+    cold_start = (
+        seconds_since_last is None
+        or seconds_since_last >= COLD_START_THRESHOLD_SEC
+    )
+    if cold_start:
+        return knapp_baseline_momentum(current_stage)
+    # 短期离线：物理时间衰减 M_init = M_last * e^(-λ * Δt)，Δt 单位小时
+    try:
+        m_last = float(stored_momentum)
+    except (TypeError, ValueError):
+        m_last = default
+    m_last = max(0.0, min(1.0, m_last))
+    delta_t_hours = (seconds_since_last or 0.0) / 3600.0
+    m_init = m_last * math.exp(-MOMENTUM_DECAY_LAMBDA * delta_t_hours)
+    return max(0.0, min(1.0, m_init))
 
 
 def _ensure_messages_have_timestamp(messages: List[BaseMessage], default_ts: Optional[str] = None) -> List[BaseMessage]:
@@ -185,12 +246,24 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             summary_clean = sanitize_memory_text(summary)
             retrieved_clean = filter_retrieved_memories(retrieved)
 
+            seconds_since_last = _seconds_since_last_message(merged_buffer)
+            current_stage = db_data.get("current_stage") or state.get("current_stage") or "initiating"
+            conversation_momentum = _resolve_conversation_momentum(
+                seconds_since_last,
+                current_stage,
+                db_data.get("conversation_momentum") or state.get("conversation_momentum"),
+            )
+            # 消息间隔 >= 4 小时视为新 session，轮次从头计 0
+            new_session = seconds_since_last is None or seconds_since_last >= COLD_START_THRESHOLD_SEC
+            turn_count = 0 if new_session else int(db_data.get("turn_count_in_session") or 0)
+
             return {
                 "bot_id": str(bot_id),
                 "relationship_id": str(db_data.get("relationship_id") or ""),
                 "relationship_state": db_data.get("relationship_state") or {},
+                "reply_duration_seconds_list": db_data.get("reply_duration_seconds_list") or [],
                 "mood_state": db_data.get("mood_state") or {},
-                "current_stage": db_data.get("current_stage") or state.get("current_stage") or "initiating",
+                "current_stage": current_stage,
                 "bot_basic_info": db_data.get("bot_basic_info") or state.get("bot_basic_info") or {},
                 "bot_big_five": db_data.get("bot_big_five") or state.get("bot_big_five") or {},
                 "bot_persona": db_data.get("bot_persona") or state.get("bot_persona") or {},
@@ -207,8 +280,11 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "external_user_text": user_input,
                 "user_input": user_input,  # 向后兼容：下游请优先使用 external_user_text
                 "chat_buffer": merged_buffer,
+                "seconds_since_last_message": seconds_since_last,
+                "conversation_momentum": conversation_momentum,
                 "user_profile": db_data.get("user_inferred_profile") or {},
                 "memories": db_data.get("conversation_summary") or "",
+                "turn_count_in_session": turn_count,
             }
 
         try:
@@ -250,17 +326,31 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             summary_clean = sanitize_memory_text(summary)
             retrieved_clean = filter_retrieved_memories(retrieved)
 
+            seconds_since_last = _seconds_since_last_message(merged_buffer)
+            current_stage = local_data.get("current_stage") or state.get("current_stage") or "initiating"
+            conversation_momentum = _resolve_conversation_momentum(
+                seconds_since_last,
+                current_stage,
+                local_data.get("conversation_momentum") or state.get("conversation_momentum"),
+            )
+            # 消息间隔 >= 4 小时视为新 session，轮次从头计 0
+            new_session = seconds_since_last is None or seconds_since_last >= COLD_START_THRESHOLD_SEC
+            turn_count = 0 if new_session else int(local_data.get("turn_count_in_session") or 0)
+
             return {
                 "bot_id": str(bot_id),
                 "relationship_state": local_data.get("relationship_state") or {},
+                "reply_duration_seconds_list": local_data.get("reply_duration_seconds_list") or [],
                 "mood_state": local_data.get("mood_state") or {},
-                "current_stage": local_data.get("current_stage") or state.get("current_stage") or "initiating",
+                "current_stage": current_stage,
                 "bot_basic_info": local_data.get("bot_basic_info") or state.get("bot_basic_info") or {},
                 "bot_big_five": local_data.get("bot_big_five") or state.get("bot_big_five") or {},
                 "bot_persona": local_data.get("bot_persona") or state.get("bot_persona") or {},
                 "user_basic_info": local_data.get("user_basic_info") or state.get("user_basic_info") or {},
                 "user_inferred_profile": local_data.get("user_inferred_profile") or state.get("user_inferred_profile") or {},
                 "relationship_assets": local_data.get("relationship_assets") or state.get("relationship_assets") or {},
+                "bot_task_list": (local_data.get("relationship_assets") or {}).get("bot_task_list") or [],
+                "current_session_tasks": (local_data.get("relationship_assets") or {}).get("current_session_tasks") or [],
                 "spt_info": local_data.get("spt_info") or state.get("spt_info") or {},
                 "conversation_summary": summary_clean,
                 "retrieved_memories": retrieved_clean,
@@ -268,8 +358,11 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "external_user_text": user_input,
                 "user_input": user_input,
                 "chat_buffer": merged_buffer,
+                "seconds_since_last_message": seconds_since_last,
+                "conversation_momentum": conversation_momentum,
                 "user_profile": local_data.get("user_inferred_profile") or {},
                 "memories": local_data.get("conversation_summary") or "",
+                "turn_count_in_session": turn_count,
             }
         except Exception:
             pass
@@ -277,6 +370,16 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
         profile = memory_service.get_profile(user_id)
         memories = memory_service.get_memories(user_id, limit=10)
         memory_context = _build_memory_context("", [], chat_buffer)
+        seconds_since_last = _seconds_since_last_message(chat_buffer)
+        current_stage = state.get("current_stage") or "initiating"
+        conversation_momentum = _resolve_conversation_momentum(
+            seconds_since_last,
+            current_stage,
+            state.get("conversation_momentum"),
+        )
+        # 消息间隔 >= 4 小时视为新 session，轮次从头计 0
+        new_session = seconds_since_last is None or seconds_since_last >= COLD_START_THRESHOLD_SEC
+        turn_count = 0 if new_session else int(state.get("turn_count_in_session") or 0)
         return {
             "user_profile": profile,
             "memories": memories,
@@ -284,6 +387,9 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             "user_input": user_input,
             "chat_buffer": chat_buffer,
             "memory_context": memory_context,
+            "seconds_since_last_message": seconds_since_last,
+            "conversation_momentum": conversation_momentum,
+            "turn_count_in_session": turn_count,
         }
 
     return loader_node

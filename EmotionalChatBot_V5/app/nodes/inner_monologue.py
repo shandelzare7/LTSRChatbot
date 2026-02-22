@@ -8,6 +8,7 @@ from app.lats.prompt_utils import safe_text
 from utils.prompt_helpers import format_relationship_for_llm, format_stage_for_llm
 from utils.tracing import trace_if_enabled
 from utils.llm_json import parse_json_from_llm
+from src.schemas import InnerMonologueOutput
 
 from app.state import AgentState
 
@@ -72,6 +73,7 @@ def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict
         monologue = (monologue or "按常理接话即可。").strip()
         if len(monologue) > INNER_MONOLOGUE_MAX_CHARS:
             monologue = monologue[:INNER_MONOLOGUE_MAX_CHARS]
+        print(f"[InnerMonologue] len={len(monologue)} selected_keys={selected_keys!r}")
         return {
             "inner_monologue": monologue,
             "selected_profile_keys": selected_keys,
@@ -91,11 +93,12 @@ def _generate_monologue(
         latest_user_text, recent_dialogue_context, rel_for_llm, stage_desc = _gather_context_for_monologue(state)
 
         # Bot / User 身份信息（与 reply_planner 对齐）
-        bot_name = state.get("bot_name") or "Bot"
-        user_name = state.get("user_name") or "User"
         bot_basic_info = state.get("bot_basic_info") or {}
         bot_persona = state.get("bot_persona") or ""
         user_basic_info = state.get("user_basic_info") or {}
+        bot_name = safe_text((bot_basic_info or {}).get("name") or "Bot").strip() or "Bot"
+        user_name_raw = safe_text((user_basic_info or {}).get("name") or "").strip()
+        user_name = user_name_raw if user_name_raw else "你不知道对方的名字"
 
         # 收集 inferred_profile 的所有键名
         inferred_profile = state.get("user_inferred_profile") or {}
@@ -109,12 +112,6 @@ def _generate_monologue(
 bot_basic_info: {safe_text(bot_basic_info)}
 bot_persona: {safe_text(bot_persona)}
 user_basic_info: {safe_text(user_basic_info)}
-
-## 输出格式（严格 JSON，不要其他文字）
-{{
-  "monologue": "内心独白正文",
-  "selected_profile_keys": ["key1", "key2"]
-}}
 
 ## 第一部分：内心独白 (monologue)
 - 字数**最多 {INNER_MONOLOGUE_MAX_CHARS} 个字符（中文按字计）**，可多句、可短段，但不得超出此上限。
@@ -139,12 +136,21 @@ user_basic_info: {safe_text(user_basic_info)}
 【当轮用户消息】
 {latest_user_text}
 
-请根据上述对话与当轮用户消息，输出严格 JSON（含 monologue 和 selected_profile_keys），不要其他内容。"""
+请根据上述对话与当轮用户消息，输出内心独白与选中的画像键（格式由系统约束）。"""
 
-        msg = llm_invoker.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
-        content = (getattr(msg, "content", "") or str(msg)).strip()
-
-        data = parse_json_from_llm(content)
+        data = None
+        content = ""
+        if hasattr(llm_invoker, "with_structured_output"):
+            try:
+                structured = llm_invoker.with_structured_output(InnerMonologueOutput)
+                obj = structured.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
+                data = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+            except Exception:
+                data = None
+        if data is None:
+            msg = llm_invoker.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
+            content = (getattr(msg, "content", "") or str(msg)).strip()
+            data = parse_json_from_llm(content)
         if isinstance(data, dict):
             monologue = str(data.get("monologue") or "").strip().strip("\"'")
             raw_keys = data.get("selected_profile_keys") or []
@@ -156,7 +162,7 @@ user_basic_info: {safe_text(user_basic_info)}
                 return monologue[:INNER_MONOLOGUE_MAX_CHARS], selected
 
         # JSON 解析失败时，将整个输出作为独白文本
-        fallback_text = content.strip().strip("\"'")
+        fallback_text = (content or "").strip().strip("\"'")
         if fallback_text:
             return fallback_text[:INNER_MONOLOGUE_MAX_CHARS], []
     except Exception:

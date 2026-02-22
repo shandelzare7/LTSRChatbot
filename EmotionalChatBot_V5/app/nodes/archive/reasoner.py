@@ -619,7 +619,7 @@ def create_reasoner_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         rel.setdefault("trust", 0.5)       # 0-1 范围的中性值
         rel.setdefault("liking", 0.5)      # 0-1 范围的中性值
         rel.setdefault("respect", 0.5)     # 0-1 范围的中性值
-        rel.setdefault("warmth", 0.5)      # 0-1 范围的中性值
+        rel.setdefault("attractiveness", rel.get("warmth", 0.5))  # 0-1；继承原 warmth
         rel.setdefault("power", 0.5)       # 0-1 范围的中性值
         s["relationship_state"] = rel
         

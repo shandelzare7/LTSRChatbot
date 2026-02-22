@@ -23,7 +23,7 @@ TimestampStr = str
 # ==========================================
 
 # Knapp 十阶段类型定义
-# 阶段元数据请从 config/stages/*.yaml 文件加载，使用 utils.yaml_loader.load_stage_by_id()
+# 阶段元数据请从 config/stages.yaml 加载，使用 utils.yaml_loader.load_stage_by_id()
 KnappStage = Literal[
     "initiating",      # Stage 1: 起始
     "experimenting",   # Stage 2: 探索
@@ -56,12 +56,12 @@ class BotBasicInfo(TypedDict):
 
 
 class BotBigFive(TypedDict):
-    """机器人的大五人格基准 (用于计算性格底色) - Range: [-1.0, 1.0]"""
-    openness: float          # O: 开放性 (脑洞 vs 现实)
-    conscientiousness: float # C: 尽责性 (严谨 vs 随性)
-    extraversion: float      # E: 外向性 (热情 vs 内向)
-    agreeableness: float     # A: 宜人性 (配合 vs 毒舌)
-    neuroticism: float       # N: 神经质 (情绪波动率)
+    """机器人的大五人格基准 (用于计算性格底色) - Range: [0.0, 1.0]"""
+    openness: float          # O: 开放性 (0=现实, 1=脑洞)
+    conscientiousness: float # C: 尽责性 (0=随性, 1=严谨)
+    extraversion: float      # E: 外向性 (0=内向, 1=外向)
+    agreeableness: float     # A: 宜人性 (0=毒舌, 1=配合)
+    neuroticism: float       # N: 神经质 (0=情绪稳定, 1=情绪波动大)
 
 
 class BotPersona(TypedDict, total=False):
@@ -106,15 +106,15 @@ class UserInferredProfile(TypedDict, total=False):
 
 class RelationshipState(TypedDict):
     """
-    6维核心关系属性 (The Essential 6) - Range: [0, 100]
+    6维核心关系属性 (The Essential 6)：closeness/trust/liking/respect/attractiveness/power - Range: [0, 100]
     决定了 Bot 对 User 的'态度'
     """
     closeness: float  # 亲密 (陌生 -> 熟人)
     trust: float      # 信任 (防备 -> 依赖)
     liking: float     # 喜爱 (工作伙伴 -> 喜欢的伙伴)
     respect: float    # 尊重 (损友 -> 导师)
-    warmth: float     # 暖意 (高冷 -> 热情)
-    power: float      # 权力 (Bot处于弱势 -> Bot处于强势/支配)
+    attractiveness: float  # 吸引力 (无感 -> 被吸引)
+    power: float      # 权力/主导（Bot 眼中的用户强势程度，越高用户越强势）
 
 
 class MoodState(TypedDict):
@@ -216,6 +216,9 @@ class ReplyPlanMessage(TypedDict, total=False):
 
 class ReplyPlan(TypedDict, total=False):
     """ReplyPlanner 的输出：对话编排计划（A:意图 + B:节奏），供编译器生成可执行 ProcessorPlan。"""
+    # 主要输出：完整回复文本（由 processor 负责分割）
+    reply: str
+    # 以下字段为旧格式兼容（可选）
     intent: str
     speech_act: str
     # 变体生成用：显式策略标签（用于强制候选多样性，而非只做同义改写）
@@ -229,9 +232,6 @@ class ReplyPlan(TypedDict, total=False):
     # must_cover_points -> message.id 映射（用于对齐计划目标与消息分配）
     must_cover_map: Dict[str, str]
     justification: str  # 简短自我解释（为什么这样编排）
-    # 任务结算（最小闭环）：由 LATS/ReplyPlanner 输出，供 evolver 在本轮结束时结算
-    attempted_task_ids: List[str]
-    completed_task_ids: List[str]
 
 
 class ProcessorPlan(TypedDict, total=False):
@@ -243,26 +243,11 @@ class ProcessorPlan(TypedDict, total=False):
 
 
 class RequirementsChecklist(TypedDict, total=False):
-    """本轮必须满足的硬约束/需求清单（LATS 的硬门槛与 must-have 主要来源）。"""
-    must_have: List[str]
-    forbidden: List[str]
-    safety_notes: List[str]
-    first_message_rule: str
-    max_messages: int
-    min_first_len: int
-    max_message_len: int
-    stage_pacing_notes: str
-    # requirements_policy 相关字段
-    must_have_policy: str  # "soft" | "none"
-    must_have_min_coverage: float
-    allow_short_reply: bool
-    allow_empty_reply: bool
-    # 明确的约束清单（来自 reasoner/style/stage）
-    plan_goals: Dict[str, Any]  # {"must_cover_points": List[str], "avoid_points": List[str]}
-    style_targets: Dict[str, float]  # 12维目标（verbal_length, social_distance, tone_temperature, etc.）
-    stage_targets: Dict[str, Any]  # {"stage": str, "pacing_notes": List[str], "violation_sensitivity": float}
-    # mode 行为策略（用于让 mode 不止约束条数/长度，而是进入可评估目标）
-    mode_behavior_targets: List[str]
+    """LATS 需求清单：仅保留 style 自然语言、stage_targets、tasks_for_lats、task_budget_max。"""
+    style_instructions: str  # style 节点 llm_instructions 自然语言
+    stage_targets: Dict[str, Any]
+    tasks_for_lats: List[Any]
+    task_budget_max: int
 
 
 class EvalCheckFailure(TypedDict, total=False):
@@ -375,7 +360,7 @@ class AgentState(TypedDict, total=False):
     # --- Bot 任务清单（读写数据库）---
     # 该 Bot 对应当前用户的完整任务列表，由 loader 从 DB 加载，可由节点更新后经 save_turn 写回
     bot_task_list: List[Task]
-    # 当前会话要处理的任务子集，通常 0-3 条，仅内存使用不持久化
+    # 当前会话要处理的任务子集，通常 0-3 条；由 save_turn 写入 assets（DB/local），loader 恢复
     current_session_tasks: List[Task]
 
     # --- TaskPlanner 输出（LATS 之前节点写入，供 LATS / reply_planner 使用）---
@@ -383,12 +368,8 @@ class AgentState(TypedDict, total=False):
     tasks_for_lats: List[Dict[str, Any]]  # [{"id": str, "description": str, "task_type": str?}, ...]
     # 本轮允许完成的任务数 0/1/2；0 时仍可带任务包，但倾向“隐式完成”
     task_budget_max: int
-    # 回复字数上限（0-60）
-    word_budget: int
-    # 第三任务加权随机时的温度（可选）
-    completion_temperature: Optional[float]
 
-    # --- Task settlement (from LATS/ReplyPlanner; evolver consumes) ---
+    # --- Task settlement (由 Evolver 根据 final_response 判定后写入) ---
     attempted_task_ids: Optional[List[str]]
     completed_task_ids: Optional[List[str]]
 
@@ -407,7 +388,9 @@ class AgentState(TypedDict, total=False):
     retrieval_ok: Optional[bool]
     # 统一注入提示词的记忆块（chat_buffer + summary + retrieved 合并后的文本）
     memory_context: str
-    
+    # 距上次消息的秒数（在 loader 阶段根据 chat_buffer 最后一条消息的 timestamp 计算）
+    seconds_since_last_message: Optional[float]
+
     # --- Analysis Artifacts (中间产物) ---
     # inner_monologue 节点输出：内心独白文本 + 选中的 inferred_profile 键名列表
     inner_monologue: Optional[str]
@@ -422,24 +405,33 @@ class AgentState(TypedDict, total=False):
     # Relationship Engine：本轮阻尼后实际应用的变化量（real change）
     relationship_deltas_applied: Optional[Dict[str, float]]
     
-    # --- Detection（感知：scores/brief/stage_judge/immediate_tasks）---
-    detection_signals: Optional[Dict[str, Any]]
-    detection_scores: Optional[Dict[str, float]]   # friendly, hostile, overstep, low_effort, confusion
-    detection_meta: Optional[Dict[str, int]]       # target_is_assistant, quoted_or_reported_speech
-    detection_brief: Optional[Dict[str, Any]]      # gist, references, unknowns, subtext, understanding_confidence, reaction_seed
-    detection_stage_judge: Optional[Dict[str, Any]]  # current_stage, implied_stage, delta, direction, evidence_spans
-    detection_immediate_tasks: Optional[List[Dict[str, Any]]]  # 当轮任务，交给 planner 写入任务库
-    # 紧急任务：Detection 产生的当轮必须执行的任务（直接注入 LATS，不参与打分）
-    detection_urgent_tasks: Optional[List[Dict[str, Any]]]
+    # --- Detection（简化：6 个量，含 urgency）---
+    # hostility_level 0-10, engagement_level 0-10, topic_appeal 0-10, stage_pacing 正常|过分亲密|过分生疏, subtext
+    detection: Optional[Dict[str, Any]]
+    # --- 本轮策略（来自 config/strategies.yaml 的 20 态策略矩阵）---
+    # 策略 id，对应 strategies.yaml 中某条的 id
+    current_strategy_id: Optional[str]
+    # 本轮选中的策略对象（含 id, name, category, knapp_stages, route_path, trigger, prompt），由路由节点写入
+    current_strategy: Optional[Dict[str, Any]]
+    # 策略路由三节点输出（命中时为策略 id，否则 None）
+    router_high_stakes: Optional[str]
+    router_emotional_game: Optional[str]
+    router_form_rhythm: Optional[str]
     # 紧急任务：从 DB 加载的开发者/bot/user 级别紧急任务（直接注入 LATS，执行后从 DB 删除）
     db_urgent_tasks: Optional[List[Dict[str, Any]]]
     # 内部标记：本轮是否消费了 DB 紧急任务（供 save_turn 清除用）
     _urgent_tasks_consumed: Optional[bool]
-    # 兼容/日志用（不再用于路由；路由改由 word_budget/no_reply）
+    # 兼容/日志用（不再用于路由；路由改由 no_reply）
     detection_result: Optional[str]
     detection_category: Optional[str]
-    # 是否本轮不回复（由 task_planner 在 word_budget=0 时设置，graph 条件边短路）
+    # 是否本轮不回复（由 task_planner 设置，graph 条件边短路）
     no_reply: Optional[bool]
+    # 是否因动量过低跳过回复（由 strategy_resolver 设置；跳过 LATS/processor，直接进入 evolver 等后续节点）
+    skip_reply: Optional[bool]
+    # 每轮回复耗时（秒），按轮次顺序；用于「前两条回复总用时 < 阈值则走 fast」的可选路由
+    reply_duration_seconds_list: Optional[List[float]]
+    # 由 strategy_resolver 设置：前两条回复总用时 < 阈值且全局开关开启时走 fast_reply
+    force_fast_route: Optional[bool]
     # 直觉思考：由 Inner Monologue 节点生成（原 detection 的“先想再分类”现移入 inner_monologue）
     intuition_thought: Optional[str]
     # 关系滤镜：由 Inner Monologue 生成，此刻对 TA 的主观关系感受（字符串，非 relationship_state 数值）
@@ -448,12 +440,6 @@ class AgentState(TypedDict, total=False):
     # {"is_injection_attempt": bool, "is_ai_test": bool, "is_user_treating_as_assistant": bool, "needs_security_response": bool, "reasoning": str}
     security_check: Optional[Dict[str, Any]]
     
-    # --- Mode Management ---
-    # 当前模式 ID（由 mode_manager 节点确定）
-    mode_id: Optional[str]
-    # 当前模式配置对象（PsychoMode，包含 behavior_contract, lats_budget, requirements_policy 等）
-    current_mode: Optional[Any]  # PsychoMode 类型，但避免循环导入
-
     # --- Profiling (devtools) ---
     # 节点级耗时与 LLM 调用增量（由 app/graph.py 的 profiling wrapper 写入；devtools 使用）
     # 并行节点（如 detection + inner_monologue）会同时写入，用 reducer 合并 nodes 列表
@@ -486,7 +472,6 @@ class AgentState(TypedDict, total=False):
     # 当前候选与其编排计划（用于搜索与调试）
     candidate_text: Optional[str]
     reply_plan: Optional[ReplyPlan]
-    processor_plan: Optional[ProcessorPlan]
     sim_report: Optional[SimReport]
 
     # LATS 搜索树与统计（保持灵活，便于迭代）
@@ -528,6 +513,10 @@ class AgentState(TypedDict, total=False):
     final_delay: Optional[float]  # 最终延迟
     # Processor 开关：是否启用 LLM 做拆句与节奏（必须进 AgentState，否则 LangGraph 传播会丢字段）
     processor_use_llm: Optional[bool]
+
+    # --- 对话冲量 (Conversation Momentum) ---
+    turn_count_in_session: int           # 本会话内已完成的回复轮数（会话初 0，每产生一次 bot 回复 +1，不按消息条数）
+    conversation_momentum: float         # 当前冲量值 0.0~1.0
 
     # --- Behavioral Layer Output (Processor) ---
     # 更细粒度的“拟人化输出”，供客户端按 delay 播放打字/气泡

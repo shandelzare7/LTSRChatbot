@@ -1,0 +1,11 @@
+# 全参数动量公式常量（strategy_resolver 中 _compute_momentum_next 使用）
+# EMA 融合：Score_raw 中本轮推力权重，上一回合惯性权重 = (1 - ema_alpha)
+ema_alpha: 0.15
+
+# PAD Arousal 参与计算时的范围与乘数
+# _arousal_clamped 将 arousal 归一化到 [range_min, range_max]
+# Multiplier_arousal = 1.0 + (Arousal * multiplier_coef)
+arousal:
+  range_min: -1.0
+  range_max: 1.0
+  multiplier_coef: 0.5

@@ -1,4 +1,3 @@
-from app.core.mode_base import PsychoMode
-from app.core.engine import PsychoEngine, PsychoAssessment
+# PsychoEngine 已移除；Mode（PsychoMode/mode_base）仅 archive 内可能引用。
 
-__all__ = ["PsychoMode", "PsychoEngine", "PsychoAssessment"]
+__all__: list[str] = []

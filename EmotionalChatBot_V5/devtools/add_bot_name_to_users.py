@@ -46,7 +46,7 @@ async def main() -> None:
                 external_id TEXT NOT NULL,
                 basic_info JSONB DEFAULT '{}'::jsonb,
                 current_stage knapp_stage DEFAULT 'initiating',
-                dimensions JSONB DEFAULT '{"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "warmth": 0, "power": 50}'::jsonb,
+                dimensions JSONB DEFAULT '{"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "attractiveness": 0, "power": 50}'::jsonb,
                 mood_state JSONB DEFAULT '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'::jsonb,
                 inferred_profile JSONB DEFAULT '{}'::jsonb,
                 assets JSONB DEFAULT '{}'::jsonb,

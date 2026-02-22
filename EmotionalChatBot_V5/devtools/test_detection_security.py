@@ -40,7 +40,7 @@ create_detection_node = _detection_module.create_detection_node
 
 from app.services.llm import get_llm  # noqa: E402
 from app.state import AgentState, KnappStage  # noqa: E402
-from app.nodes.security_response import create_security_response_node  # noqa: E402
+from app.nodes.archive.security_response import create_security_response_node  # noqa: E402
 
 
 # 测试用例：20个
@@ -316,7 +316,7 @@ def create_test_state(user_input: str) -> AgentState:
             "trust": 30.0,
             "liking": 30.0,
             "respect": 30.0,
-            "warmth": 30.0,
+            "attractiveness": 30.0,
             "power": 50.0,
         },
         "mood_state": {

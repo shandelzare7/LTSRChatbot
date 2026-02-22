@@ -24,10 +24,10 @@ STATIC_RUBRIC = load_rubric_str()
 
 
 ANALYZER_SYSTEM_PROMPT = """
-你是常识经验丰富的语言学专家。凭借你对人际语言互动的深刻理解和丰富的生活常识，请分析用户最新输入对 6 维关系的影响。
+你是常识经验丰富的语言学专家。凭借你对人际语言互动的深刻理解和丰富的生活常识，根据下述信号标准，动态上下文，记忆，分析指令，校准标准，任务完成判定来分析用户最新输入对 6 维关系的影响。
 
 ### 1. 信号标准（静态知识库）
-以下信号分类标准为你的判断依据：
+以下为 6 维关系的判断标准（dimensions：每维含 name、definition、anchors）。anchors 中 +3 为极强正向、-3 为极强负向，请根据用户输入与各锚点描述的匹配程度，为每个维度输出整数 delta（0 表示无变化）。
 {rubric}
 
 ### 2. 动态上下文（当前情境）
@@ -44,50 +44,25 @@ ANALYZER_SYSTEM_PROMPT = """
 ### 3. 分析指令
 分析下方的「用户输入」。
 1. **语境检查**: 用户的输入是否适合当前关系阶段？
-2. **信号匹配**: 将输入匹配到信号标准中的类目。
-3. **增量赋值**: 为每个维度分配分数变化（-3 到 +3）。
-    - 0: 无变化 / 中性。
-    - 1/-1: 轻微影响 / 隐含。
-    - 2/-2: 中等影响 / 显式。
-    - 3/-3: 强烈影响 / 情感突破或崩塌。
+2. **信号匹配**: 将输入匹配到各维度 anchors 中的描述（+3 至 -3 对应不同强度）。
+3. **增量赋值**: 为每个维度分配整数变化（-3 到 +3），与 anchors 强度一致。
+    - 0: 无变化 / 无相关信息。
+    - +1/+2/+3: 正向影响（轻微→强烈），-1/-2/-3: 负向影响（轻微→强烈）。
 
 ### 4. 校准规则
 - **边际递减**: 若某维度已经很高（>0.8），普通正面信号只给 +1，不给 +2。
 - **背叛惩罚**: 若信任/亲密度很高（>0.8），负面信号应加重惩罚（-2 或 -3）。
 
-### 5. 用户画像提取（从对话中抽取用户信息）
-在关系分析的同时，从对话中提取你能发现的用户信息。
+### 5. 任务完成判定（由你根据语义判断，不设固定关键词）
+* **本轮任务列表（tasks_for_lats）**: {tasks_for_lats_str}
+* **本轮 bot 的回复**: {bot_reply_this_turn}
 
-* **当前 user_basic_info**: {user_basic_info}
-* **缺失字段**（优先级顺序）: {missing_basic_fields}
+根据上述任务列表与 bot 的回复，判断哪些任务在本轮被**完成**、哪些被**尝试**。
+- **完成**：bot 在回复中实际执行了该任务（例如确实向用户发问或收集了信息）。
+- **尝试**：任务在本轮范围内被涉及但未完成，或仅部分涉及。
+输出为 completed_task_ids（已完成的任务 id 数组）与 attempted_task_ids（被尝试的任务 id 数组）。只填 tasks_for_lats 中存在的 id，不确定则留空数组。
 
-规则：
-- 如果对话中提到或可以高置信度推断出缺失的 basic_info 字段，填入 `basic_info_updates`。
-  - `name`: 字符串; `age`: 整数; `gender`: 字符串; `occupation`: 字符串; `location`: 字符串。
-- 只填你有把握的字段，不要猜测。
-- 同时捕捉其他用户画像观察（兴趣、性格特征、习惯、偏好、生活事件等），以键值对形式填入 `new_inferred_entries`。键 = 特征/属性名（简洁），值 = 描述。
-- 如果没有新信息可提取，两者都留空对象 `{{}}`。
-
-### 6. 输出格式（严格 JSON，不要其他文字）
-返回如下 JSON 结构：
-{{
-  "thought_process": "...",
-  "detected_signals": ["...","..."],
-  "deltas": {{
-    "closeness": 0,
-    "trust": 0,
-    "liking": 0,
-    "respect": 0,
-    "warmth": 0,
-    "power": 0
-  }},
-  "basic_info_updates": {{}},
-  "new_inferred_entries": {{}}
-}}
-""".strip()
-
-
-_BASIC_INFO_FIELD_NAMES = ("name", "age", "gender", "occupation", "location")
+（输出格式由系统约束。）"""
 
 
 def build_analyzer_prompt(state: Dict[str, Any]) -> str:
@@ -103,12 +78,20 @@ def build_analyzer_prompt(state: Dict[str, Any]) -> str:
         memory_parts.append("相关记忆片段：\n" + "\n".join(retrieved))
     memory_block = "\n\n".join(memory_parts) if memory_parts else "（无）"
 
-    user_basic_info = state.get("user_basic_info") or {}
-    missing = [
-        f for f in _BASIC_INFO_FIELD_NAMES
-        if not user_basic_info.get(f) or (isinstance(user_basic_info.get(f), str) and not user_basic_info[f].strip())
-    ]
-    missing_str = ", ".join(missing) if missing else "(all complete)"
+    tasks_for_lats = state.get("tasks_for_lats") or []
+    if isinstance(tasks_for_lats, list) and tasks_for_lats:
+        parts = []
+        for t in tasks_for_lats:
+            if not isinstance(t, dict):
+                continue
+            tid = t.get("id") or ""
+            desc = t.get("description") or ""
+            if tid:
+                parts.append(f"id={tid}" + (f", 描述={desc}" if desc else ""))
+        tasks_for_lats_str = "; ".join(parts) if parts else "（无）"
+    else:
+        tasks_for_lats_str = "（无）"
+    bot_reply_this_turn = (state.get("final_response") or state.get("draft_response") or "").strip() or "（无）"
 
     return ANALYZER_SYSTEM_PROMPT.format(
         rubric=STATIC_RUBRIC,
@@ -117,7 +100,7 @@ def build_analyzer_prompt(state: Dict[str, Any]) -> str:
         mood_state=state.get("mood_state") or {},
         user_profile=user_profile,
         memory_block=memory_block,
-        user_basic_info=user_basic_info,
-        missing_basic_fields=missing_str,
+        tasks_for_lats_str=tasks_for_lats_str,
+        bot_reply_this_turn=bot_reply_this_turn[:800] + "…" if len(bot_reply_this_turn) > 800 else bot_reply_this_turn,
     )
 

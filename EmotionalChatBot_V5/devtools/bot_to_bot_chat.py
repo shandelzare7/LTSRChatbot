@@ -21,11 +21,13 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import re
 import sys
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 # 首句池：两 bot 互聊时每次会话的首句随机（避免都是“你好”式打招呼）
 FIRST_MESSAGE_POOL = [
@@ -58,10 +60,77 @@ except Exception:
     pass
 
 from app.core.database import Bot, DBManager, User
+from app.core.relationship_templates import get_relationship_template_by_name
 from app.graph import build_graph
-from app.services.llm import get_llm, get_llm_stats, reset_llm_stats
+from app.services.llm import get_llm, get_llm_stats, reset_llm_stats, set_current_node, reset_current_node
 from main import _make_initial_state
 from utils.llm_json import parse_json_from_llm
+
+
+# ==========================================
+# 辅助函数：指标追踪
+# ==========================================
+
+
+def check_punctuation_removal(original_text: str, processed_segments: List[Any]) -> Dict[str, Any]:
+    """检查标点符号去除情况"""
+    unwanted_punct = ['：', '～', '——', '（', '）', '(', ')', '：', '；']
+    original_count = sum(original_text.count(p) for p in unwanted_punct)
+    
+    # 处理segments：可能是字符串列表或字典列表
+    processed_text_parts = []
+    if isinstance(processed_segments, list):
+        for seg in processed_segments:
+            if isinstance(seg, dict):
+                content = seg.get("content", "")
+                processed_text_parts.append(str(content))
+            else:
+                processed_text_parts.append(str(seg))
+    else:
+        processed_text_parts.append(str(processed_segments))
+    
+    processed_text = ' '.join(processed_text_parts)
+    processed_count = sum(processed_text.count(p) for p in unwanted_punct)
+    removed = original_count - processed_count
+    success_rate = (removed / original_count) if original_count > 0 else 1.0
+    return {
+        'original_count': original_count,
+        'processed_count': processed_count,
+        'removed': removed,
+        'success_rate': success_rate,
+        'original_text': original_text,
+        'processed_text': processed_text,
+    }
+
+
+async def get_user_basic_info(db: DBManager, user_id: str, bot_id: str) -> Dict[str, Any]:
+    """从数据库读取user的basic_info"""
+    try:
+        async with db.Session() as session:
+            result = await session.execute(
+                select(User).where(User.bot_id == uuid.UUID(bot_id), User.external_id == user_id)
+            )
+            user_obj = result.scalars().first()
+            if user_obj:
+                return dict(user_obj.basic_info) if user_obj.basic_info else {}
+    except Exception as e:
+        print(f"[WARN] Failed to read user basic_info: {e}")
+    return {}
+
+
+async def get_user_inferred_profile(db: DBManager, user_id: str, bot_id: str) -> Dict[str, Any]:
+    """从数据库读取 user 的 inferred_profile（memory_writer 写入的画像）"""
+    try:
+        async with db.Session() as session:
+            result = await session.execute(
+                select(User).where(User.bot_id == uuid.UUID(bot_id), User.external_id == user_id)
+            )
+            user_obj = result.scalars().first()
+            if user_obj:
+                return dict(user_obj.inferred_profile) if user_obj.inferred_profile else {}
+    except Exception as e:
+        print(f"[WARN] Failed to read user inferred_profile: {e}")
+    return {}
 
 
 def _region_to_location(region: str | None) -> str:
@@ -255,14 +324,18 @@ Bot 描述：{bot_description}
             basic_info["age"] = 22
         
         # 确保 big_five 所有字段都是 float 且在 0..1（系统其余模块按 0..1 使用）
+        # 如果遇到负值（旧数据），自动转换为绝对值
         for key in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]:
             if key not in big_five:
                 big_five[key] = 0.5
             else:
                 try:
-                    big_five[key] = float(big_five[key])
+                    val = float(big_five[key])
+                    # 如果值是负数（旧数据），转换为绝对值
+                    if val < 0.0:
+                        val = abs(val)
                     # 限制在 0.0 到 1.0 之间
-                    big_five[key] = max(0.0, min(1.0, big_five[key]))
+                    big_five[key] = max(0.0, min(1.0, val))
                 except (ValueError, TypeError):
                     big_five[key] = 0.5
         
@@ -287,6 +360,24 @@ Bot 描述：{bot_description}
         return generate_bot_profile(bot_name)
 
 
+class _TeeStderr:
+    """将 stderr 同时写入 log 与原始 stderr，使 [LLM_ELAPSED] 既实时显示又进入日志供报告解析。"""
+
+    def __init__(self, log_file, original_stderr):
+        self._log = log_file
+        self._err = original_stderr
+
+    def write(self, s: str) -> None:
+        self._log.write(s)
+        self._log.flush()
+        self._err.write(s)
+        self._err.flush()
+
+    def flush(self) -> None:
+        self._log.flush()
+        self._err.flush()
+
+
 async def run_one_turn(
     app,
     user_id: str,
@@ -294,6 +385,7 @@ async def run_one_turn(
     message: str,
     log_file,
     original_stdout,
+    original_stderr,
 ) -> tuple[str, dict, float]:
     """运行一轮对话，返回 (bot 的回复, result_state, 本轮耗时秒数)。"""
     from main import FileOnlyWriter
@@ -310,6 +402,8 @@ async def run_one_turn(
     state["lats_early_exit_mode_fit_min"] = float(os.getenv("BOT2BOT_EARLY_EXIT_MODE_MIN", "0.60"))
     state["lats_disable_early_exit"] = (str(os.getenv("BOT2BOT_DISABLE_EARLY_EXIT", "1")).lower() not in ("0", "false", "no", "off"))
     state["lats_skip_low_risk"] = (str(os.getenv("BOT2BOT_SKIP_LATS_LOW_RISK", "0")).lower() in ("1", "true", "yes", "on"))
+    # reply_planner 重跑次数上限（LATS 内 planner 质量不达标时最多再生成几轮候选）
+    state["lats_max_regens"] = int(os.getenv("BOT2BOT_LATS_MAX_REGENS", "2") or 2)
     # soft scorer 仍启用，但只评 Top1，且并发=1（更稳更省）
     try:
         state["lats_llm_soft_top_n"] = int(os.getenv("BOT2BOT_LLM_SOFT_TOP_N", "1") or 1)
@@ -324,19 +418,6 @@ async def run_one_turn(
     except Exception:
         state["lats_assistant_check_top_n"] = 0
 
-    # 注意：LATS_Search 节点优先读取 mode.lats_budget（若存在）而不是 state.lats_rollouts/lats_expand_k。
-    # 所以 bot-to-bot 压测要同步覆盖 mode 的预算，否则你设了 state 也不生效。
-    try:
-        cm = state.get("current_mode")
-        if cm is not None and hasattr(cm, "lats_budget"):
-            lb = getattr(cm, "lats_budget", None)
-            if lb is not None:
-                if hasattr(lb, "rollouts"):
-                    setattr(lb, "rollouts", int(state["lats_rollouts"]))
-                if hasattr(lb, "expand_k"):
-                    setattr(lb, "expand_k", int(state["lats_expand_k"]))
-    except Exception:
-        pass
     # external 通道净化：任何 internal prompt/debug 泄漏都不允许进入压测对话
     clean_message = sanitize_external_text(str(message or ""))
 
@@ -346,8 +427,9 @@ async def run_one_turn(
     state["messages"] = [HumanMessage(content=clean_message, additional_kwargs={"timestamp": now_iso})]
     state["current_time"] = now_iso
 
-    # graph 内部所有 print 只写日志文件，不输出到控制台
+    # graph 内部所有 print 只写日志文件；stderr tee 到 log+控制台，便于 [LLM_ELAPSED] 实时监控且进日志
     sys.stdout = FileOnlyWriter(log_file)
+    sys.stderr = _TeeStderr(log_file, original_stderr)
     t0 = time.perf_counter()
     try:
         # Reset LLM stats for this turn (best-effort; only active when LTSR_LLM_STATS/LTSR_PROFILE_STEPS is enabled).
@@ -370,9 +452,11 @@ async def run_one_turn(
             raise TimeoutError(f"turn timeout after {os.getenv('BOT2BOT_TURN_TIMEOUT_S','180')}s")
     except asyncio.TimeoutError:
         sys.stdout = original_stdout
+        sys.stderr = original_stderr
         raise TimeoutError(f"turn timeout after {os.getenv('BOT2BOT_TURN_TIMEOUT_S','180')}s")
     finally:
         sys.stdout = original_stdout
+        sys.stderr = original_stderr
 
     elapsed = time.perf_counter() - t0  # 仅成功完成时计算
     reply = result.get("final_response") or ""
@@ -398,6 +482,7 @@ async def main() -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     original_stdout = sys.stdout
+    original_stderr = sys.stderr
 
     log_file = None  # 整次运行共用一个 .log 文件，供 log_line 与 run_one_turn 写入
     def log_line(msg: str):
@@ -431,36 +516,72 @@ async def main() -> None:
     log_line("查找或创建两个 Bot")
     log_line("=" * 60)
 
-    # 尝试查找已存在的 bot（通过名称匹配）
     bot_a_id = None
     bot_b_id = None
     bot_a = None
     bot_b = None
-    
-    # 仅使用新生成的两个 Bot 做 bot-to-bot（支持 LLM 生成的全名，如李阳/林静怡 或 李浩然/苏雨桐）
-    BOT_A_NAMES = ["李阳", "李浩然"]
-    BOT_B_NAMES = ["林静怡", "苏雨桐"]
+    # 本脚本用于「两个新 Bot + 互为空 User + 30 轮」：不使用已有 Bot，始终创建两个新 Bot
+    create_new_bots = True
 
-    async with db.Session() as session:
-        result_a = await session.execute(select(Bot).where(Bot.name.in_(BOT_A_NAMES)))
-        bot_a = result_a.scalars().first()
-        if bot_a:
-            bot_a_id = str(bot_a.id)
-            log_line(f"✓ 找到 Bot A: {bot_a.name} (ID: {bot_a_id})")
-        
-        result_b = await session.execute(select(Bot).where(Bot.name.in_(BOT_B_NAMES)))
-        bot_b = result_b.scalars().first()
-        if bot_b:
-            bot_b_id = str(bot_b.id)
-            log_line(f"✓ 找到 Bot B: {bot_b.name} (ID: {bot_b_id})")
-    
-    if not bot_a or not bot_b:
-        log_line("")
-        log_line("未找到新 Bot（李阳、林静怡）。请先执行：")
-        log_line("  1) 删除旧 Bot: python -m devtools.delete_old_bots_keep_new")
-        log_line("  2) 创建新 Bot: python -m devtools.create_two_bots_for_render")
-        log_line("然后再运行本脚本。")
-        sys.exit(1)
+    if create_new_bots:
+        # 新建 User 关系维度参考：app/core/relationship_templates.py（RELATIONSHIP_TEMPLATES）
+        log_line("创建两个新 Bot；空 User 的关系维度参考 app/core/relationship_templates.py")
+        from app.core.bot_creation_llm import generate_sidewrite_and_backlog
+        llm = get_llm(role="fast")  # 创建 bot 等脚本统一用 gpt-4o-mini，不用 gpt-4o
+        bot_a_id = str(uuid.uuid4())
+        bot_b_id = str(uuid.uuid4())
+        tok = set_current_node("bot_creation")
+        try:
+            log_line("创建 Bot A（男，全名，非程序员）...")
+            b1_basic, b1_big_five, b1_persona = await create_bot_via_llm(
+                llm, "Bot A",
+                "请为人设起一个中文全名（姓+名），男性。性格开朗、喜欢交流。职业不要程序员，请从以下任选其一：产品经理、设计师、教师、插画师、自由撰稿人。",
+                log_line,
+            )
+            b1_sidewrite, b1_backlog = None, None
+            try:
+                b1_sidewrite, b1_backlog = await generate_sidewrite_and_backlog(llm, b1_basic, b1_big_five, b1_persona)
+            except Exception as e:
+                log_line(f"  ⚠ 侧写/任务库生成失败: {e}")
+            log_line("创建 Bot B（女，全名，非程序员）...")
+            b2_basic, b2_big_five, b2_persona = await create_bot_via_llm(
+                llm, "Bot B",
+                "请为人设起一个中文全名（姓+名），女性。性格温和、善于倾听。职业不要程序员，请从以下任选其一：编辑、运营、心理咨询师、策展人、摄影师。",
+                log_line,
+            )
+            b2_sidewrite, b2_backlog = None, None
+            try:
+                b2_sidewrite, b2_backlog = await generate_sidewrite_and_backlog(llm, b2_basic, b2_big_five, b2_persona)
+            except Exception as e:
+                log_line(f"  ⚠ 侧写/任务库生成失败: {e}")
+        finally:
+            reset_current_node(tok)
+        async with db.Session() as session:
+            async with session.begin():
+                bot1 = Bot(
+                    id=uuid.UUID(bot_a_id),
+                    name=str(b1_basic.get("name") or "Bot A"),
+                    basic_info=b1_basic,
+                    big_five=b1_big_five,
+                    persona=b1_persona,
+                    character_sidewrite=b1_sidewrite,
+                    backlog_tasks=b1_backlog or [],
+                )
+                bot2 = Bot(
+                    id=uuid.UUID(bot_b_id),
+                    name=str(b2_basic.get("name") or "Bot B"),
+                    basic_info=b2_basic,
+                    big_five=b2_big_five,
+                    persona=b2_persona,
+                    character_sidewrite=b2_sidewrite,
+                    backlog_tasks=b2_backlog or [],
+                )
+                session.add(bot1)
+                session.add(bot2)
+                await session.flush()
+                bot_a, bot_b = bot1, bot2
+        log_line(f"✓ Bot A: {bot_a.name} (ID: {bot_a_id[:8]}...)")
+        log_line(f"✓ Bot B: {bot_b.name} (ID: {bot_b_id[:8]}...)")
 
     # 为每个 Bot 创建对应的 User 记录（external_id 使用 bot_id）
     # Bot A 作为 User A，Bot B 作为 User B
@@ -478,36 +599,50 @@ async def main() -> None:
     log_line(f"Bot B 下 User A: load_state({user_a_external_id!r}, {bot_b_id[:8]}...)")
     _ = await db.load_state(user_a_external_id, bot_b_id)
 
-    # 空人设测试：BOT2BOT_EMPTY_USER_PROFILE=1 时两边 User 用空 basic_info/inferred_profile，用于验证画像管线
-    use_empty_profile = str(os.getenv("BOT2BOT_EMPTY_USER_PROFILE", "0")).lower() in ("1", "true", "yes", "on")
-    if use_empty_profile:
-        try:
-            async with db.Session() as session:
-                async with session.begin():
-                    u_ab = (
-                        (await session.execute(
-                            select(User).where(User.bot_id == uuid.UUID(bot_a_id), User.external_id == user_b_external_id)
-                        ))
-                        .scalars()
-                        .first()
-                    )
-                    if u_ab:
-                        u_ab.basic_info = {}
-                        u_ab.inferred_profile = {}
-                    u_ba = (
-                        (await session.execute(
-                            select(User).where(User.bot_id == uuid.UUID(bot_b_id), User.external_id == user_a_external_id)
-                        ))
-                        .scalars()
-                        .first()
-                    )
-                    if u_ba:
-                        u_ba.basic_info = {}
-                        u_ba.inferred_profile = {}
-            log_line("✓ bot-to-bot: 已设为空人设 User（测试 basic_info / inferred_profile 管线）")
-        except Exception as e:
-            log_line(f"⚠ bot-to-bot: 空人设设置失败: {e}")
-    else:
+    # 强制设置为空人设，且关系维度使用参考值（app/core/relationship_templates.py）
+    template_name = (os.getenv("BOT2BOT_USER_DIMENSIONS_TEMPLATE") or "friendly_icebreaker").strip()
+    if template_name not in ("neutral_stranger", "friendly_icebreaker", "moderate_acquaintance"):
+        template_name = "friendly_icebreaker"
+    ref_dims = get_relationship_template_by_name(template_name)  # type: ignore[arg-type]
+    log_line("\n" + "=" * 60)
+    log_line("强制设置 User：basic_info/inferred_profile 为空，dimensions 使用参考值")
+    log_line(f"  参考文档: app/core/relationship_templates.py  模板: {template_name}")
+    log_line(f"  参考值: {ref_dims}")
+    log_line("=" * 60)
+    try:
+        async with db.Session() as session:
+            async with session.begin():
+                u_ab = (
+                    (await session.execute(
+                        select(User).where(User.bot_id == uuid.UUID(bot_a_id), User.external_id == user_b_external_id)
+                    ))
+                    .scalars()
+                    .first()
+                )
+                if u_ab:
+                    u_ab.basic_info = {}
+                    u_ab.inferred_profile = {}
+                    u_ab.dimensions = dict(ref_dims)
+                    log_line(f"✓ Bot A 下的 User B: 空人设 + dimensions={template_name}")
+                u_ba = (
+                    (await session.execute(
+                        select(User).where(User.bot_id == uuid.UUID(bot_b_id), User.external_id == user_a_external_id)
+                    ))
+                    .scalars()
+                    .first()
+                )
+                if u_ba:
+                    u_ba.basic_info = {}
+                    u_ba.inferred_profile = {}
+                    u_ba.dimensions = dict(ref_dims)
+                    log_line(f"✓ Bot B 下的 User A: 空人设 + dimensions={template_name}")
+        log_line("✓ 空人设与参考值设置完成")
+    except Exception as e:
+        log_line(f"⚠ 空人设设置失败: {e}")
+    
+    # 保留原有逻辑作为fallback（如果不需要空人设）
+    use_empty_profile = str(os.getenv("BOT2BOT_EMPTY_USER_PROFILE", "1")).lower() in ("1", "true", "yes", "on")
+    if not use_empty_profile:
         # bot-to-bot 关键修复：把 user 画像绑定到“对方 bot 的 persona/basic_info”，避免随机人类画像污染
         try:
             async with db.Session() as session:
@@ -564,16 +699,29 @@ async def main() -> None:
     app = build_graph()
 
     aborted_reason = ""
-    # Allow overriding run counts for profiling / quick tests
+    # 30轮测试：默认单次会话30轮
     try:
-        num_runs = int(os.getenv("BOT2BOT_NUM_RUNS", "3") or 3)
+        num_runs = int(os.getenv("BOT2BOT_NUM_RUNS", "1") or 1)
     except Exception:
-        num_runs = 3
+        num_runs = 1
     try:
-        rounds_per_run = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "5") or 5)
+        rounds_per_run = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "30") or 30)
     except Exception:
-        rounds_per_run = 5
+        rounds_per_run = 30
     turn_times: list[float] = []  # 每轮回复耗时（秒），用于算平均
+    time_to_reply_ms_list: list[float] = []  # 每轮「截止到生成回复」的毫秒数（需 LTSR_PROFILE_STEPS=1）
+    
+    # 30轮测试追踪数据
+    conversation_log: List[Dict[str, Any]] = []  # 完整聊天记录
+    momentum_history: List[float] = []  # 冲量历史
+    # 上一轮 6 维关系状态，用于计算每轮变化；(user_id, bot_id) -> {dim: value}
+    prev_relationship_state: Dict[Tuple[str, str], Dict[str, float]] = {}
+    DIM_KEYS = ("closeness", "trust", "liking", "respect", "attractiveness", "power")
+    basic_info_task_triggered: Dict[str, int] = {}  # 基础信息任务触发次数
+    basic_info_task_executed: Dict[str, int] = {}  # 基础信息任务执行次数（attempted）
+    basic_info_task_completed: Dict[str, int] = {}  # 基础信息任务完成次数
+    basic_info_written: Dict[str, int] = {}  # 流程写入 DB 的基础信息次数（真实流程）
+    punctuation_removal_stats: List[Dict[str, any]] = []  # 标点去除统计
     
     log_line("=" * 60)
     log_line(f"Bot to Bot 对话开始（{num_runs} 次会话 × 每次 {rounds_per_run} 轮，首句随机）")
@@ -601,10 +749,15 @@ async def main() -> None:
         log_line("")
 
         for turn in range(1, rounds_per_run + 1):
-            log_line(f"\n--- 第 {run} 次会话 / 第 {turn} 轮 ---")
+            log_line(f"\n{'='*60}")
+            log_line(f"--- 第 {run} 次会话 / 第 {turn} 轮 ---")
+            log_line(f"{'='*60}")
             log_line(f"[{current_speaker}] 发送: {current_message}")
             log_line(f"   (user_id={current_user_id}, bot_id={current_bot_id})")
             log_line("")
+
+            # 记录本轮开始前的basic_info状态（用于检测写入）
+            basic_info_before = await get_user_basic_info(db, current_user_id, current_bot_id)
 
             try:
                 log_file_pos_before = log_file.tell() if hasattr(log_file, "tell") else None
@@ -615,6 +768,7 @@ async def main() -> None:
                     current_message,
                     log_file,
                     original_stdout,
+                    original_stderr,
                 )
                 turn_times.append(elapsed)
                 log_file_pos_after = log_file.tell() if hasattr(log_file, "tell") else None
@@ -623,20 +777,229 @@ async def main() -> None:
                     log_size_info = f" (本轮详细日志: {(log_file_pos_after - log_file_pos_before) // 1024}KB)"
                 log_line(f"[{current_speaker} 的 Bot] 回复: {reply} [耗时 {elapsed:.2f}s]{log_size_info}")
 
-                # Optional: step-by-step profiling report (requires LTSR_PROFILE_STEPS=1 / LTSR_LLM_STATS=1)
+                # ==========================================
+                # 1. 每轮回复原文输出（包括断句）
+                # ==========================================
+                final_response = (result_state or {}).get("final_response") or ""
+                final_segments = (result_state or {}).get("final_segments") or []
+                humanized_output = (result_state or {}).get("humanized_output") or {}
+                segments = humanized_output.get("segments") or final_segments
+                
+                log_line("\n" + "="*60)
+                log_line(f"[ROUND {turn} REPLY]")
+                log_line("="*60)
+                log_line("原始回复（final_response）:")
+                log_line(f"  {final_response}")
+                log_line("")
+                log_line("断句后的segments:")
+                if segments:
+                    for i, seg in enumerate(segments, 1):
+                        if isinstance(seg, dict):
+                            content = seg.get("content", "")
+                            delay = seg.get("delay", 0)
+                            action = seg.get("action", "typing")
+                            log_line(f"  [{i}] {content} [delay={delay}s, action={action}]")
+                        else:
+                            log_line(f"  [{i}] {seg}")
+                else:
+                    log_line("  (无segments)")
+                log_line("="*60)
+                
+                # ==========================================
+                # 2. 追踪指标
+                # ==========================================
+                
+                # 2.1 每轮总用时（截止到processor结束）
                 prof = (result_state or {}).get("_profile") if isinstance(result_state, dict) else None
+                time_to_processor_ms = None
+                if isinstance(prof, dict) and isinstance(prof.get("nodes"), list):
+                    nodes_list = prof.get("nodes") or []
+                    seen = set()
+                    time_to_processor_ms = 0.0
+                    for item in nodes_list:
+                        name = str(item.get("name") or "")
+                        dt_ms = float(item.get("dt_ms", 0) or 0)
+                        # 累加所有节点的时间（每个节点只计算一次，避免并行分支重复计入）
+                        if name not in seen:
+                            seen.add(name)
+                            time_to_processor_ms += dt_ms
+                        # 如果遇到 processor，停止累加（processor 是最后一个节点）
+                        if name == "processor":
+                            break
+                
+                # 2.2 冲量变化追踪
+                momentum = result_state.get("conversation_momentum") if isinstance(result_state, dict) else None
+                momentum_f = float(momentum) if momentum is not None else None
+                if momentum_f is not None:
+                    # 先计算 delta（基于上一轮的值），再 append 当前值
+                    prev_momentum = momentum_history[-1] if len(momentum_history) > 0 else None
+                    momentum_delta = momentum_f - prev_momentum if prev_momentum is not None else 0.0
+                    momentum_history.append(momentum_f)
+                else:
+                    momentum_delta = None
+                
+                # 2.2.1 轮次计数追踪
+                turn_count = result_state.get("turn_count_in_session") if isinstance(result_state, dict) else None
+                turn_count_int = int(turn_count) if turn_count is not None else None
+                
+                # 2.2.2 六维关系状态追踪及每轮变化
+                relationship_state = result_state.get("relationship_state") if isinstance(result_state, dict) else {}
+                rel_current: Dict[str, Optional[float]] = {}
+                for dim in DIM_KEYS:
+                    v = relationship_state.get(dim) if isinstance(relationship_state, dict) else None
+                    try:
+                        rel_current[dim] = float(v) if v is not None else None
+                    except (TypeError, ValueError):
+                        rel_current[dim] = None
+                prev_rel = prev_relationship_state.get((current_user_id, current_bot_id)) or {}
+                rel_deltas: Dict[str, Optional[float]] = {}
+                for dim in DIM_KEYS:
+                    cur = rel_current.get(dim)
+                    prev_val = prev_rel.get(dim)
+                    if cur is not None and prev_val is not None:
+                        rel_deltas[dim] = round(cur - prev_val, 4)
+                    elif cur is not None:
+                        rel_deltas[dim] = None  # 首轮无 delta
+                    else:
+                        rel_deltas[dim] = None
+                # 更新上一轮状态供下一轮用
+                prev_relationship_state[(current_user_id, current_bot_id)] = {
+                    k: v for k, v in rel_current.items() if v is not None
+                }
+                # 兼容旧变量名（供下方 N/A 判断）
+                rel_closeness = rel_current.get("closeness")
+                rel_liking = rel_current.get("liking")
+                rel_attractiveness = rel_current.get("attractiveness", rel_current.get("warmth"))
+                rel_trust = rel_current.get("trust")
+                
+                # 2.3 基础信息任务触发追踪
+                basic_info_task_ids = {"ask_user_name", "ask_user_age", "ask_user_gender", "ask_user_occupation", "ask_user_location"}
+                tasks_for_lats = (result_state or {}).get("tasks_for_lats") or []
+                triggered_this_round = {}
+                for task_list, label in [(tasks_for_lats, "tasks_for_lats")]:
+                    if not isinstance(task_list, list):
+                        continue
+                    for t in task_list:
+                        tid = str((t or {}).get("id") or "")
+                        if tid in basic_info_task_ids:
+                            triggered_this_round[tid] = triggered_this_round.get(tid, 0) + 1
+                            basic_info_task_triggered[tid] = basic_info_task_triggered.get(tid, 0) + 1
+                
+                # 2.4 基础信息任务执行追踪
+                completed_task_ids = set((result_state or {}).get("completed_task_ids") or [])
+                attempted_task_ids = set((result_state or {}).get("attempted_task_ids") or [])
+                
+                executed_this_round = {}
+                completed_this_round = {}
+                for tid in basic_info_task_ids:
+                    if tid in attempted_task_ids:
+                        executed_this_round[tid] = executed_this_round.get(tid, 0) + 1
+                        basic_info_task_executed[tid] = basic_info_task_executed.get(tid, 0) + 1
+                    if tid in completed_task_ids:
+                        completed_this_round[tid] = completed_this_round.get(tid, 0) + 1
+                        basic_info_task_completed[tid] = basic_info_task_completed.get(tid, 0) + 1
+                
+                # 2.5 数据库写入验证（真实流程：memory_manager 抽取 + save_turn 写库）
+                basic_info_after = await get_user_basic_info(db, current_user_id, current_bot_id)
+                written_this_round = {}
+                for key in ["name", "age", "gender", "occupation", "location"]:
+                    before_val = basic_info_before.get(key)
+                    after_val = basic_info_after.get(key)
+                    if (before_val is None or (isinstance(before_val, str) and not before_val.strip())) and \
+                       (after_val is not None and (not isinstance(after_val, str) or after_val.strip())):
+                        written_this_round[key] = after_val
+                        basic_info_written[key] = basic_info_written.get(key, 0) + 1
+                # 2.6 本轮回写后 DB 中的 inferred_profile（memory_writer 写入）
+                inferred_profile_after = await get_user_inferred_profile(db, current_user_id, current_bot_id)
+
+                # 2.7 标点符号去除验证
+                punct_check = check_punctuation_removal(final_response, segments)
+                punctuation_removal_stats.append(punct_check)
+                
+                # ==========================================
+                # 3. 输出详细指标报告
+                # ==========================================
+                log_line("\n" + "="*60)
+                log_line(f"[ROUND {turn} METRICS]")
+                log_line("="*60)
+                log_line(f"1. Total time (to processor end): {time_to_processor_ms/1000:.2f}s" if time_to_processor_ms is not None else "1. Total time (to processor end): N/A")
+                log_line(f"2. Turn count: {turn_count_int}" if turn_count_int is not None else "2. Turn count: N/A")
+                log_line(f"3. Momentum: {momentum_f:.2f}" + (f" (delta: {momentum_delta:+.2f})" if momentum_delta is not None else "") if momentum_f is not None else "3. Momentum: N/A")
+                # 4. [Evolver] 本轮回写 relationship_state（六维 + 相对上轮变化）
+                if any(rel_current.get(d) is not None for d in DIM_KEYS):
+                    parts = []
+                    for dim in DIM_KEYS:
+                        v = rel_current.get(dim)
+                        d = rel_deltas.get(dim)
+                        if v is not None:
+                            delta_str = f" (Δ{d:+.3f})" if d is not None else ""
+                            parts.append(f"{dim}={v:.3f}{delta_str}")
+                    log_line("4. [Evolver] relationship_state 本轮回写: " + ", ".join(parts))
+                else:
+                    log_line("4. [Evolver] relationship_state: N/A")
+                log_line(f"5. Basic info 任务触发: {sum(triggered_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in triggered_this_round.items())})")
+                log_line(f"6. Basic info 任务执行: attempted={sum(executed_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in executed_this_round.items())}), completed={sum(completed_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in completed_this_round.items())})")
+                log_line(f"7. Basic info 写入 DB (流程写入): {written_this_round}")
+                # 8. inferred_profile 是否被 DB 写入（memory_writer 写 user.inferred_profile）
+                inf_keys = list(inferred_profile_after.keys()) if inferred_profile_after else []
+                log_line(f"8. inferred_profile 写入 DB: keys={inf_keys}" + (f" (内容摘要: {str(inferred_profile_after)[:200]}...)" if len(str(inferred_profile_after)) > 200 else f" (内容: {inferred_profile_after})"))
+                log_line(f"9. Punctuation removal:")
+                log_line(f"   Original text: {punct_check.get('original_text', 'N/A')[:100]}{'...' if len(punct_check.get('original_text', '')) > 100 else ''}")
+                log_line(f"   Processed text: {punct_check.get('processed_text', 'N/A')[:100]}{'...' if len(punct_check.get('processed_text', '')) > 100 else ''}")
+                log_line(f"   Stats: original={punct_check['original_count']}, processed={punct_check['processed_count']}, removed={punct_check['removed']}, success_rate={punct_check['success_rate']:.2%}")
+                log_line("="*60 + "\n")
+                
+                # ==========================================
+                # 4. 保存到聊天记录（含 6 维关系及变化）
+                # ==========================================
+                conversation_log.append({
+                    "round": turn,
+                    "run": run,
+                    "speaker": current_speaker,
+                    "user_message": current_message,
+                    "bot_reply": final_response,
+                    "segments": segments,
+                    "momentum": momentum_f,
+                    "time_to_processor_ms": time_to_processor_ms,
+                    "relationship_state": {k: v for k, v in rel_current.items() if v is not None},
+                    "relationship_deltas": {k: v for k, v in rel_deltas.items() if v is not None},
+                })
+
+                # Optional: step-by-step profiling report (requires LTSR_PROFILE_STEPS=1 / LTSR_LLM_STATS=1)
                 llm_stats = (result_state or {}).get("_llm_stats") if isinstance(result_state, dict) else None
                 if isinstance(prof, dict) and isinstance(prof.get("nodes"), list):
-                    log_line("  [PROFILE] 节点耗时与 LLM 调用增量：")
-                    for item in prof.get("nodes") or []:
+                    log_line("\n  [PROFILE] 节点耗时与 LLM 调用增量：")
+                    nodes_list = prof.get("nodes") or []
+                    # 按节点名聚合，避免并行分支合并导致的重复条目刷屏（每节点只打一行）
+                    agg: dict = {}
+                    for item in nodes_list:
                         name = str(item.get("name") or "")
                         dt_ms = float(item.get("dt_ms", 0.0) or 0.0)
                         delta = item.get("llm_delta") if isinstance(item.get("llm_delta"), dict) else {}
-                        # Summarize delta calls
                         delta_calls = sum(int(v.get("calls", 0) or 0) for v in delta.values()) if isinstance(delta, dict) else 0
-                        log_line(f"    - {name}: {dt_ms:.2f}ms, llm_calls_delta={delta_calls}")
+                        if name not in agg:
+                            agg[name] = {"dt_ms": 0.0, "calls": 0}
+                        agg[name]["dt_ms"] += dt_ms
+                        agg[name]["calls"] += delta_calls
+                    for name, v in agg.items():
+                        log_line(f"    - {name}: {v['dt_ms']:.2f}ms, llm_calls_delta={v['calls']}")
+                    # 截止到生成回复：按节点首次出现顺序求和，避免并行重复计入
+                    seen = set()
+                    time_to_reply_ms = 0.0
+                    for item in nodes_list:
+                        name = str(item.get("name") or "")
+                        dt_ms = float(item.get("dt_ms", 0) or 0)
+                        # 累加所有节点的时间（每个节点只计算一次，避免并行分支重复计入）
+                        if name not in seen:
+                            seen.add(name)
+                            time_to_reply_ms += dt_ms
+                        # 如果遇到 processor，停止累加（processor 是最后一个节点）
+                        if name == "processor":
+                            break
+                    log_line(f"  [PROFILE] 截止到生成回复(含 processor): {time_to_reply_ms:.0f}ms ({time_to_reply_ms/1000:.2f}s)")
+                    time_to_reply_ms_list.append(time_to_reply_ms)
                 if isinstance(llm_stats, dict) and llm_stats:
-                    log_line("  [PROFILE] 本轮各模型/角色 API 调用统计：")
+                    log_line("\n  [PROFILE] 本轮各模型/角色 API 调用统计：")
                     # Sort by calls desc
                     rows = []
                     for k, v in llm_stats.items():
@@ -673,21 +1036,178 @@ async def main() -> None:
                     aborted_reason = str(e)
                 break
 
+            # 下一轮显示 "[谁] 发送: reply"：应是「本轮刚回复的 bot」，不是对方。先按 current_bot_id 定 speaker，再交换 (user_id, bot_id) 给对方。
+            current_message = reply
+            current_speaker = "Bot A" if current_bot_id == bot_a_id else "Bot B"
             if current_speaker == "Bot A":
-                current_speaker = "Bot B"
                 current_user_id = user_a_external_id
                 current_bot_id = bot_b_id
             else:
-                current_speaker = "Bot A"
                 current_user_id = user_b_external_id
                 current_bot_id = bot_a_id
-            current_message = reply
 
         if aborted_reason:
             break
         log_line(f"\n第 {run}/{num_runs} 次会话（{rounds_per_run} 轮）完成\n")
 
+    # ==========================================
+    # 最终统计报告和完整聊天记录
+    # ==========================================
+    
+    # 输出完整聊天记录
+    log_line("\n" + "=" * 80)
+    log_line("[COMPLETE CONVERSATION LOG]")
+    log_line("=" * 80)
+    for entry in conversation_log:
+        log_line(f"\nRound {entry.get('round')} (Run {entry.get('run', 1)}):")
+        log_line(f"  [{entry['speaker']}] {entry['user_message']}")
+        log_line(f"  [Bot Reply] {entry['bot_reply']}")
+        rs = entry.get("relationship_state") or {}
+        rd = entry.get("relationship_deltas") or {}
+        if rs or rd:
+            dim_str = ", ".join(f"{d}={rs.get(d, 0):.3f}" + (f" (Δ{rd.get(d):+.3f})" if rd.get(d) is not None else "") for d in DIM_KEYS)
+            log_line(f"  [6-dim] {dim_str}")
+        if entry.get('segments'):
+            log_line("  [Segments]:")
+            for i, seg in enumerate(entry['segments'], 1):
+                if isinstance(seg, dict):
+                    content = seg.get("content", "")
+                    delay = seg.get("delay", 0)
+                    action = seg.get("action", "typing")
+                    log_line(f"    [{i}] {content} [delay={delay}s, action={action}]")
+                else:
+                    log_line(f"    [{i}] {seg}")
+    log_line("\n" + "=" * 80)
+    
+    # 输出汇总统计报告
+    log_line("\n" + "=" * 80)
+    log_line("[30 ROUND SUMMARY REPORT]")
+    log_line("=" * 80)
+    
+    # 1. 平均每轮用时
+    if turn_times:
+        avg_time = sum(turn_times) / len(turn_times)
+        log_line(f"\n1. 平均每轮用时（全链路）: {avg_time:.2f}秒")
+    if time_to_reply_ms_list:
+        avg_to_reply_ms = sum(time_to_reply_ms_list) / len(time_to_reply_ms_list)
+        log_line(f"   平均每轮用时（到processor结束）: {avg_to_reply_ms/1000:.2f}秒")
+    
+    # 2. 轮次计数统计
+    log_line(f"\n2. 轮次计数统计:")
+    log_line(f"   总轮次: {num_runs * rounds_per_run} 轮")
+    log_line(f"   实际完成轮次: {len(momentum_history)} 轮")
+    
+    # 3. 冲量变化趋势
+    if momentum_history:
+        max_momentum = max(momentum_history)
+        min_momentum = min(momentum_history)
+        avg_momentum = sum(momentum_history) / len(momentum_history)
+        if len(momentum_history) > 1:
+            decay_rate = (momentum_history[0] - momentum_history[-1]) / len(momentum_history)
+        else:
+            decay_rate = 0.0
+        log_line(f"\n3. 冲量变化趋势:")
+        log_line(f"   最高值: {max_momentum:.2f}")
+        log_line(f"   最低值: {min_momentum:.2f}")
+        log_line(f"   平均值: {avg_momentum:.2f}")
+        log_line(f"   平均衰减率: {decay_rate:.4f}/轮")
+        log_line(f"   冲量历史: {[f'{m:.2f}' for m in momentum_history]}")
+    else:
+        log_line(f"\n3. 冲量变化趋势: 无数据")
+    
+    # 4. 基础信息任务触发总次数
+    log_line(f"\n4. 基础信息任务触发总次数（按类型）:")
+    for tid in basic_info_task_ids:
+        count = basic_info_task_triggered.get(tid, 0)
+        log_line(f"   {tid}: {count}次")
+    
+    # 5. 基础信息任务执行总次数
+    log_line(f"\n5. 基础信息任务执行总次数（按类型）:")
+    log_line(f"   尝试执行（attempted）:")
+    for tid in basic_info_task_ids:
+        count = basic_info_task_executed.get(tid, 0)
+        log_line(f"     {tid}: {count}次")
+    log_line(f"   完成（completed）:")
+    for tid in basic_info_task_ids:
+        count = basic_info_task_completed.get(tid, 0)
+        log_line(f"     {tid}: {count}次")
+    
+    # 6. 数据库写入总次数（流程 memory_manager + save_turn 实际写入）
+    log_line(f"\n6. 数据库写入总次数（按字段，流程真实写入）:")
+    for key in ["name", "age", "gender", "occupation", "location"]:
+        count = basic_info_written.get(key, 0)
+        log_line(f"   {key}: {count}次")
+    
+    # 7. 六维关系指标每轮监控（汇总表）
+    log_line(f"\n7. 六维关系指标每轮变化（closeness, trust, liking, respect, attractiveness, power）:")
+    if conversation_log:
+        log_line("   Round | closeness | trust | liking | respect | attractiveness | power | deltas(cl,tr,li,re,at,po)")
+        for entry in conversation_log:
+            r = entry.get("round", 0)
+            rs = entry.get("relationship_state") or {}
+            rd = entry.get("relationship_deltas") or {}
+            vals = [f"{rs.get(d, 0):.3f}" for d in DIM_KEYS]
+            deltas = [f"{rd.get(d, 0):+.3f}" if rd.get(d) is not None else "-" for d in DIM_KEYS]
+            log_line(f"   {r:5} | " + " | ".join(vals) + " | " + ",".join(deltas))
+    else:
+        log_line("   无数据")
+    
+    # 8. 标点符号去除成功率
+    if punctuation_removal_stats:
+        total_original = sum(s['original_count'] for s in punctuation_removal_stats)
+        total_processed = sum(s['processed_count'] for s in punctuation_removal_stats)
+        total_removed = sum(s['removed'] for s in punctuation_removal_stats)
+        overall_success_rate = (total_removed / total_original) if total_original > 0 else 1.0
+        log_line(f"\n8. 标点符号去除效果:")
+        log_line(f"   原始标点总数: {total_original}")
+        log_line(f"   处理后标点数: {total_processed}")
+        log_line(f"   去除数量: {total_removed}")
+        log_line(f"   总体成功率: {overall_success_rate:.2%}")
+        # 显示最后一轮的去标点结果作为示例
+        if punctuation_removal_stats:
+            last_check = punctuation_removal_stats[-1]
+            log_line(f"   最后一轮示例:")
+            log_line(f"     原始文本: {last_check.get('original_text', 'N/A')[:150]}{'...' if len(last_check.get('original_text', '')) > 150 else ''}")
+            log_line(f"     处理后文本: {last_check.get('processed_text', 'N/A')[:150]}{'...' if len(last_check.get('processed_text', '')) > 150 else ''}")
+    
+    log_line("\n" + "=" * 80)
+
+    # LLM 用时分析（解析 [LLM_ELAPSED] 并写入日志 + 控制台）
+    llm_elapsed_entries: List[Dict[str, Any]] = []
     if log_file is not None:
+        log_file.flush()
+        try:
+            text = single_log_path.read_text(encoding="utf-8", errors="replace")
+            llm_elapsed_re = re.compile(r"\[LLM_ELAPSED\]\s+node=(\S+)\s+model=([^\s]+)\s+dt_ms=([\d.]+)")
+            for line in text.splitlines():
+                mo = llm_elapsed_re.search(line)
+                if mo:
+                    llm_elapsed_entries.append({"node": mo.group(1), "model": mo.group(2), "dt_ms": float(mo.group(3))})
+        except Exception as e:
+            log_line(f"\n[WARN] 解析 LLM_ELAPSED 失败: {e}")
+        if llm_elapsed_entries:
+            total_ms = sum(e["dt_ms"] for e in llm_elapsed_entries)
+            by_node: Dict[str, List[float]] = {}
+            by_model: Dict[str, List[float]] = {}
+            for e in llm_elapsed_entries:
+                by_node.setdefault(e["node"], []).append(e["dt_ms"])
+                by_model.setdefault(e["model"], []).append(e["dt_ms"])
+            log_line("\n" + "=" * 80)
+            log_line("9. LLM 用时分析（LTSR_LLM_ELAPSED_LOG=1 时记录）")
+            log_line("=" * 80)
+            log_line(f"   总 LLM 调用次数: {len(llm_elapsed_entries)}")
+            log_line(f"   总耗时(ms): {total_ms:.1f}  总耗时(秒): {total_ms/1000:.2f}")
+            log_line("   按节点:")
+            for node in sorted(by_node.keys()):
+                vals = by_node[node]
+                log_line(f"     {node}: 次数={len(vals)} 总ms={sum(vals):.1f} 平均ms={sum(vals)/len(vals):.1f}")
+            log_line("   按模型:")
+            for model in sorted(by_model.keys()):
+                vals = by_model[model]
+                log_line(f"     {model}: 次数={len(vals)} 总ms={sum(vals):.1f} 平均ms={sum(vals)/len(vals):.1f}")
+            log_line("=" * 80)
+        else:
+            log_line("\n9. LLM 用时分析: 未解析到 [LLM_ELAPSED]。运行前请设置 LTSR_LLM_ELAPSED_LOG=1")
         log_file.close()
         log_file = None
 
@@ -706,8 +1226,15 @@ async def main() -> None:
         pass
     if turn_times:
         avg_time = sum(turn_times) / len(turn_times)
-        print(f"\n📊 回复耗时统计: 共 {len(turn_times)} 轮, 平均回复时间 = {avg_time:.2f} 秒")
+        print(f"\n📊 回复耗时统计: 共 {len(turn_times)} 轮, 平均回复时间(全链路) = {avg_time:.2f} 秒")
+    if time_to_reply_ms_list:
+        avg_to_reply_ms = sum(time_to_reply_ms_list) / len(time_to_reply_ms_list)
+        print(f"📊 截止到生成回复(含 processor): 共 {len(time_to_reply_ms_list)} 轮, 平均 = {avg_to_reply_ms:.0f}ms ({avg_to_reply_ms/1000:.2f}s)")
+    if llm_elapsed_entries:
+        total_ms = sum(e["dt_ms"] for e in llm_elapsed_entries)
+        print(f"\n📊 LLM 用时: 总调用 {len(llm_elapsed_entries)} 次, 总耗时 {total_ms/1000:.2f}s, 详见日志「9. LLM 用时分析」")
     print("\n✅ 完成！本次运行所有内容已写入同一日志文件。")
+    print("   详细指标报告和完整聊天记录请查看日志文件。")
 
 
 if __name__ == "__main__":

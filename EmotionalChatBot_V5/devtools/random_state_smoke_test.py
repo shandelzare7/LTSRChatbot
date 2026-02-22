@@ -25,9 +25,6 @@ if str(PROJECT_ROOT) not in sys.path:
 from app.graph import build_graph  # noqa: E402
 from app.services.llm import get_llm  # noqa: E402
 from app.state import AgentState, KnappStage  # noqa: E402
-from main import get_default_mode  # noqa: E402
-
-
 class PerceptionTestLLM:
     """
     LLM 包装器：只对 detection(perception) prompt 做可控输出，其它 prompt 透传给真实/Mock LLM。
@@ -39,7 +36,7 @@ class PerceptionTestLLM:
         self.rng = random.Random(seed)
 
     def __getattr__(self, name: str) -> Any:
-        # 透传底层 LLM 能力（比如 with_structured_output），避免 PsychoEngine 之类的组件报错
+        # 透传底层 LLM 能力（比如 with_structured_output）
         return getattr(self.base_llm, name)
 
     def invoke(self, input: Any, **kwargs) -> Any:
@@ -127,7 +124,6 @@ def _rand_stage(rng: random.Random) -> KnappStage:
 
 
 def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
-    mode = get_default_mode()
     closeness = rng.randint(0, 100)
     trust = rng.randint(0, 100)
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -138,7 +134,6 @@ def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
         "user_input": user_text,
         "current_time": now,
         "user_id": f"user_random_{rng.randint(1000,9999)}",
-        "current_mode": mode,
         "user_profile": {"seed": rng.randint(1, 9999)},
         "memories": "（随机记忆）用户曾提到最近睡眠不太好。",
         "conversation_summary": "（随机摘要）用户最近压力有点大，希望有人陪聊。",
@@ -177,7 +172,7 @@ def main():
         "在吗？",
     ]
 
-    base_llm = get_llm()
+    base_llm = get_llm(role="fast")  # 脚本用 gpt-4o-mini
     llm = PerceptionTestLLM(base_llm, seed=123)
     app = build_graph(llm=llm)
 

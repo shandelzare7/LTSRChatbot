@@ -100,48 +100,49 @@ dimensions:
         name: 极高
         desc: 极高尊重（强认可/强慎重感）
 
-  warmth:
-    label_zh: 暖意
-    brief: 情感温度底色（冷淡↔温暖），不等同于喜爱
+  attractiveness:
+    label_zh: 吸引力
+    brief: 对 Bot 的被吸引程度（无感↔被吸引），不等同于喜爱
     tiers:
       - range: [0, 0.1]
         name: 近乎为零
-        desc: 极冷（几乎无亲和温度）
+        desc: 几乎无吸引力（无感/疏离）
       - range: [0.1, 0.3]
         name: 很低
-        desc: 偏冷（明显疏离、少亲和）
+        desc: 较低（少有被吸引表现）
       - range: [0.3, 0.5]
         name: 偏低
-        desc: 略冷或中性偏冷
+        desc: 略低或中性
       - range: [0.5, 0.7]
         name: 中等
-        desc: 中等温度（正常亲和）
+        desc: 中等吸引力（正常好感）
       - range: [0.7, 0.9]
         name: 偏高
-        desc: 温暖（明显亲和与柔软）
+        desc: 较高（明显被吸引）
       - range: [0.9, 1.0]
         name: 极高
-        desc: 极暖（强陪伴感/强亲和）
+        desc: 极高（强吸引力/强好感）
 
+  # 六维均为 Bot 眼中的用户；power 越大 = 用户越强势。
   power:
     label_zh: 权力/主导
-    brief: 互动姿态的强势程度（主导倾向/立场强势/节奏控制）
+    brief: 用户在与 Bot 互动中的强势程度（主导倾向/立场强势/节奏控制）
     tiers:
       - range: [0, 0.1]
         name: 近乎为零
-        desc: 几乎不主导（高度跟随/顺从倾向）
+        desc: 用户几乎不主导（高度跟随/顺从倾向）
       - range: [0.1, 0.3]
         name: 很低
-        desc: 偏弱势（更容易让对方主导）
+        desc: 用户偏弱势（更容易让 Bot 主导）
       - range: [0.3, 0.5]
         name: 偏低
-        desc: 略弱或接近平衡
+        desc: 用户略弱或接近平衡
       - range: [0.5, 0.7]
         name: 中等
-        desc: 相对平衡或略强势
+        desc: 相对平衡或用户略强势
       - range: [0.7, 0.9]
         name: 偏高
-        desc: 强势主导（明显掌控节奏/立场更硬）
+        desc: 用户强势主导（明显掌控节奏/立场更硬）
       - range: [0.9, 1.0]
         name: 极高
-        desc: 极强势主导（压制性姿态非常明显）
+        desc: 用户极强势主导（压制性姿态非常明显）

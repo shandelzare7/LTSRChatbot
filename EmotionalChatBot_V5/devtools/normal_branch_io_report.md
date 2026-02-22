@@ -41,7 +41,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -154,7 +154,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -277,7 +277,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -425,7 +425,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -578,7 +578,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -732,7 +732,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -886,7 +886,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -1063,7 +1063,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 14.0,
+    "attractiveness": 14.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -1208,7 +1208,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
       "trust": 0,
       "liking": 0,
       "respect": 0,
-      "warmth": 1,
+      "attractiveness": 1,
       "power": 0
     }
   },
@@ -1217,14 +1217,14 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "trust": 0,
     "liking": 0,
     "respect": 0,
-    "warmth": 1,
+    "attractiveness": 1,
     "power": 0
   },
   "relationship_state": {
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 15.0,
+    "attractiveness": 15.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -1233,7 +1233,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "trust": 0.0,
     "liking": 0.0,
     "respect": 0.0,
-    "warmth": 1.0,
+    "attractiveness": 1.0,
     "power": 0.0
   }
 }
@@ -1274,7 +1274,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 15.0,
+    "attractiveness": 15.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -1412,7 +1412,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
       "trust": 0,
       "liking": 0,
       "respect": 0,
-      "warmth": 1,
+      "attractiveness": 1,
       "power": 0
     }
   },
@@ -1421,7 +1421,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "trust": 0,
     "liking": 0,
     "respect": 0,
-    "warmth": 1,
+    "attractiveness": 1,
     "power": 0
   },
   "relationship_deltas_applied": {
@@ -1429,7 +1429,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "trust": 0.0,
     "liking": 0.0,
     "respect": 0.0,
-    "warmth": 1.0,
+    "attractiveness": 1.0,
     "power": 0.0
   }
 }
@@ -1486,7 +1486,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "power": 50,
     "trust": 7.0,
     "liking": 10.0,
-    "warmth": 15.0,
+    "attractiveness": 15.0,
     "respect": 50,
     "closeness": 9.0
   },
@@ -1624,7 +1624,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
       "trust": 0,
       "liking": 0,
       "respect": 0,
-      "warmth": 1,
+      "attractiveness": 1,
       "power": 0
     }
   },
@@ -1633,7 +1633,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "trust": 0,
     "liking": 0,
     "respect": 0,
-    "warmth": 1,
+    "attractiveness": 1,
     "power": 0
   },
   "relationship_deltas_applied": {
@@ -1641,7 +1641,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "trust": 0.0,
     "liking": 0.0,
     "respect": 0.0,
-    "warmth": 1.0,
+    "attractiveness": 1.0,
     "power": 0.0
   }
 }

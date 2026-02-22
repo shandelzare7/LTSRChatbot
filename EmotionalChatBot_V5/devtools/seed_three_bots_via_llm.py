@@ -80,12 +80,16 @@ def _ensure_bot_persona(data: dict, fallback_name: str) -> tuple[dict, dict, dic
     
     for key in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]:
         if key not in big_five:
-            big_five[key] = 0.0
+            big_five[key] = 0.5
         else:
             try:
-                big_five[key] = max(-1.0, min(1.0, float(big_five[key])))
+                val = float(big_five[key])
+                # 如果值是负数，转换为绝对值（迁移旧数据）
+                if val < 0.0:
+                    val = abs(val)
+                big_five[key] = max(0.0, min(1.0, val))
             except (ValueError, TypeError):
-                big_five[key] = 0.0
+                big_five[key] = 0.5
     if "attributes" not in persona:
         persona["attributes"] = {}
     if "collections" not in persona:
@@ -116,9 +120,9 @@ async def create_three_bots_and_users_via_llm(db: DBManager, add_only: bool = Fa
     data = None
     if use_llm:
         try:
-            llm = get_llm()
+            llm = get_llm(role="fast")  # 种子脚本用 gpt-4o-mini
             if polarized:
-                prompt = """请为 3 个聊天机器人（Bot）各生成一份「差异极大、性格极化」的人设，并为每个 Bot 生成一个默认聊天用户（user）的 basic_info。\n\n要求：\n- 3 个 Bot 必须在：说话风格、情绪表达、互动姿态、边界感、节奏上明显不同（不要只是换名字/职业）。\n- big_five 给出 5 维：openness/conscientiousness/extraversion/agreeableness/neuroticism，取值范围 -1.0..+1.0，尽量极化（例如 +0.85、-0.85），并符合人设。\n- persona 要像真人：\n  - attributes.catchphrase（口头禅 2~6 字）\n  - collections.hobbies（3 个）\n  - collections.quirks（2 个，小毛病/小特长）\n  - lore.origin / lore.secret（各 1 句）\n- basic_info: name(中文全名，姓+名)、gender(男/女)、age(18~35)、region(如 CN-北京)、occupation、education、native_language=zh、speaking_style(一句话描述)\n\n三种极化方向（每个 Bot 选一个，不要混）：\n1) 超外向+高主导+爱开玩笑：直球、短句、多反问、节奏快。\n2) 超内向+高尽责+低情绪外露：克制、条理、少表情、节奏慢。\n3) 高神经质+低信任+敏感防御：容易犹豫/反复确认、语气飘忽、碎片化更强。\n\n输出仅一个 JSON（严格遵循结构）：\n{\n  \"bots\": [\n    {\"basic_info\": {...}, \"big_five\": {...}, \"persona\": {...}},\n    {\"basic_info\": {...}, \"big_five\": {...}, \"persona\": {...}},\n    {\"basic_info\": {...}, \"big_five\": {...}, \"persona\": {...}}\n  ],\n  \"users\": [\n    {\"basic_info\": {...}},\n    {\"basic_info\": {...}},\n    {\"basic_info\": {...}}\n  ]\n}\n\nbots 与 users 一一对应。只输出 JSON，不要任何额外文字。"""
+                prompt = """请为 3 个聊天机器人（Bot）各生成一份「差异极大、性格极化」的人设，并为每个 Bot 生成一个默认聊天用户（user）的 basic_info。\n\n要求：\n- 3 个 Bot 必须在：说话风格、情绪表达、互动姿态、边界感、节奏上明显不同（不要只是换名字/职业）。\n- big_five 给出 5 维：openness/conscientiousness/extraversion/agreeableness/neuroticism，取值范围 0.0..1.0，尽量极化（例如 0.9、0.1），并符合人设。\n- persona 要像真人：\n  - attributes.catchphrase（口头禅 2~6 字）\n  - collections.hobbies（3 个）\n  - collections.quirks（2 个，小毛病/小特长）\n  - lore.origin / lore.secret（各 1 句）\n- basic_info: name(中文全名，姓+名)、gender(男/女)、age(18~35)、region(如 CN-北京)、occupation、education、native_language=zh、speaking_style(一句话描述)\n\n三种极化方向（每个 Bot 选一个，不要混）：\n1) 超外向+高主导+爱开玩笑：直球、短句、多反问、节奏快。\n2) 超内向+高尽责+低情绪外露：克制、条理、少表情、节奏慢。\n3) 高神经质+低信任+敏感防御：容易犹豫/反复确认、语气飘忽、碎片化更强。\n\n输出仅一个 JSON（严格遵循结构）：\n{\n  \"bots\": [\n    {\"basic_info\": {...}, \"big_five\": {...}, \"persona\": {...}},\n    {\"basic_info\": {...}, \"big_five\": {...}, \"persona\": {...}},\n    {\"basic_info\": {...}, \"big_five\": {...}, \"persona\": {...}}\n  ],\n  \"users\": [\n    {\"basic_info\": {...}},\n    {\"basic_info\": {...}},\n    {\"basic_info\": {...}}\n  ]\n}\n\nbots 与 users 一一对应。只输出 JSON，不要任何额外文字。"""
             else:
                 prompt = """请为 3 个聊天机器人（Bot）各生成一份人设，并为每个 Bot 生成一个默认聊天用户（user）的 basic_info。输出仅一个 JSON：{"bots":[{"basic_info":{...},"big_five":{...},"persona":{...}}, ...共3个], "users":[{"basic_info":{...}}, ...共3个]}。bots 与 users 一一对应。"""
             print("正在用 LLM 生成 3 个 Bot + 3 个 User 人设…")

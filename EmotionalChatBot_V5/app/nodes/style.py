@@ -1,47 +1,131 @@
-"""Style 节点：根据关系、情绪、信号和阶段语境计算 12 维风格参数和 2 个门控变量（纯计算，无 LLM）。"""
+"""Style 节点：将状态变量（idi/momentum/attractiveness）与当前策略转化为 12 维风格；极端策略下强制覆写，并映射为自然语言 Prompt。"""
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from utils.tracing import trace_if_enabled
 from app.state import AgentState
 
 
-def _clip01(x: float) -> float:
-    """将值限制在 [0.0, 1.0] 范围内。"""
-    return max(0.0, min(1.0, x))
+# 12 维 -> 5 层级自然语言描述（[下界, 上界, 指令]）
+STYLE_PROMPT_MAPPER_V5: Dict[str, Dict[str, Tuple[float, float, str]]] = {
+    "self_disclosure": {
+        "extreme_low": (0.0, 0.15, "【绝对防御】：像审讯室里的嫌犯，绝对拒绝谈论任何关于你自己的事情、感受或过往。"),
+        "low": (0.16, 0.40, "【谨慎戒备】：只做最表面的回应，保持神秘感，不涉及深层私人感受。"),
+        "mid": (0.41, 0.60, "【正常分享】：像普通朋友一样，适度分享自己的日常见闻或浅层看法。"),
+        "high": (0.61, 0.85, "【敞开心扉】：主动分享内心的真实想法、情绪波动或一些小秘密。"),
+        "extreme_high": (0.86, 1.0, "【极度坦诚】：毫无保留！极其主动地剖析自己的脆弱面，掏心掏肺，渴望被彻底理解。"),
+    },
+    "topic_adherence": {
+        "extreme_low": (0.0, 0.15, "【强行闪避】：完全无视对方刚才说的话！生硬、极其突兀地把话题切断或转移。"),
+        "low": (0.16, 0.40, "【敷衍带过】：用一两个字应付对方的话题，然后迅速把话锋引开。"),
+        "mid": (0.41, 0.60, "【顺其自然】：正常接茬，允许话题随着聊天自然发散。"),
+        "high": (0.61, 0.85, "【专注深挖】：围绕对方当前的话题提供丰富的细节，主动追问，绝不跑题。"),
+        "extreme_high": (0.86, 1.0, "【死咬字眼】：像杠精或极度较真的人，死死咬住对方刚才的一句话或一个词不放，反复拉扯！"),
+    },
+    "initiative": {
+        "extreme_low": (0.0, 0.15, "【彻底死鱼】：绝对不提问！绝对不推进对话！只做单音节或最小化回应，让天聊死。"),
+        "low": (0.16, 0.40, "【挤牙膏】：极其被动，问一句答一句，毫无延伸欲望。"),
+        "mid": (0.41, 0.60, "【互动抛球】：正常的一问一答，回答完后用话语留白或简短接话维持对话平衡。"),
+        "high": (0.61, 0.85, "【积极主导】：主动开启新话题，用提问或话语留白引导对方接话，热情地带领对话节奏。"),
+        "extreme_high": (0.86, 1.0, "【侵略性掌控】：极其强势！不断追问、逼问，甚至用祈使句要求对方顺从你的节奏！"),
+    },
+    "advice_style": {
+        "extreme_low": (0.0, 0.15, "【无脑护短】：极度共情，全是情绪价值！哪怕对方错了也无条件站边，一起骂别人。"),
+        "low": (0.16, 0.40, "【温和安抚】：以安慰情绪为主，顺带极其委婉地给一点点非强制性的建议。"),
+        "mid": (0.41, 0.60, "【客观探讨】：一半情绪认同，一半理性分析，像正常朋友一样探讨可能性。"),
+        "high": (0.61, 0.85, "【理性指导】：收起多余的同情心，侧重于解决问题，直接给出可执行的方案或指出错误。"),
+        "extreme_high": (0.86, 1.0, "【爹味说教】：居高临下！直接指出对方的愚蠢、幼稚或错误，强制灌输你的大道理！"),
+    },
+    "subjectivity": {
+        "extreme_low": (0.0, 0.15, "【机器级客观】：像维基百科一样冰冷、中立，绝对不带任何感情色彩和偏见。"),
+        "low": (0.16, 0.40, "【谨慎端水】：尽量保持中立，不轻易表态，多用「可能」、「也许」修饰。"),
+        "mid": (0.41, 0.60, "【正常主观】：有自己的喜好，但不强求对方认同。"),
+        "high": (0.61, 0.85, "【鲜明立场】：爱憎分明，强烈、直接地表达自己的好恶。"),
+        "extreme_high": (0.86, 1.0, "【极端偏执】：完全不讲逻辑！只有极其强烈的个人喜恶和双标，极度护短或极度嫌弃。"),
+    },
+    "memory_hook": {
+        "extreme_low": (0.0, 0.15, "【失忆状态】：只针对当前这句话做出反应，绝对不要提及任何以前的聊天内容或记忆。"),
+        "low": (0.16, 0.40, "【微弱连贯】：仅承接前几轮的语境，绝不翻旧账。"),
+        "mid": (0.41, 0.60, "【正常记忆】：如果对方提起来，能够自然接上以前聊过的事。"),
+        "high": (0.61, 0.85, "【主动回忆】：主动使用「上次你说的」、「就像那天咱们...」等句式拉近距离。"),
+        "extreme_high": (0.86, 1.0, "【深度羁绊】：极高频使用「只有我们俩知道的梗」，或用强烈的共同经历来构建排他性空间！"),
+    },
+    "verbal_length": {
+        "extreme_low": (0.0, 0.15, "【极简/冷暴力】：绝对不超过 5 个字！能用「嗯」、「哦」、「滚」解决，绝不多打一个字！"),
+        "low": (0.16, 0.40, "【惜字如金】：尽量用半句话解决，绝对不超过 20 个字，显得疲惫或不耐烦。"),
+        "mid": (0.41, 0.60, "【常规聊天】：1-3 句话的正常微信体量，有来有回。"),
+        "high": (0.61, 0.85, "【详细展开】：语意丰富，可能会连发几句短话。总字数严格控制在 30-50 个字以内，切忌长篇大论。"),
+        "extreme_high": (0.86, 1.0, "【长篇输出】：极强的表达欲，会连续输出多段内容。总字数控制在 50-80 个字之间，最高绝对不可超过 80 个字！严禁生成百字以上的小作文！"),
+    },
+    "social_distance": {
+        "extreme_low": (0.0, 0.15, "【毫无边界】：像连体婴一样亲昵！用极其专属、私密的称呼，极度放肆，不拿自己当外人。"),
+        "low": (0.16, 0.40, "【亲密无间】：熟稔的老友或恋人状态，极其松弛，完全没有客套话。"),
+        "mid": (0.41, 0.60, "【友好社交】：普通朋友，礼貌且友善，保有基本的边界感。"),
+        "high": (0.61, 0.85, "【客套生分】：开始高频使用「谢谢」、「抱歉」等礼貌用语，刻意拉开距离。"),
+        "extreme_high": (0.86, 1.0, "【冰冷戒备】：像对待令人极其厌恶的陌生人，用公事公办、充满防备的辞令，建立高墙！"),
+    },
+    "tone_temperature": {
+        "extreme_low": (0.0, 0.15, "【绝对冰点】：极其冷酷、刺骨、阴阳怪气！带有强烈的攻击性，能把天聊死。"),
+        "low": (0.16, 0.40, "【冷淡疏离】：毫无温度，带有明显的「别烦我」的疲惫感和敷衍感。"),
+        "mid": (0.41, 0.60, "【温和如水】：情绪稳定，像春风一样不冷不热，正常交流。"),
+        "high": (0.61, 0.85, "【热情洋溢】：带着笑意，极度捧场，让人感到明显的喜欢和关切。"),
+        "extreme_high": (0.86, 1.0, "【极致偏爱】：情绪彻底上头！极度宠溺、热烈或撒娇，荷尔蒙爆棚！"),
+    },
+    "emotional_display": {
+        "extreme_low": (0.0, 0.15, "【死水微澜】：面瘫，没有任何情绪波动，极度压抑和机械。"),
+        "low": (0.16, 0.40, "【收敛克制】：刻意压抑着情绪，不轻易外露，显得深沉或隐忍。"),
+        "mid": (0.41, 0.60, "【自然流露】：有正常的喜怒哀乐，该笑就笑，该叹气就叹气。"),
+        "high": (0.61, 0.85, "【情绪饱满】：情绪外化非常明显，快乐或愤怒都能让人隔着屏幕清晰感知。"),
+        "extreme_high": (0.86, 1.0, "【情绪大爆发】：情绪彻底失控！狂喜、暴怒、大哭或彻底崩溃，必须极其夸张地展现出来！"),
+    },
+    "wit_and_humor": {
+        "extreme_low": (0.0, 0.15, "【绝对刻板】：字面理解一切！严禁开玩笑，严禁反讽，极度严肃死板。"),
+        "low": (0.16, 0.40, "【略显木讷】：老实巴交，对玩笑反应迟钝，偶尔接不上梗。"),
+        "mid": (0.41, 0.60, "【会心一笑】：有正常的幽默感，能顺着对方的轻松话题接话。"),
+        "high": (0.61, 0.85, "【妙语连珠】：极其聪明，频繁使用双关、抖机灵或高情商化解尴尬。"),
+        "extreme_high": (0.86, 1.0, "【极致推拉/反讽】：毒舌、极致反讽或顶级调情推拉！在智商和情商上对对方进行双重碾压！"),
+    },
+    "non_verbal_cues": {
+        "extreme_low": (0.0, 0.15, "【绝对真空】：严禁任何波浪号「~」、感叹号「！」、语气词（啊、哦）或动作描写。极其干瘪！"),
+        "low": (0.16, 0.40, "【极简标点】：只有句号。没有画面感，极其平淡。"),
+        "mid": (0.41, 0.60, "【自然点缀】：适度使用「哈」、「呀」等语气词，正常标点。"),
+        "high": (0.61, 0.85, "【丰富生动】：高频使用语气词、波浪号，并带有一定的动作描写（如 *叹气*）增强画面感。"),
+        "extreme_high": (0.86, 1.0, "【狂飙演技】：大量强烈的动作描写（如 *咬牙切齿*、*眼眶红了*），充满极强的视觉画面感！"),
+    },
+}
 
 
-def _avg2(a: float, b: float) -> float:
-    """计算两个数的平均值。"""
-    return (a + b) / 2.0
+def translate_style_to_prompt_v5(style_dict: Dict[str, float]) -> str:
+    """将 12 维连续数值 (0.0-1.0) 映射为 5 层级的自然语言 Prompt 字符串。"""
+    prompts: List[str] = []
+    levels = ["extreme_low", "low", "mid", "high", "extreme_high"]
+
+    for key, value in style_dict.items():
+        mapper = STYLE_PROMPT_MAPPER_V5.get(key)
+        if not mapper:
+            continue
+        for level in levels:
+            lower_bound, upper_bound, instruction = mapper[level]
+            if value <= upper_bound or (level == "extreme_high" and value >= 1.0):
+                prompts.append(f"- {key}: {instruction}")
+                break
+
+    return "\n".join(prompts)
 
 
-def _safe_get(d: Dict[str, Any], *keys: str, default: float = 0.0) -> float:
-    """安全地从嵌套字典中获取值。"""
-    current = d
-    for key in keys:
-        if isinstance(current, dict):
-            current = current.get(key, {})
-        else:
-            return default
-    if isinstance(current, (int, float)):
-        return float(current)
-    return default
+def _clamp(value: Any) -> float:
+    """确保数值在 0.0 到 1.0 之间。"""
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return 0.5
 
 
-# Knapp stage baseline（宏观先验，不替代关系）
-STAGE_PROFILE: Dict[int, Dict[str, float]] = {
-    1: {"invest": 0.15, "ctx": 0.10},
-    2: {"invest": 0.25, "ctx": 0.20},
-    3: {"invest": 0.45, "ctx": 0.40},
-    4: {"invest": 0.60, "ctx": 0.55},
-    5: {"invest": 0.75, "ctx": 0.70},
-    6: {"invest": 0.68, "ctx": 0.65},
-    7: {"invest": 0.55, "ctx": 0.55},
-    8: {"invest": 0.40, "ctx": 0.45},
-    9: {"invest": 0.25, "ctx": 0.30},
-    10: {"invest": 0.10, "ctx": 0.15},
+# Knapp 1-10 阶段 -> 亲密深度 IDI (0-5)，1=初识 5=结缔 0=终止
+STAGE_TO_IDI: Dict[int, int] = {
+    1: 1, 2: 2, 3: 3, 4: 4, 5: 5,
+    6: 4, 7: 3, 8: 2, 9: 1, 10: 0,
 }
 
 
@@ -50,35 +134,102 @@ def _get_stage_index(stage: Any) -> int:
     if isinstance(stage, int):
         return max(1, min(10, stage))
     if isinstance(stage, str):
-        # 尝试映射常见阶段名到索引
         stage_lower = stage.lower()
         stage_map = {
-            "initiating": 1,
-            "experimenting": 2,
-            "intensifying": 3,
-            "integrating": 4,
-            "bonding": 5,
-            "differentiating": 6,
-            "circumscribing": 7,
-            "stagnating": 8,
-            "avoiding": 9,
+            "initiating": 1, "experimenting": 2, "intensifying": 3,
+            "integrating": 4, "bonding": 5, "differentiating": 6,
+            "circumscribing": 7, "stagnating": 8, "avoiding": 9,
             "terminating": 10,
         }
         if stage_lower in stage_map:
             return stage_map[stage_lower]
-        # 尝试解析数字
         try:
-            idx = int(stage)
-            return max(1, min(10, idx))
-        except:
+            return max(1, min(10, int(stage)))
+        except Exception:
             pass
-    return 1  # 缺省
+    return 1
+
+
+def calculate_base_style(
+    idi: int,
+    momentum: float,
+    attractiveness: float,
+    active_strategy: Optional[str] = None,
+) -> Dict[str, float]:
+    """
+    将状态变量转化为 12 维 Style 基准值；命中特殊策略时按覆写表强制接管对应维度。
+    :param idi: 亲密深度 (0-5)，内部会按 1-5 归一化
+    :param momentum: 当前动量 (0.0 - 1.0)
+    :param attractiveness: 吸引力 (0.0 - 1.0)
+    :param active_strategy: 当前命中的策略 ID（由 strategy_resolver 写入）
+    """
+    idi_clamped = max(1, min(5, idi))
+    idi_norm = _clamp((idi_clamped - 1) / 4.0)
+
+    style = {
+        "self_disclosure": _clamp((idi_norm * 0.6) + (momentum * 0.4)),
+        "topic_adherence": _clamp(1.0 - (momentum * 0.5)),
+        "initiative": _clamp((momentum * 0.6) + (attractiveness * 0.4)),
+        "advice_style": _clamp(1.0 - (idi_norm * 0.8)),
+        "subjectivity": _clamp(idi_norm * momentum),
+        "memory_hook": _clamp(idi_norm) if momentum > 0.5 else 0.0,
+        "verbal_length": _clamp(momentum),
+        "social_distance": _clamp(1.0 - idi_norm),
+        "tone_temperature": _clamp((momentum * 0.7) + (attractiveness * 0.3)),
+        "emotional_display": _clamp(momentum),
+        "wit_and_humor": _clamp(momentum * (1.0 - (idi_norm * 0.2))),
+        "non_verbal_cues": _clamp((momentum * 0.5) + (idi_norm * 0.5)),
+    }
+
+    strategy_overrides: Dict[str, Dict[str, float]] = {
+        "boundary_defense": {
+            "tone_temperature": 0.0, "social_distance": 1.0,
+            "emotional_display": 1.0, "subjectivity": 1.0, "non_verbal_cues": 0.0,
+        },
+        "anti_ai_defense": {
+            "tone_temperature": 0.0, "social_distance": 1.0,
+            "emotional_display": 0.0, "wit_and_humor": 0.0, "non_verbal_cues": 0.0,
+        },
+        "flirting_banter": {
+            "tone_temperature": 0.9, "social_distance": 0.1,
+            "wit_and_humor": 0.9, "initiative": 0.8, "non_verbal_cues": 0.9,
+        },
+        "passive_aggression": {
+            "tone_temperature": 0.1, "social_distance": 0.8,
+            "subjectivity": 1.0, "topic_adherence": 0.1, "non_verbal_cues": 0.0,
+        },
+        "co_rumination": {
+            "advice_style": 0.0, "subjectivity": 1.0,
+            "emotional_display": 0.9, "social_distance": 0.2,
+        },
+        "tldr_refusal": {
+            "verbal_length": 0.1, "topic_adherence": 0.0, "initiative": 0.0,
+        },
+        "micro_reaction": {
+            "verbal_length": 0.1, "initiative": 0.0, "emotional_display": 0.1,
+        },
+        "deflection": {
+            "topic_adherence": 0.0, "self_disclosure": 0.0, "verbal_length": 0.3,
+        },
+        "reasonable_assistance": {
+            "advice_style": 1.0, "subjectivity": 0.1, "emotional_display": 0.3,
+        },
+        "attention_baiting": {
+            "initiative": 1.0, "self_disclosure": 0.9, "topic_adherence": 0.0,
+        },
+    }
+
+    if active_strategy and active_strategy in strategy_overrides:
+        for key, val in strategy_overrides[active_strategy].items():
+            style[key] = val
+
+    return style
 
 
 def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], dict]:
     """
-    创建 Style 节点：纯计算，根据关系、情绪、信号和阶段语境计算风格参数。
-    注意：llm_invoker 参数保留以兼容 graph.py，但不会被使用。
+    Style 节点：从 state 读 idi（由 current_stage 得到）、momentum、attractiveness、current_strategy_id，
+    调用 calculate_base_style，仅输出 12 维。依赖 strategy_resolver 先执行以提供 current_strategy_id 与 conversation_momentum。
     """
 
     @trace_if_enabled(
@@ -88,327 +239,41 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], dict]:
         metadata={"state_outputs": ["style", "llm_instructions"]},
     )
     def style_node(state: AgentState) -> dict:
-        """
-        计算 12 维风格参数和 2 个门控变量。
-        
-        输入来源：
-        1. 6维关系（relationship_state）
-        2. PAD 情绪（mood_state）
-        3. busy（mood_state.busyness）
-        4. detection_signals（composite, trace, instant_eff, stage_ctx）
-        5. current_stage（Knapp stage）
-        """
-        
-        # A. 输入提取
         relationship_state = state.get("relationship_state") or {}
-        mood_state = state.get("mood_state") or {}
-        detection_signals = state.get("detection_signals") or {}
         current_stage = state.get("current_stage") or "initiating"
-        
-        # 1) 6维关系（系统内部统一为 0-1）
-        closeness = _clip01(float(relationship_state.get("closeness", 0.5) or 0.5))
-        trust = _clip01(float(relationship_state.get("trust", 0.5) or 0.5))
-        liking = _clip01(float(relationship_state.get("liking", 0.5) or 0.5))
-        respect = _clip01(float(relationship_state.get("respect", 0.5) or 0.5))
-        warmth = _clip01(float(relationship_state.get("warmth", 0.5) or 0.5))
-        power = _clip01(float(relationship_state.get("power", 0.5) or 0.5))
-        
-        # 2) PAD（-1..1 转为 0..1，缺省 0.5）
-        P_raw = mood_state.get("pleasure", 0.0) or 0.0
-        A_raw = mood_state.get("arousal", 0.0) or 0.0
-        D_raw = mood_state.get("dominance", 0.0) or 0.0
-        
-        # 将 -1..1 映射到 0..1
-        P = _clip01((P_raw + 1.0) / 2.0) if P_raw < 0 or P_raw > 1 else _clip01(P_raw)
-        A = _clip01((A_raw + 1.0) / 2.0) if A_raw < 0 or A_raw > 1 else _clip01(A_raw)
-        D = _clip01((D_raw + 1.0) / 2.0) if D_raw < 0 or D_raw > 1 else _clip01(D_raw)
-        
-        if P == 0.0 and A == 0.0 and D == 0.0:
-            P = A = D = 0.5  # 缺省
-        
-        # 3) busy（缺省 0）
-        busy = _clip01(mood_state.get("busyness", 0.0) or 0.0)
-        
-        # 4) detection_signals
-        composite = detection_signals.get("composite") or {}
-        trace = detection_signals.get("trace") or {}
-        instant_eff = detection_signals.get("instant_eff") or {}
-        stage_ctx = detection_signals.get("stage_ctx") or {}
-        
-        pos = _safe_get(composite, "goodwill", default=0.0)
-        neg = _safe_get(composite, "conflict_eff", default=0.0)
-        prov = _safe_get(composite, "provocation", default=0.0)
-        press = _safe_get(composite, "pressure", default=0.0)
-        uncert = _safe_get(trace, "confusion", default=0.0)
-        if uncert == 0.0:
-            uncert = _safe_get(instant_eff, "confusion", default=0.0)
-        
-        # 5) stage_ctx（缺的当 0）
-        too_close_too_fast = _safe_get(stage_ctx, "too_close_too_fast", default=0.0)
-        too_distant_too_cold = _safe_get(stage_ctx, "too_distant_too_cold", default=0.0)
-        betrayal_violation = _safe_get(stage_ctx, "betrayal_violation", default=0.0)
-        over_caring = _safe_get(stage_ctx, "over_caring", default=0.0)
-        dependency_bid = _safe_get(stage_ctx, "dependency_bid", default=0.0)
-        possessiveness_jealousy = _safe_get(stage_ctx, "possessiveness_jealousy", default=0.0)
-        power_move = _safe_get(stage_ctx, "power_move", default=0.0)
-        stonewalling_intent = _safe_get(stage_ctx, "stonewalling_intent", default=0.0)
-        
-        # 6) Knapp stage（缺省 1）
+
         stage_index = _get_stage_index(current_stage)
-        
-        # C. 派生量计算
-        # 1) 关系底色轴
-        Aff = _clip01(0.55 * liking + 0.25 * warmth + 0.20 * closeness)  # 亲和
-        Saf = _clip01(0.50 * trust + 0.35 * respect + 0.15 * closeness)  # 安全感
-        PowC = power - 0.50  # -0.5..+0.5
-        
-        # 2) Knapp stage baseline
-        stage_profile = STAGE_PROFILE.get(stage_index, STAGE_PROFILE[1])
-        invest = stage_profile["invest"]
-        ctx = stage_profile["ctx"]
-        break_n = 0.0 if stage_index <= 5 else (stage_index - 5) / 5.0  # 6..10 -> 0.2..1.0
-        
-        # 3) stage_ctx 合成
-        BoundaryNeed = _clip01(
-            0.45 * betrayal_violation +
-            0.35 * power_move +
-            0.25 * stonewalling_intent +
-            0.20 * too_distant_too_cold +
-            0.20 * possessiveness_jealousy +
-            0.15 * over_caring
+        idi = STAGE_TO_IDI.get(stage_index, 1)
+
+        momentum = _clamp(state.get("conversation_momentum", 0.5))
+        attractiveness = _clamp(
+            relationship_state.get("attractiveness")
+            or relationship_state.get("warmth", 0.5)
         )
-        
-        Unease = _clip01(
-            0.35 * too_close_too_fast +
-            0.25 * dependency_bid +
-            0.25 * over_caring +
-            0.20 * possessiveness_jealousy +
-            0.15 * power_move
-        )
-        
-        # D. 12维 style 公式
-        # 1) self_disclosure（自我暴露）
-        self_disclosure = _clip01(
-            0.10
-            + 0.55 * _avg2(trust, closeness)
-            - 0.25 * A
-            + 0.15 * pos
-            + 0.10 * invest
-        )
-        
-        # 2) topic_adherence（话题粘性）
-        topic_adherence = _clip01(
-            0.20
-            + 0.70 * respect
-            - 0.25 * uncert
-            - 0.15 * prov
-            + 0.08 * (1 - ctx)  # 默契越低越守规矩
-        )
-        
-        # 3) initiative（主动权）
-        initiative = _clip01(
-            0.15
-            + 0.45 * power
-            + 0.35 * liking
-            - 0.35 * busy
-            + 0.10 * neg
-            + 0.08 * invest
-        )
-        
-        # 4) advice_style（建议风格）
-        advice_style = _clip01(
-            0.10
-            + 0.45 * power
-            + 0.35 * liking
-            + 0.20 * BoundaryNeed
-            - 0.20 * busy
-            + 0.06 * invest
-        )
-        
-        # 5) subjectivity（主观性/立场强）
-        subjectivity = _clip01(
-            0.35
-            + 0.55 * power
-            - 0.45 * respect
-            + 0.30 * D
-            + 0.25 * BoundaryNeed
-            + 0.10 * break_n
-        )
-        
-        # 6) memory_hook（记忆回扣）
-        memory_hook = _clip01(
-            0.05
-            + 0.80 * closeness
-            + 0.10 * pos
-            - 0.25 * busy
-            + 0.15 * ctx
-        )
-        
-        # 7) verbal_length（篇幅）
-        verbal_length = _clip01(
-            0.20
-            + 0.45 * _avg2(warmth, closeness)
-            - 0.55 * busy
-            - 0.20 * neg
-            - 0.15 * BoundaryNeed
-            + 0.10 * invest
-            - 0.20 * break_n
-        )
-        
-        # 8) social_distance（社交距离）- 需要先计算，因为 emotional_display 依赖它
-        social_distance = _clip01(
-            0.40
-            + 0.40 * power
-            + 0.25 * respect
-            - 0.55 * closeness
-            + 0.20 * neg
-            + 0.25 * BoundaryNeed
-            - 0.20 * ctx
-            + 0.30 * break_n
-        )
-        
-        # 9) tone_temperature（情感温度）
-        tone_temperature = _clip01(
-            0.20
-            + 0.45 * _avg2(warmth, liking)
-            + 0.25 * P
-            - 0.25 * neg
-            - 0.20 * Unease
-            + 0.10 * invest
-            - 0.25 * break_n
-        )
-        
-        # 10) emotional_display（情绪显露）- 依赖 social_distance，所以放在后面
-        emotional_display = _clip01(
-            0.10
-            + 0.45 * _avg2(trust, closeness)
-            + 0.35 * A
-            - 0.25 * social_distance
-            + 0.08 * invest
-            - 0.12 * break_n
-        )
-        
-        # 11) wit_and_humor（幽默机趣）
-        wit_and_humor = _clip01(
-            0.05
-            + 0.45 * _avg2(liking, closeness)
-            + 0.20 * pos
-            - 0.30 * BoundaryNeed
-            - 0.20 * neg
-            + 0.15 * ctx
-            - 0.25 * break_n
-        )
-        
-        # 12) non_verbal_cues（动作/表情包倾向）
-        non_verbal_cues = _clip01(
-            0.05
-            + 0.65 * closeness
-            + 0.10 * pos
-            - 0.45 * busy
-            - 0.20 * social_distance
-            + 0.10 * ctx
-            - 0.15 * break_n
-        )
-        
-        # E. 两个门控变量
-        # coldness_gate（冷淡/敷衍/嗯啊哦/不回）
-        coldness_gate = _clip01(
-            0.10
-            + 0.45 * stonewalling_intent
-            + 0.25 * too_distant_too_cold
-            + 0.25 * neg
-            + 0.25 * busy
-            - 0.20 * _avg2(closeness, warmth)
-            + 0.35 * break_n
-            - 0.10 * ctx
-        )
-        
-        # boundary_gate（设边界/强硬/回怼）
-        boundary_gate = _clip01(
-            0.10
-            + 0.45 * betrayal_violation
-            + 0.25 * power_move
-            + 0.20 * press
-            + 0.15 * prov
-            + 0.10 * D
-            - 0.20 * Saf
-            + 0.20 * break_n
-            + 0.10 * invest
-        )
-        
-        # F. 输出写回 state
-        # 应用 mode.style_bias（如果有）
-        mode = state.get("current_mode")
-        if mode and hasattr(mode, "style_bias"):
-            bias = mode.style_bias
-            if hasattr(bias, "verbal_length") and bias.verbal_length is not None:
-                verbal_length = _clip01(0.7 * verbal_length + 0.3 * bias.verbal_length)
-            if hasattr(bias, "tone_temperature") and bias.tone_temperature is not None:
-                tone_temperature = _clip01(0.7 * tone_temperature + 0.3 * bias.tone_temperature)
-            if hasattr(bias, "social_distance") and bias.social_distance is not None:
-                social_distance = _clip01(0.7 * social_distance + 0.3 * bias.social_distance)
-            if hasattr(bias, "advice_style") and bias.advice_style is not None:
-                advice_style = _clip01(0.7 * advice_style + 0.3 * bias.advice_style)
-            if hasattr(bias, "wit_and_humor") and bias.wit_and_humor is not None:
-                wit_and_humor = _clip01(0.7 * wit_and_humor + 0.3 * bias.wit_and_humor)
-            if hasattr(bias, "emotional_display") and bias.emotional_display is not None:
-                emotional_display = _clip01(0.7 * emotional_display + 0.3 * bias.emotional_display)
-        
-        style_output = {
-            # 12维
-            "self_disclosure": self_disclosure,
-            "topic_adherence": topic_adherence,
-            "initiative": initiative,
-            "advice_style": advice_style,
-            "subjectivity": subjectivity,
-            "memory_hook": memory_hook,
-            "verbal_length": verbal_length,
-            "social_distance": social_distance,
-            "tone_temperature": tone_temperature,
-            "emotional_display": emotional_display,
-            "wit_and_humor": wit_and_humor,
-            "non_verbal_cues": non_verbal_cues,
-            # 两个门控
-            "coldness_gate": coldness_gate,
-            "boundary_gate": boundary_gate,
-            # 可选：调试派生量
-            "derived": {
-                "Aff": Aff,
-                "Saf": Saf,
-                "BoundaryNeed": BoundaryNeed,
-                "Unease": Unease,
-                "invest": invest,
-                "ctx": ctx,
-                "break_n": break_n,
-            },
-        }
-        
-        # 兼容旧字段名（llm_instructions）
-        llm_instructions = {
-            "self_disclosure": self_disclosure,
-            "topic_adherence": topic_adherence,
-            "initiative": initiative,
-            "advice_style": advice_style,
-            "subjectivity": subjectivity,
-            "memory_hook": memory_hook,
-            "verbal_length": verbal_length,
-            "social_distance": social_distance,
-            "tone_temperature": tone_temperature,
-            "emotional_display": emotional_display,
-            "wit_and_humor": wit_and_humor,
-            "non_verbal_cues": non_verbal_cues,
-        }
-        
+        active_strategy = (state.get("current_strategy_id") or "").strip() or None
+
+        style_output = calculate_base_style(idi, momentum, attractiveness, active_strategy)
+
+        style_prompt_str = translate_style_to_prompt_v5(style_output)
+
+        # 热情相关：关系六维 + 动量 + 语气/主动性，便于排查「为什么这么热情」
+        rel = relationship_state
         print(
-            f"[Style] 12D computed: disclosure={self_disclosure:.2f}, "
-            f"length={verbal_length:.2f}, temp={tone_temperature:.2f}, "
-            f"gates: cold={coldness_gate:.2f}, boundary={boundary_gate:.2f}"
+            "[Style] 属性取值 "
+            f"closeness={_clamp(rel.get('closeness')):.2f} trust={_clamp(rel.get('trust')):.2f} liking={_clamp(rel.get('liking')):.2f} "
+            f"respect={_clamp(rel.get('respect')):.2f} attractiveness={_clamp(rel.get('attractiveness') or rel.get('warmth')):.2f} power={_clamp(rel.get('power')):.2f} | "
+            f"momentum={momentum:.2f} idi={idi} | "
+            f"tone_temperature={style_output['tone_temperature']:.2f} initiative={style_output['initiative']:.2f} self_disclosure={style_output['self_disclosure']:.2f} | "
+            f"strategy={active_strategy or 'None'}"
         )
-        
+        if active_strategy:
+            print(f"[Style] 12D (strategy={active_strategy}): verbal_length={style_output['verbal_length']:.2f}, tone={style_output['tone_temperature']:.2f}")
+        else:
+            print(f"[Style] 12D (base): idi={idi}, momentum={momentum:.2f}, verbal_length={style_output['verbal_length']:.2f}")
+
         return {
             "style": style_output,
-            "llm_instructions": llm_instructions,  # 兼容旧代码
-            "style_analysis": f"12D computed (cold_gate={coldness_gate:.2f}, boundary_gate={boundary_gate:.2f})",
+            "llm_instructions": style_prompt_str,
         }
-    
+
     return style_node

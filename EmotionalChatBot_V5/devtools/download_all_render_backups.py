@@ -5,6 +5,10 @@
   1. web_chat_logs 表：全部会话 log 快照 → render_backup/web_chat_logs/
   2. 每个 user 的 users.assets（含 log_backup 等）→ render_backup/users/{bot_name}_{external_id}.json
 
+可选：只下载某一天的 log
+  RENDER_DATABASE_URL=... FILTER_DATE=2026-02-18 python -m devtools.download_all_render_backups
+  或: python -m devtools.download_all_render_backups 2026-02-18
+
 使用：
   RENDER_DATABASE_URL=postgresql+asyncpg://... python -m devtools.download_all_render_backups
 """
@@ -16,7 +20,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
 
 try:
@@ -38,6 +42,7 @@ except Exception:
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from sqlalchemy import and_
 
 from app.core.database import (
     DBManager,
@@ -54,11 +59,42 @@ def _safe_dirname(s: str, max_len: int = 80) -> str:
     return s[:max_len] if len(s) > max_len else s or "unknown"
 
 
+def _parse_filter_date() -> str | None:
+    """从环境 FILTER_DATE 或命令行参数解析日期，格式 YYYY-MM-DD，如 2026-02-18。"""
+    s = os.getenv("FILTER_DATE", "").strip() or (sys.argv[1] if len(sys.argv) > 1 else "")
+    if not s:
+        return None
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return s
+    except ValueError:
+        print(f"WARN: 无效日期 {s!r}，应为 YYYY-MM-DD，忽略过滤")
+        return None
+
+
+def _day_range_utc(date_str: str) -> tuple[datetime, datetime]:
+    """将 YYYY-MM-DD 转为该日（北京时区）的 00:00 与次日 00:00 的 UTC 时间。"""
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    if BEIJING_TZ:
+        start = dt.replace(tzinfo=BEIJING_TZ)
+        end = start + timedelta(days=1)
+    else:
+        start = dt.replace(tzinfo=timezone.utc)
+        end = start + timedelta(days=1)
+    start_utc = start.astimezone(timezone.utc)
+    end_utc = end.astimezone(timezone.utc)
+    return start_utc, end_utc
+
+
 async def main() -> None:
     url = os.getenv("RENDER_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not url:
         print("ERROR: 请设置 RENDER_DATABASE_URL 或 DATABASE_URL")
         sys.exit(1)
+
+    filter_date = _parse_filter_date()
+    if filter_date:
+        print(f"仅下载日期: {filter_date}（北京时区当日）")
 
     try:
         parsed = urlparse(url.replace("postgresql+asyncpg://", "postgres://"))
@@ -69,7 +105,10 @@ async def main() -> None:
     print(f"数据来源: {source} (host: {host})")
     print()
 
-    base_out = PROJECT_ROOT / "render_backup"
+    if filter_date:
+        base_out = PROJECT_ROOT / f"render_backup_{filter_date.replace('-', '')}"
+    else:
+        base_out = PROJECT_ROOT / "render_backup"
     base_out.mkdir(parents=True, exist_ok=True)
     dir_logs = base_out / "web_chat_logs"
     dir_users = base_out / "users"
@@ -81,9 +120,16 @@ async def main() -> None:
     engine = _create_async_engine_from_database_url(url)
     db = DBManager(engine)
 
-    # ---------- 1) 全部 web_chat_logs ----------
+    # ---------- 1) web_chat_logs（可选按日期过滤）----------
     async with db.Session() as session:
-        r = await session.execute(select(WebChatLog).order_by(WebChatLog.updated_at.desc()))
+        q = select(WebChatLog).order_by(WebChatLog.updated_at.desc())
+        if filter_date:
+            day_start, day_end = _day_range_utc(filter_date)
+            q = q.where(and_(
+                WebChatLog.updated_at >= day_start,
+                WebChatLog.updated_at < day_end,
+            ))
+        r = await session.execute(q)
         log_rows = list(r.scalars().all())
 
     print(f"[1/2] web_chat_logs: 共 {len(log_rows)} 条")

@@ -28,12 +28,12 @@
 ```
 
 #### BotBigFive
-大五人格基准值，范围 `[-1.0, 1.0]`：
-- **openness**: 开放性（脑洞 vs 现实）
-- **conscientiousness**: 尽责性（严谨 vs 随性）
-- **extraversion**: 外向性（热情 vs 内向）
-- **agreeableness**: 宜人性（配合 vs 毒舌）
-- **neuroticism**: 神经质（情绪波动率）
+大五人格基准值，范围 `[0.0, 1.0]`：
+- **openness**: 开放性（0=现实, 1=脑洞）
+- **conscientiousness**: 尽责性（0=随性, 1=严谨）
+- **extraversion**: 外向性（0=内向, 1=外向）
+- **agreeableness**: 宜人性（0=毒舌, 1=配合）
+- **neuroticism**: 神经质（0=情绪稳定, 1=情绪波动大）
 
 #### BotPersona
 动态人设，支持运行时增删：
@@ -84,8 +84,8 @@ AI 分析出的用户隐性侧写（无固定字段，可扩展 JSON；整块注
 - **trust**: 信任（防备 → 依赖）
 - **liking**: 喜爱（工作伙伴 → 喜欢的伙伴）
 - **respect**: 尊重（损友 → 导师）
-- **warmth**: 暖意（高冷 → 热情）
-- **power**: 权力（Bot弱势 → Bot强势/支配）
+- **attractiveness**: 吸引力（无感 → 被吸引）
+- **power**: 权力/主导（Bot 眼中的用户强势程度：用户弱势 → 用户强势/主导）
 
 **决定 Bot 对 User 的"态度"**
 
@@ -172,8 +172,8 @@ state["bot_persona"]["attributes"]["fav_food"] = "臭豆腐"
 所有核心字段都是 `float`，方便写数学公式：
 ```python
 # 混合计算逻辑示例
-warmth_score = (
-    relationship_state["warmth"] * 0.4 +
+attractiveness_score = (
+    relationship_state["attractiveness"] * 0.4 +
     mood_state["pleasure"] * 0.3 +
     bot_big_five["extraversion"] * 0.3
 )
@@ -221,7 +221,7 @@ initial_state: AgentState = {
         "trust": 15.0,
         "liking": 25.0,
         "respect": 30.0,
-        "warmth": 40.0,
+        "attractiveness": 40.0,
         "power": 50.0
     },
     
@@ -250,7 +250,7 @@ state["bot_persona"]["attributes"]["recent_interest"] = "某部剧"
 deltas = {
     "closeness": +5.0,
     "trust": +3.0,
-    "warmth": +2.0
+    "attractiveness": +2.0
 }
 
 for key, delta in deltas.items():

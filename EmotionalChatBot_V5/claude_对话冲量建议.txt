@@ -1,0 +1,275 @@
+现在我有了足够的理解。让我给出完整的设计思路和代码示例。
+
+---
+
+## 「对话冲量」（Conversation Momentum Decay）设计方案
+
+### 现状分析
+
+你的项目**已有丰富的基础设施**可以支持冲量衰减，但目前缺少一个**显式的轮次维度调制器**。现有的投入度控制主要靠：
+
+1. **Knapp 阶段** (`style.py` 的 `STAGE_PROFILE.invest`) — 这是**关系层面**的长期投入度，跨会话演化
+2. **关系 6 维 + PAD 情绪** → 驱动 `verbal_length`, `initiative`, `tone_temperature` 等 12 维风格
+3. **`task_planner`** 的 LLM 决策 → `word_budget` (0-60)
+4. **`processor.py`** 的 `STAGE_DELAY_FACTORS` → 调制回复延迟
+
+**缺失的是**：在**单次会话内**，随着对话轮次增加，Bot 的"对话冲量"逐渐下降的机制。现实中人们确实如此——开场时兴致高、话多、问得多，聊久了逐渐变短、变被动、不再追问。
+
+---
+
+### 设计思路
+
+核心思想：引入一个 **`conversation_momentum`** 衰减因子（0~1），它是轮次的函数，作用于 `style` 节点的多个输出维度。
+
+```
+momentum(t) = base_momentum × decay_curve(t)
+```
+
+其中：
+- `t` = 当前会话内的用户轮次数
+- `base_momentum` 由**人格特质**（外向性高 → 衰减慢）和**关系阶段**决定
+- `decay_curve` 是一条 S 型下降曲线，前几轮维持高位，之后逐步下降
+
+#### 冲量影响的维度
+
+| 维度 | 冲量高时 | 冲量低时 |
+|---|---|---|
+| `verbal_length` | 正常/偏多 | 明显缩短 |
+| `initiative` | 主动追问、开新话题 | 被动回应、不追问 |
+| `tone_temperature` | 热情、语气词多 | 平淡、简洁 |
+| `wit_and_humor` | 玩笑、段子 | 克制、直白 |
+| `emotional_display` | 丰富表情、感叹 | 收敛 |
+| `word_budget` | 40-60 | 15-30 |
+| 追问频率 | detection 产出更多 immediate_tasks | 减少理解对齐类任务 |
+
+#### 衰减曲线设计
+
+```python
+import math
+
+def momentum_curve(turn: int, *, 
+                   sustain: int = 5,    # 前几轮维持高位
+                   half_life: int = 12, # 半衰期（轮次）
+                   floor: float = 0.3   # 最低不低于此
+                   ) -> float:
+    """
+    对话冲量衰减曲线。
+    - 前 sustain 轮：1.0（全力投入）
+    - 之后指数衰减到 floor
+    """
+    if turn <= sustain:
+        return 1.0
+    t_eff = turn - sustain
+    decay = math.exp(-0.693 * t_eff / half_life)  # 0.693 = ln(2)
+    return floor + (1.0 - floor) * decay
+```
+
+效果：第 1-5 轮=1.0，第 17 轮≈0.65，第 29 轮≈0.48，最终收敛到 0.3。
+
+#### 人格调制
+
+```python
+def get_momentum_params(big5: dict, stage: str) -> dict:
+    """根据人格和关系阶段调整冲量参数。"""
+    e = big5.get("extraversion", 0.0)  # 0~1
+    n = big5.get("neuroticism", 0.0)
+    
+    # 外向性高 → 维持阶段更长，衰减更慢，底线更高
+    sustain = int(5 + 3 * max(0, e))      # 5~8
+    half_life = int(12 + 6 * max(0, e))   # 12~18
+    floor = 0.3 + 0.15 * max(0, e)        # 0.30~0.45
+    
+    # 神经质高 → 冲量更不稳定（但这里先用简单衰减，波动留给 mood）
+    # 亲密关系阶段(3-5) → 衰减更慢
+    if stage in ("intensifying", "integrating", "bonding"):
+        half_life = int(half_life * 1.5)
+        floor += 0.1
+    # 疏远阶段(7-10) → 衰减更快
+    elif stage in ("circumscribing", "stagnating", "avoiding", "terminating"):
+        half_life = max(4, half_life // 2)
+        floor = max(0.15, floor - 0.1)
+    
+    return {"sustain": sustain, "half_life": half_life, "floor": min(0.6, floor)}
+```
+
+---
+
+### 具体实现建议
+
+#### 1. State 层：添加 `turn_count_in_session` 和 `conversation_momentum`
+
+在 `app/state.py` 的 `AgentState` 中添加：
+
+```python
+class AgentState(TypedDict, total=False):
+    # ... 现有字段 ...
+    
+    # 对话冲量 (Conversation Momentum)
+    turn_count_in_session: int        # 当前会话内用户轮次计数
+    conversation_momentum: float      # 当前冲量值 0~1
+```
+
+#### 2. Loader 节点：初始化/递增轮次
+
+在 `loader` 节点中，每轮递增：
+
+```python
+# app/nodes/loader.py (在 loader 函数末尾)
+turn_count = (state.get("turn_count_in_session") or 0) + 1
+return {
+    # ... 现有返回 ...
+    "turn_count_in_session": turn_count,
+}
+```
+
+#### 3. Style 节点：用冲量调制输出
+
+这是**核心修改点**。在 `app/nodes/style.py` 的 `style_node` 函数中：
+
+```python
+import math
+
+def _momentum_curve(turn: int, sustain: int = 5, half_life: int = 12, floor: float = 0.3) -> float:
+    if turn <= sustain:
+        return 1.0
+    t_eff = turn - sustain
+    decay = math.exp(-0.693 * t_eff / half_life)
+    return floor + (1.0 - floor) * decay
+
+
+def style_node(state: AgentState) -> dict:
+    # ... 现有代码：计算 12 维 ...
+    
+    # ========== 对话冲量调制 ==========
+    turn = state.get("turn_count_in_session") or 1
+    big5 = state.get("bot_big_five") or {}
+    e = float(big5.get("extraversion", 0.0) or 0.0)  # 0~1
+    
+    # 人格 × 阶段 → 冲量参数（e 已在 0~1 范围）
+    sustain = int(5 + 3 * max(0, min(1, e)))
+    half_life = int(12 + 6 * max(0, min(1, e)))
+    floor = 0.3 + 0.15 * max(0, min(1, e))
+    if stage_index >= 3 and stage_index <= 5:
+        half_life = int(half_life * 1.5)
+        floor = min(0.6, floor + 0.1)
+    elif stage_index >= 7:
+        half_life = max(4, half_life // 2)
+        floor = max(0.15, floor - 0.1)
+    
+    momentum = _momentum_curve(turn, sustain=sustain, half_life=half_life, floor=floor)
+    
+    # 冲量调制系数：momentum=1.0 时无影响，momentum=0.3 时最大抑制
+    m_factor = 0.5 + 0.5 * momentum  # 0.65 ~ 1.0 的乘数
+    
+    # 对受影响的维度施加冲量衰减
+    verbal_length   = _clip01(verbal_length * m_factor)
+    initiative      = _clip01(initiative * m_factor)
+    tone_temperature = _clip01(tone_temperature * (0.6 + 0.4 * momentum))  # 热情衰减更明显
+    wit_and_humor   = _clip01(wit_and_humor * m_factor)
+    emotional_display = _clip01(emotional_display * (0.7 + 0.3 * momentum))
+    
+    # 保存冲量值供 task_planner 使用
+    # ... 返回时加入 ...
+    return {
+        "style": {
+            # ... 现有字段 ...
+            "conversation_momentum": round(momentum, 3),
+        },
+        "conversation_momentum": round(momentum, 3),
+        "llm_instructions": { ... },
+    }
+```
+
+#### 4. Task Planner：用冲量影响 word_budget 和任务选择
+
+在 `task_planner.py` 的 LLM system prompt 中注入冲量信息：
+
+```python
+# 在构建 planner prompt 时加入：
+momentum = state.get("conversation_momentum", 1.0)
+prompt += f"""
+- 对话冲量(conversation_momentum): {momentum:.2f}
+  冲量说明：1.0=对话刚开始精力充沛，越低说明聊得越久越倦怠。
+  当冲量 < 0.5 时：
+    - word_budget 建议不超过 30（除非话题非常重要）
+    - 减少追问类任务（clarify/ask_scope），除非理解置信度很低
+    - 不主动开新话题
+  当冲量 < 0.3 时：
+    - word_budget 建议不超过 20
+    - 仅执行必要的回应，不附加任何额外内容
+"""
+```
+
+#### 5. Detection 节点：冲量低时减少 immediate_tasks 产出
+
+在 `detection.py` 的 system prompt 中加入冲量上下文：
+
+```python
+momentum = state.get("conversation_momentum", 1.0)
+# 在 system prompt 中追加：
+if momentum < 0.5:
+    system_content += f"""
+注意：当前对话冲量为 {momentum:.2f}（较低），bot 精力有限。
+- 仅在 understanding_confidence < 0.5 或 importance > 0.7 时才生成 immediate_tasks
+- 避免产出"好奇驱动"的追问任务
+- low_effort 的阈值可以适当放宽（bot 自己也在降低投入）
+"""
+```
+
+#### 6. Processor 节点：冲量低时减少分段
+
+在 `processor.py` 的 `_calculate_dynamics_modifiers` 中：
+
+```python
+def _calculate_dynamics_modifiers(self) -> Dict[str, float]:
+    # ... 现有代码 ...
+    
+    # 冲量调制：低冲量 → 少分段、回复更紧凑
+    momentum = _clip01(float(self.state.get("conversation_momentum", 1.0) or 1.0))
+    frag_tendency *= momentum  # 冲量低时减少碎片化
+    
+    return {
+        "speed_factor": ...,
+        "fragmentation_tendency": _clamp(float(frag_tendency), 0.0, 1.0),
+        # ...
+    }
+```
+
+#### 7. 「冲量恢复」：用户发来高质量消息时反弹
+
+冲量不应只降不升。当用户发来一条有意思的、高 friendly 的、能激活新话题的消息时，冲量应该**局部反弹**：
+
+```python
+# 在 style_node 中，对 momentum 做信号调制：
+detection_scores = (state.get("detection_signals") or {}).get("scores") or {}
+friendly = detection_scores.get("friendly", 0.0)
+low_effort = detection_scores.get("low_effort", 0.0)
+
+# 用户高质量输入 → 冲量回弹
+momentum_boost = 0.15 * friendly - 0.10 * low_effort
+momentum = min(1.0, momentum + momentum_boost)
+# 用户敷衍 → 加速衰减
+if low_effort > 0.6:
+    momentum *= 0.85
+```
+
+---
+
+### 完整流程示意
+
+```
+Turn 1:  momentum=1.00 → verbal_length=0.52, initiative=0.48, word_budget=50
+Turn 3:  momentum=1.00 → (维持高位)
+Turn 7:  momentum=0.89 → verbal_length=0.49, initiative=0.45, word_budget=45
+Turn 12: momentum=0.72 → verbal_length=0.43, initiative=0.39, word_budget=35
+Turn 20: momentum=0.48 → verbal_length=0.35, initiative=0.31, word_budget=25
+Turn 30: momentum=0.35 → verbal_length=0.30, initiative=0.27, word_budget=20
+```
+
+### 设计要点总结
+
+1. **状态变量**：`turn_count_in_session` + `conversation_momentum` 加入 `AgentState`
+2. **衰减曲线**：指数衰减 + 人格/阶段参数化（外向 → 慢衰减，疏远 → 快衰减）
+3. **作用点**：`style` 节点（核心）、`task_planner`（word_budget）、`detection`（任务产出）、`processor`（分段）
+4. **反馈机制**：用户高质量输入 → 冲量局部反弹；用户敷衍 → 加速衰减
+5. **不破坏现有架构**：冲量是一个**乘数调制器**，叠加在现有 style 公式之上，不改变已有的关系/情绪/阶段驱动逻辑

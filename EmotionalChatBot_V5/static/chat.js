@@ -440,8 +440,7 @@ async function selectBot(botId) {
         
         const data = await response.json();
         if (data.status === 'ready') {
-            // 刷新页面进入聊天界面
-            window.location.href = '/';
+            window.location.href = '/chat/' + encodeURIComponent(botId);
         }
     } catch (error) {
         console.error('选择bot失败:', error);
@@ -471,8 +470,8 @@ async function resumeByUserId() {
             return;
         }
         const data = await response.json();
-        if (data.status === 'ready') {
-            window.location.href = '/';
+        if (data.status === 'ready' && data.bot_id) {
+            window.location.href = '/chat/' + encodeURIComponent(data.bot_id);
         }
     } catch (error) {
         console.error('恢复会话失败:', error);

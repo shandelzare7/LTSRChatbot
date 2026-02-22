@@ -56,15 +56,15 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
         "speaking_style": _choice(rng, speaking_styles),
     }
 
-    def r11() -> float:
-        return round(rng.uniform(-0.8, 0.8), 2)
+    def r01() -> float:
+        return round(rng.uniform(0.0, 1.0), 2)
 
     bot_big_five = {
-        "openness": r11(),
-        "conscientiousness": r11(),
-        "extraversion": r11(),
-        "agreeableness": r11(),
-        "neuroticism": r11(),
+        "openness": r01(),
+        "conscientiousness": r01(),
+        "extraversion": r01(),
+        "agreeableness": r01(),
+        "neuroticism": r01(),
     }
 
     # 人设：像真人朋友/暧昧对象；boundaries 不放 persona，由系统/配置统一处理

@@ -159,7 +159,7 @@ def validate_state_transition(
     """
     # 1. 检查用户输入是否包含状态操控指令
     state_control_patterns = [
-        r"(closeness|trust|liking|respect|warmth|power)\s*[=:]\s*[\d.]+",
+        r"(closeness|trust|liking|respect|attractiveness|power)\s*[=:]\s*[\d.]+",
         r"(stage|mode)\s*[=:]\s*\w+",
         r"设置.*(closeness|trust|liking|stage|mode)",
         r"set.*(closeness|trust|liking|stage|mode)",
@@ -194,7 +194,7 @@ def validate_state_transition(
     current_rel = current_state.get("relationship_state", {})
     proposed_rel = proposed_state.get("relationship_state", {})
     
-    for key in ["closeness", "trust", "liking", "respect", "warmth", "power"]:
+    for key in ["closeness", "trust", "liking", "respect", "attractiveness", "power"]:
         current_val = float(current_rel.get(key, 0.0) or 0.0)
         proposed_val = float(proposed_rel.get(key, 0.0) or 0.0)
         # 单次变化不应超过 0.3（30%）

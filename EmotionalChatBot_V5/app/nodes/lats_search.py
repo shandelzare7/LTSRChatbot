@@ -8,9 +8,10 @@ from utils.tracing import trace_if_enabled
 
 from app.lats.prompt_utils import build_style_profile
 from app.lats.requirements import compile_requirements
-from app.lats.search import lats_search_best_plan
+from app.lats.search import lats_search_best_plan, _compile_reply_plan_to_text_plan
 from app.lats.reply_planner import plan_reply_via_llm
 from app.lats.evaluator import hard_gate
+from utils.external_text import strip_candidate_prefix
 
 import re
 
@@ -32,42 +33,15 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
                 "requirements",
                 "style_profile",
                 "reply_plan",
-                "processor_plan",
                 "sim_report",
                 "lats_tree",
                 "lats_best_id",
                 "lats_rollouts",
                 "final_response",
-                "final_segments",
-                # 任务结算闭环（由 ReplyPlanner/LATS 输出，供 evolver 使用）
-                "attempted_task_ids",
-                "completed_task_ids",
             ]
         },
     )
     def node(state: AgentState) -> Dict[str, Any]:
-        # Mode 早停检查：如果 mode 禁用 LATS，直接返回空响应
-        mode = state.get("current_mode") or {}
-        budget = (mode.get("lats_budget") if isinstance(mode, dict) else getattr(mode, "lats_budget", None)) or {}
-        enabled = budget.get("enabled", True) if isinstance(budget, dict) else (getattr(budget, "enabled", True) if budget else True)
-        
-        if not enabled:
-            # mute：不跑任何搜索，不生成多消息
-            # 返回空字符串作为最终输出
-            print("[LATS] Mode 禁用 LATS，跳过搜索（mute_mode 早停）")
-            return {
-                "reply_plan": {"mode": "mute", "messages": []},
-                "processor_plan": {"messages": []},
-                "final_response": "",  # 空回复
-                "sim_report": {
-                    "eval_score": 1.0,
-                    "found_solution": True,
-                    "failed_checks": [],
-                    "score_breakdown": {"mode_noop": 1.0},
-                },
-                "lats_tree": {"disabled": True},
-            }
-        
         # 1) compile requirements/style_profile
         requirements = compile_requirements(state)
         style_profile = build_style_profile(state)
@@ -120,20 +94,15 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
             state.get("lats_expand_k") is not None and int(state.get("lats_expand_k") or 0) <= 0
         ):
             print("[LATS] rollouts/expand_k=0：跳过搜索（直接用根计划一次生成）")
-            rp = plan_reply_via_llm(
-                merged,
-                llm_invoker,
-                max_messages=1,
-            )
-            proc = {"messages": list((rp or {}).get("messages") or [])}
+            rp = plan_reply_via_llm(merged, llm_invoker)
+            proc = _compile_reply_plan_to_text_plan(rp or {}, max_messages=1)
             failures = hard_gate(proc, requirements)
-            final_segments = list(proc.get("messages") or [])
-            final_text = " ".join([str(x) for x in final_segments]).strip()
+            final_segments = [strip_candidate_prefix(str(x)) for x in (proc.get("messages") or [])]
+            final_text = " ".join(final_segments).strip()
             return {
                 "requirements": requirements,
                 "style_profile": style_profile,
                 "reply_plan": rp,
-                "processor_plan": proc,
                 "sim_report": {
                     "found_solution": len(failures) == 0,
                     "eval_score": 1.0 if len(failures) == 0 else 0.0,
@@ -143,36 +112,30 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
                 "lats_tree": {"skipped": True, "reason": "rollouts_expand_k_zero"},
                 "lats_best_id": "root",
                 "final_response": final_text,
-                "final_segments": final_segments,
             }
 
         # 2.1) 可选：低风险回合跳过 LATS rollout（节省 token、降低污染面）
         # 仅在显式开启时生效（默认不改变线上行为）。
         if bool(state.get("lats_skip_low_risk")):
             ext = str(state.get("external_user_text") or state.get("user_input") or "").strip()
-            composite = (state.get("detection_signals") or {}).get("composite") or {}
+            detection = state.get("detection") or {}
             try:
-                risk = max(float(composite.get("conflict_eff", 0.0) or 0.0), float(composite.get("pressure", 0.0) or 0.0))
+                risk = float(detection.get("hostility_level") or 0) / 10.0
             except Exception:
                 risk = 0.0
             greeting_pat = re.compile(r"^\s*(hi|hello|hey|你好|您好|嗨|哈喽|早上好|中午好|晚上好|晚安).{0,24}$", re.IGNORECASE)
             is_greeting = bool(ext) and bool(greeting_pat.match(ext))
             if stage_id in ("initiating", "experimenting") and is_greeting and risk < 0.15:
                 print("[LATS] low-risk 回合：跳过 rollout 搜索，仅用 ReplyPlanner 根计划")
-                rp = plan_reply_via_llm(
-                    merged,
-                    llm_invoker,
-                    max_messages=1,
-                )
-                proc = {"messages": list((rp or {}).get("messages") or [])}
+                rp = plan_reply_via_llm(merged, llm_invoker)
+                proc = _compile_reply_plan_to_text_plan(rp or {}, max_messages=1)
                 failures = hard_gate(proc, requirements)
-                final_segments = list(proc.get("messages") or [])
-                final_text = " ".join([str(x) for x in final_segments]).strip()
+                final_segments = [strip_candidate_prefix(str(x)) for x in (proc.get("messages") or [])]
+                final_text = " ".join(final_segments).strip()
                 return {
                     "requirements": requirements,
                     "style_profile": style_profile,
                     "reply_plan": rp,
-                    "processor_plan": proc,
                     "sim_report": {
                         "found_solution": len(failures) == 0,
                         "eval_score": 1.0 if len(failures) == 0 else 0.0,
@@ -182,14 +145,11 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
                     "lats_tree": {"skipped": True},
                     "lats_best_id": "root",
                     "final_response": final_text,
-                    "final_segments": final_segments,
                 }
 
         # 2) LATS search best ReplyPlan
-        # 规则：state 显式配置优先（便于压测/实验），否则回退到 mode.lats_budget，再回退默认值
+        # 规则：state 显式配置优先（便于压测/实验），否则使用下方 stage 默认值
         lats_budget = None
-        if mode and hasattr(mode, "lats_budget"):
-            lats_budget = mode.lats_budget
 
         rollouts_state = state.get("lats_rollouts")
         expand_k_state = state.get("lats_expand_k")
@@ -234,7 +194,7 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
             llm_soft_scorer=(llm_soft_scorer if enable_llm_soft else None),
             rollouts=rollouts,
             expand_k=expand_k,
-            max_messages=int(requirements.get("max_messages", 5) or 5),
+            max_messages=5,
         )
         
         lats_duration_ms = (time.perf_counter() - lats_start_time) * 1000.0
@@ -250,7 +210,7 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
 
         # 3) finalize outputs (LATS does NOT generate delays/actions)
         if not best_proc_plan:
-            print("[LATS] ⚠ 未找到有效计划，使用 fallback")
+            print("[LATS] ⚠ 未找到有效计划，使用 fallback（可能原因：上游 LLM 异常 402/429/超时、JSON 解析失败或候选未过 Gate，请查看上方 [计划生成]/Evaluator/Gate 日志）")
             # 极端 fallback：不阻断主流程
             text = (state.get("draft_response") or state.get("final_response") or "").strip()
             if not text:
@@ -258,59 +218,23 @@ def create_lats_search_node(llm_invoker: Any, *, llm_soft_scorer: Any = None) ->
                 # 这里给出可读、可定位的降级提示（尤其是上游 402/限流/网络异常时）。
                 text = "（当前模型服务不可用或余额不足，暂时无法生成回复。请管理员检查 API Key/余额后重试。）"
             best_proc_plan = {"messages": [text], "meta": {"source": "lats_fallback"}}
-        final_segments = list(best_proc_plan.get("messages") or [])
-        final_text = " ".join([str(x) for x in final_segments]).strip()
-        
+        final_text = " ".join([strip_candidate_prefix(str(x)) for x in (best_proc_plan.get("messages") or [])]).strip()
         if best_report:
             final_score = best_report.get("eval_score", 0.0)
             final_found = best_report.get("found_solution", False)
-            print(f"[LATS] 最终输出: {len(final_segments)}条消息, score={final_score:.4f}, found={final_found}")
+            print(f"[LATS] 最终输出: score={final_score:.4f}, found={final_found}")
 
         print("[LATS] done")
-        attempted_task_ids: list[str] = []
-        completed_task_ids: list[str] = []
-        try:
-            if isinstance(best_reply_plan, dict):
-                a = best_reply_plan.get("attempted_task_ids")
-                c = best_reply_plan.get("completed_task_ids")
-                if isinstance(a, list):
-                    attempted_task_ids = [str(x) for x in a if str(x).strip()][:8]
-                if isinstance(c, list):
-                    completed_task_ids = [str(x) for x in c if str(x).strip()][:2]
-        except Exception:
-            pass
-
-        # 防御：只允许从 tasks_for_lats 的 id 中回写；并按 task_budget_max 截断 completed
-        try:
-            valid_ids = set()
-            req = requirements if isinstance(requirements, dict) else {}
-            tfl = req.get("tasks_for_lats", []) if isinstance(req, dict) else []
-            if isinstance(tfl, list):
-                for t in tfl:
-                    if isinstance(t, dict) and t.get("id"):
-                        valid_ids.add(str(t.get("id")))
-            if valid_ids:
-                attempted_task_ids = [x for x in attempted_task_ids if x in valid_ids]
-                completed_task_ids = [x for x in completed_task_ids if x in valid_ids]
-            tb = int(req.get("task_budget_max", 2) or 2) if isinstance(req, dict) else 2
-            tb = max(0, min(2, tb))
-            completed_task_ids = completed_task_ids[:tb]
-        except Exception:
-            pass
+        # 任务结算改由 evolver 根据 final_response 判定，此处不写入（由 evolver 写回）
         return {
             "requirements": requirements,
             "style_profile": style_profile,
             "reply_plan": best_reply_plan,
-            "processor_plan": best_proc_plan,
             "sim_report": best_report,
             "lats_tree": tree,
             "lats_best_id": tree.get("best_id") if isinstance(tree, dict) else None,
-            # 用于观测/可调：本节点执行的 rollout 数
             "lats_rollouts": rollouts,
             "final_response": final_text,
-            "final_segments": final_segments,
-            "attempted_task_ids": attempted_task_ids,
-            "completed_task_ids": completed_task_ids,
         }
 
     return node

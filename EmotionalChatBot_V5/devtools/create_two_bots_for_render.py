@@ -64,7 +64,7 @@ async def main() -> None:
     print("使用新方式创建两个 Bot（人设 + 人物侧写 + 个性任务库）")
     print("=" * 60)
 
-    llm = get_llm()
+    llm = get_llm(role="fast")  # 创建 bot 脚本用 gpt-4o-mini
     print(f"LLM: {getattr(llm, 'model_name', 'unknown')}\n")
 
     # 1) LLM 生成两个 Bot 的人设 + 侧写 + 任务库

@@ -19,7 +19,6 @@ _INTERNAL_LEAK_PATTERNS: List[re.Pattern] = [
     re.compile(r"memory_report", re.IGNORECASE),
     re.compile(r"\breplyplan\b", re.IGNORECASE),
     re.compile(r"\breply_plan\b", re.IGNORECASE),
-    re.compile(r"\bprocessor_plan\b", re.IGNORECASE),
     re.compile(r"\bmust_cover_map\b", re.IGNORECASE),
     re.compile(r"\bstage_targets\b", re.IGNORECASE),
     re.compile(r"\bstyle_targets\b", re.IGNORECASE),
@@ -40,6 +39,16 @@ def detect_internal_leak(text: str) -> Tuple[bool, List[str]]:
         if pat.search(s):
             reasons.append(pat.pattern)
     return (len(reasons) > 0), reasons
+
+
+# LATS 多候选时模型可能把 "候选N：" 写进 reply 文本，需在写回 final_response 前去掉
+_CANDIDATE_PREFIX = re.compile(r"^\s*候选\d+[：:]\s*", re.UNICODE)
+
+
+def strip_candidate_prefix(text: str) -> str:
+    """去掉句首「候选N：」或「候选N:」前缀，避免泄漏到用户可见回复。"""
+    s = str(text or "").strip()
+    return _CANDIDATE_PREFIX.sub("", s).strip() or s
 
 
 def sanitize_external_text(text: str) -> str:

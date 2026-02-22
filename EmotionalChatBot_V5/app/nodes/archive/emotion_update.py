@@ -71,7 +71,7 @@ def create_emotion_update_node() -> Callable[[AgentState], dict]:
         Tru = _clip01(float(relationship_state.get("trust", 0.5) or 0.5))
         Lik = _clip01(float(relationship_state.get("liking", 0.5) or 0.5))
         Res = _clip01(float(relationship_state.get("respect", 0.5) or 0.5))
-        War = _clip01(float(relationship_state.get("warmth", 0.5) or 0.5))
+        Att = _clip01(float(relationship_state.get("attractiveness", relationship_state.get("warmth", 0.5)) or 0.5))
         Pow = _clip01(float(relationship_state.get("power", 0.5) or 0.5))
         
         # 从 stage_ctx 提取（0-1）
@@ -92,7 +92,7 @@ def create_emotion_update_node() -> Callable[[AgentState], dict]:
         
         # 2) 6 维关系压成两个"底色轴"
         # 亲和（更容易开心、更宽容）
-        Aff = 0.55 * Lik + 0.25 * War + 0.20 * Clo
+        Aff = 0.55 * Lik + 0.45 * Clo   # attractiveness 暂不参与
         
         # 安全感（不紧绷、能修复、不会随时爆）
         Saf = 0.50 * Tru + 0.35 * Res + 0.15 * Clo

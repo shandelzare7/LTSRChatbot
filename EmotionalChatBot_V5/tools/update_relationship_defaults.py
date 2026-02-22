@@ -40,7 +40,7 @@ async def update_all_relationship_defaults():
         "trust": 0.3,
         "liking": 0.3,
         "respect": 0.3,
-        "warmth": 0.3,
+        "attractiveness": 0.3,
         "power": 0.5
     }
     
@@ -56,7 +56,7 @@ async def update_all_relationship_defaults():
                 
                 # 检查是否需要更新（如果任何维度是 0.0，则更新）
                 needs_update = False
-                for key in ["closeness", "trust", "liking", "respect", "warmth"]:
+                for key in ["closeness", "trust", "liking", "respect", "attractiveness"]:
                     if current_dims.get(key, 0.0) == 0.0:
                         needs_update = True
                         break
@@ -64,7 +64,7 @@ async def update_all_relationship_defaults():
                 if needs_update:
                     # 合并：保留非零值，将 0.0 替换为 0.3
                     new_dims = dict(current_dims)
-                    for key in ["closeness", "trust", "liking", "respect", "warmth"]:
+                    for key in ["closeness", "trust", "liking", "respect", "attractiveness"]:
                         if new_dims.get(key, 0.0) == 0.0:
                             new_dims[key] = 0.3
                     # 确保 power 存在且为 0.5

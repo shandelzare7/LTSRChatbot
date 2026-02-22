@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>选择 Chatbot</title>
+    <link rel="stylesheet" href="/static/b/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+        <h1 class="h1" style="text-align:center; margin-bottom:24px;">选择一个 Chatbot 开始对话</h1>
+        <div class="b-resume">
+            <h3>通过会话ID 恢复之前的会话</h3>
+            <div class="b-resume-row">
+                <input type="text" id="resume-user-id" placeholder="输入会话ID (UUID)..." autocomplete="off" />
+                <button class="btn-primary" type="button" onclick="typeof resumeByUserId === 'function' ? resumeByUserId() : alert('此为演示页，恢复会话请使用正式 B 版 /b')">恢复会话</button>
+            </div>
+        </div>
+        <div id="bot-list" class="bot-list">
+            <div class="bot-card">
+                <div class="bot-card-top">
+                    <div class="avatar">林</div>
+                    <div class="bot-card-body">
+                        <div class="bot-card-name">林静怡</div>
+                        <div class="bot-card-info">年龄: 28 | 职业: 心理咨询师</div>
+                        <div class="bot-card-chips">
+                            <span class="chip">温柔</span>
+                            <span class="chip">倾听</span>
+                            <span class="chip">建议型</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bot-card-actions">
+                    <a href="demo-chat.html" class="btn-primary">开始对话</a>
+                    <button class="icon-btn" type="button" title="分享链接">🔗</button>
+                </div>
+            </div>
+            <div class="bot-card">
+                <div class="bot-card-top">
+                    <div class="avatar">沈</div>
+                    <div class="bot-card-body">
+                        <div class="bot-card-name">沈默言</div>
+                        <div class="bot-card-info">年龄: 29 | 职业: 古籍修复师</div>
+                        <div class="bot-card-chips">
+                            <span class="chip">沉稳</span>
+                            <span class="chip">陪伴</span>
+                            <span class="chip">倾听</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bot-card-actions">
+                    <a href="demo-chat.html" class="btn-primary">开始对话</a>
+                    <button class="icon-btn" type="button" title="分享链接">🔗</button>
+                </div>
+            </div>
+            <div class="bot-card">
+                <div class="bot-card-top">
+                    <div class="avatar">苏</div>
+                    <div class="bot-card-body">
+                        <div class="bot-card-name">苏絮</div>
+                        <div class="bot-card-info">年龄: 22 | 职业: 自由插画师(居家)</div>
+                        <div class="bot-card-chips">
+                            <span class="chip">活泼</span>
+                            <span class="chip">创意</span>
+                            <span class="chip">建议型</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bot-card-actions">
+                    <a href="demo-chat.html" class="btn-primary">开始对话</a>
+                    <button class="icon-btn" type="button" title="分享链接">🔗</button>
+                </div>
+            </div>
+            <div class="bot-card">
+                <div class="bot-card-top">
+                    <div class="avatar">阿</div>
+                    <div class="bot-card-body">
+                        <div class="bot-card-name">阿澈</div>
+                        <div class="bot-card-info">年龄: 21 | 职业: 产品</div>
+                        <div class="bot-card-chips">
+                            <span class="chip">理性</span>
+                            <span class="chip">建议型</span>
+                            <span class="chip">陪伴</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bot-card-actions">
+                    <a href="demo-chat.html" class="btn-primary">开始对话</a>
+                    <button class="icon-btn" type="button" title="分享链接">🔗</button>
+                </div>
+            </div>
+            <div class="bot-card">
+                <div class="bot-card-top">
+                    <div class="avatar">陆</div>
+                    <div class="bot-card-body">
+                        <div class="bot-card-name">陆燃</div>
+                        <div class="bot-card-info">年龄: 24 | 职业: 脱口秀演员/自媒体博主</div>
+                        <div class="bot-card-chips">
+                            <span class="chip">搞笑</span>
+                            <span class="chip">活泼</span>
+                            <span class="chip">建议型</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bot-card-actions">
+                    <a href="demo-chat.html" class="btn-primary">开始对话</a>
+                    <button class="icon-btn" type="button" title="分享链接">🔗</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

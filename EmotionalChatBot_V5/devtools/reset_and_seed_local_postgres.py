@@ -124,7 +124,7 @@ async def main() -> None:
             "trust": 3,
             "liking": 6,
             "respect": 50,
-            "warmth": 10,
+            "attractiveness": 10,
             "power": 50,
         },
         "mood_state": {"pleasure": 0.1, "arousal": 0.2, "dominance": 0.0, "busyness": 0.0},

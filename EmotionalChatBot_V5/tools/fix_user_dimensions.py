@@ -3,7 +3,7 @@ fix_user_dimensions.py
 
 修复数据库中 users.dimensions 的量纲与缺失字段问题：
 - 统一到 0-1 范围（兼容旧 points=0-100 写入）
-- 补齐缺失 key（closeness/trust/liking/respect/warmth/power）
+- 补齐缺失 key（closeness/trust/liking/respect/attractiveness/power），attractiveness 继承原 warmth
 - 钳位到 [0,1]
 
 用法：
@@ -59,16 +59,19 @@ async def fix_user_dimensions() -> int:
             users = (await session.execute(select(User))).scalars().all()
             for u in users:
                 dims_in: Dict[str, Any] = dict(u.dimensions or {})
+                if dims_in.get("warmth") is not None and "attractiveness" not in dims_in:
+                    dims_in["attractiveness"] = dims_in["warmth"]
                 dims_out: Dict[str, float] = {}
                 for k, default in (
                     ("closeness", 0.3),
                     ("trust", 0.3),
                     ("liking", 0.3),
                     ("respect", 0.3),
-                    ("warmth", 0.3),
+                    ("attractiveness", 0.3),
                     ("power", 0.5),
                 ):
-                    dims_out[k] = round(_norm01(dims_in.get(k, default)), 4)
+                    val = dims_in.get(k, dims_in.get("warmth" if k == "attractiveness" else None, default))
+                    dims_out[k] = round(_norm01(val), 4)
 
                 if dims_out != dims_in:
                     u.dimensions = dims_out

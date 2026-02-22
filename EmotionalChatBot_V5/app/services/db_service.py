@@ -40,7 +40,7 @@ class DatabaseService:
     USER_IMPRESSION_KEYS = [
         "respect",
         "liking",
-        "warmth",
+        "attractiveness",
         "power_distance",
         "cooperativeness",
         "supportiveness",

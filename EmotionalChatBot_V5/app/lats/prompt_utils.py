@@ -68,13 +68,15 @@ def build_system_memory_block(state: Dict[str, Any]) -> str:
     return "\n\n".join(parts) if parts else "（无）"
 
 
-def build_style_profile(state: Dict[str, Any]) -> Dict[str, Any]:
-    """Prefer explicit style_profile, fallback to llm_instructions."""
+def build_style_profile(state: Dict[str, Any]) -> Any:
+    """Prefer explicit style_profile, fallback to llm_instructions（可为 12 维 dict 或 V5 自然语言 prompt 字符串）。"""
     sp = state.get("style_profile")
     if isinstance(sp, dict) and sp:
         return sp
     ins = state.get("llm_instructions")
-    return ins if isinstance(ins, dict) else {}
+    if isinstance(ins, dict) or isinstance(ins, str):
+        return ins
+    return {}
 
 
 def get_chat_buffer_body_messages(state: Dict[str, Any], limit: int = 20):
@@ -84,6 +86,25 @@ def get_chat_buffer_body_messages(state: Dict[str, Any], limit: int = 20):
         return list(chat_buffer[-limit:])
     except Exception:
         return []
+
+
+def get_chat_buffer_body_messages_with_time_slices(state: Dict[str, Any], limit: int = 20):
+    """
+    Return chat_buffer as message objects for LLM body, with TIME_SLICE markers
+    inserted between messages when gap/day_part rules are met (8-block day_part,
+    gap >= 16h/4h/2h+part_changed). Markers are SystemMessage metadata, not shown to user.
+    """
+    try:
+        from utils.time_context import inject_time_slices_into_messages
+    except Exception:
+        return get_chat_buffer_body_messages(state, limit=limit)
+
+    chat_buffer = state.get("chat_buffer") or []
+    try:
+        window = list(chat_buffer[-limit:])
+    except Exception:
+        window = []
+    return inject_time_slices_into_messages(window)
 
 
 def safe_text(x: Any) -> str:
@@ -103,23 +124,13 @@ def summarize_state_for_planner(state: Dict[str, Any]) -> str:
     mood = state.get("mood_state") or {}
     rel = state.get("relationship_state") or {}
     stage_id = state.get("current_stage") or "experimenting"
-    # 怎么演：仅阶段角色/目标/策略，供 planner 用
     stage_desc = format_stage_act_for_llm(stage_id)
-    mode = state.get("current_mode")
-    mode_id = getattr(mode, "id", None) if mode else None
-    crit = None
-    if mode and hasattr(mode, "critic_criteria"):
-        crit_obj = mode.critic_criteria
-        if hasattr(crit_obj, "focus"):
-            crit = crit_obj.focus if isinstance(crit_obj.focus, list) else None
     return "\n".join(
         [
             f"- bot_name: {safe_text(bot.get('name') or 'Bot')}",
             f"- stage: {stage_desc}",
             f"- mood_state: {safe_text(mood)}",
             f"- relationship_state: {safe_text(rel)}",
-            f"- mode_id: {safe_text(mode_id) if mode_id else '（无）'}",
-            f"- mode_critic_criteria: {safe_text(crit) if crit else '（无）'}",
         ]
     )
 

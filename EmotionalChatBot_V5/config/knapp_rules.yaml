@@ -1,106 +1,113 @@
 # ==============================================================================
-# Knapp's Relationship Stage Rules (Full 6-Dimensions + SPT)
+# Knapp's Relationship Stage Rules (6-Dim + SPT + Profile)
+# Redesign: 切换依据 = 6维 + SPT depth/breadth + user profile 充实度
 # ==============================================================================
 
 settings:
-  power_balance_threshold: 0.3   # 权力差超过 0.3 视为失衡 (0-1 范围)
-  jump_delta_threshold: 0.25     # 单次分数变化超过 0.25 视为冲击事件 (0-1 范围)
+  power_balance_threshold: 0.3  # power=用户强势程度(0-1)，偏离0.5过多则否决升级
+  jump_delta_threshold: 0.25
+  # Hysteresis: 防止阶段抖动
+  growth_confirm_turns: 2  # 满足升级条件连续 2 轮才晋升
+  decay_confirm_turns: 3   # 满足降级条件连续 3 轮才降级（除非 critical_signals 直接触发）
 
 stages:
-  # ----------------------------------------------------------------------------
-  # Phase 1: 上行期 (Coming Together)
-  # 逻辑：Entry(准入) + Veto(否决)
-  # ----------------------------------------------------------------------------
+  # ---------- Coming Together ----------
   initiating:
     order: 1
     next_up: experimenting
     next_down: terminating
-    # 刚认识没啥要求，只要不被拉黑
+    up_entry:
+      min_scores: { closeness: 0.12, trust: 0.08, liking: 0.18 }
+      min_spt_depth: 1
+      min_topic_breadth: 2
+      min_profile_fields: 1
+      min_user_turns: 3
+    up_min_scores:
+      min_scores: { respect: 0.08 }
     decay_triggers:
-      max_scores: {closeness: 0.0}
+      max_scores: { closeness: 0.0 }
 
   experimenting:
     order: 2
     next_up: intensifying
     next_down: initiating
-    # 晋升要求：聊得来(Liking) + 有点信任(Trust) + 话题够宽
     up_entry:
-      min_scores: {closeness: 0.15, trust: 0.10, liking: 0.20}
+      min_scores: { closeness: 0.12, trust: 0.08, liking: 0.18 }
       min_spt_depth: 1
-      min_topic_breadth: 3
-    # 否决权：如果在这个阶段就表现出不尊重，不能升级
-    up_veto:
-      min_scores: {respect: 0.10}
+      min_topic_breadth: 2
+      min_profile_fields: 1
+    up_min_scores:
+      min_scores: { respect: 0.08 }
+    decay_triggers:
+      max_scores: { liking: 0.05, trust: 0.05 }
 
   intensifying:
     order: 3
     next_up: integrating
     next_down: experimenting
-    # 晋升要求：亲密增加 + 开始自我暴露(Depth 2)
     up_entry:
-      min_scores: {closeness: 0.45, trust: 0.35, warmth: 0.35}
+      min_scores: { closeness: 0.40, trust: 0.32, attractiveness: 0.32, liking: 0.28 }
       min_spt_depth: 2
-      required_signals: ["self_disclosure"]
-    # 否决权：必须要有点温情
-    up_veto:
-      min_scores: {warmth: 0.30}
+      min_topic_breadth: 3
+      min_profile_fields: 3
+    up_min_scores:
+      min_scores: { attractiveness: 0.28, respect: 0.12 }
+    decay_triggers:
+      max_scores: { closeness: 0.30, trust: 0.28 }
+      spt_behavior: "depth_reduction"
 
   integrating:
     order: 4
     next_up: bonding
     next_down: differentiating
-    # 晋升要求：高信任 + 核心暴露(Depth 3) + "我们"感
     up_entry:
-      min_scores: {closeness: 0.75, trust: 0.70, liking: 0.70}
+      min_scores: { closeness: 0.72, trust: 0.68, liking: 0.68, respect: 0.45 }
       min_spt_depth: 3
-      required_signals: ["we_talk"]
-    # 否决权 (关键)：权力必须基本平衡，不能是主仆关系
-    up_veto:
+      min_profile_fields: 5
+    up_min_scores:
       check_power_balance: true
-      min_scores: {respect: 0.50}
+      min_scores: { respect: 0.48 }
+    decay_triggers:
+      max_scores: { trust: 0.50 }
+      spt_behavior: "depth_reduction"
 
   bonding:
     order: 5
     next_up: null
     next_down: differentiating
-    # 衰退触发器 (从 Bonding 跌落)
     decay_triggers:
       conditional_drop:
         condition: "closeness > 0.70"
-        triggers: {respect: 0.50, warmth: 0.40, liking: 0.50}
-        critical_signals: ["need_space", "contempt"]
+        triggers: { respect: 0.50, attractiveness: 0.40, liking: 0.50 }
+        min_triggered: 2  # 三项里至少满足 2 项才触发衰退
 
-  # ----------------------------------------------------------------------------
-  # Phase 2: 下行期 (Coming Apart)
-  # 逻辑：Decay(衰退特征) + Depenetration(深度回撤)
-  # ----------------------------------------------------------------------------
+  # ---------- Coming Apart ----------
   differentiating:
     order: 6
     next_up: integrating
     next_down: circumscribing
     decay_triggers:
-      max_scores: {trust: 0.50}
+      max_scores: { trust: 0.45 }
       spt_behavior: "depth_reduction"
 
   circumscribing:
     order: 7
     next_down: stagnating
     decay_triggers:
-      max_scores: {warmth: 0.20}
+      max_scores: { attractiveness: 0.18 }
       spt_behavior: "breadth_reduction"
 
   stagnating:
     order: 8
     next_down: avoiding
     decay_triggers:
-      max_scores: {liking: 0.10, respect: 0.10}
+      max_scores: { liking: 0.08, respect: 0.08 }
 
   avoiding:
     order: 9
     next_down: terminating
     decay_triggers:
-      max_scores: {closeness: 0.10}
-      critical_signals: ["ghosting", "block"]
+      max_scores: { closeness: 0.08 }
 
   terminating:
     order: 10

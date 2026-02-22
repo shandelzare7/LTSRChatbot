@@ -9,6 +9,8 @@ from app.lats.evaluator import (
     judge_dimension_mood_busy_batch_via_llm,
     judge_dimension_relationship_batch_via_llm,
     judge_dimension_stage_batch_via_llm,
+    judge_dimension_strategy_batch_via_llm,
+    judge_dimension_task_completion_batch_via_llm,
 )
 from app.lats.reply_planner import plan_reply_candidates_via_llm, plan_reply_via_llm
 from app.state import ProcessorPlan, ReplyPlan, SimReport
@@ -43,8 +45,16 @@ def _judge_cache_key_from_proc(proc: Dict[str, Any]) -> str:
 def _compile_reply_plan_to_text_plan(reply_plan: ReplyPlan, *, max_messages: int) -> ProcessorPlan:
     """
     LATS no longer generates/uses delays/actions. For judging, only keep text messages[].
-    Accepts either planner's string messages or dict messages with {content}.
+    Converts ReplyPlan (now with single "reply" field) to ProcessorPlan.
+    The reply text will be split by processor later, so we put it as a single message here.
     """
+    # 优先从 reply 字段获取完整文本（新格式）
+    reply_text = (reply_plan or {}).get("reply")
+    if isinstance(reply_text, str) and reply_text.strip():
+        # 新格式：完整文本，processor 会负责分割
+        return {"messages": [reply_text.strip()]}
+    
+    # 回退到旧格式：从 messages 数组获取（向后兼容）
     msgs_raw = (reply_plan or {}).get("messages") or []
     out: List[str] = []
     if isinstance(msgs_raw, list):
@@ -57,7 +67,9 @@ def _compile_reply_plan_to_text_plan(reply_plan: ReplyPlan, *, max_messages: int
                 t = str(m).strip()
             if t:
                 out.append(t)
-    return {"messages": out}
+    
+    # 如果没有找到任何消息，返回空数组
+    return {"messages": out if out else []}
 
 
 def lats_search_best_plan(
@@ -94,13 +106,22 @@ def lats_search_best_plan(
     try:
         k = int(state.get("lats_candidate_k", 8) or 8)
     except Exception:
-        k = 8
+        k = 10
     k = max(2, min(16, k))
     try:
         # 0 = disable re-plan/regenerate; only pick best within the first planning round
         max_regens = int(state.get("lats_max_regens", 0) or 0)
     except Exception:
         max_regens = 0
+    # 按策略 route_path 覆盖 reply_planner 重规划上限：hybrid=0 次，normal_eval=1 次，deep_lats=2 次
+    route_path = (state.get("current_strategy") or {}).get("route_path") or ""
+    if route_path == "hybrid":
+        max_regens = 0
+    elif route_path == "normal_eval":
+        max_regens = 1
+    elif route_path == "deep_lats":
+        max_regens = 2
+    # 若 state 显式设置了 lats_max_regens 且未走上述 route_path，已在上方读取；此处仅按 path 覆盖
     max_regens = max(0, min(5, max_regens))
     try:
         pass_rate_min = float(state.get("lats_gate_pass_rate_min", 0.5) or 0.5)
@@ -113,15 +134,30 @@ def lats_search_best_plan(
     except Exception:
         final_threshold = 0.6
 
-    # weights for 3 judges
+    # weights for 5 judges (rel, stage, mood, task, strategy)
     try:
-        w_rel = float(state.get("lats_dim_w_relationship", 1.0 / 3.0) or (1.0 / 3.0))
-        w_stage = float(state.get("lats_dim_w_stage", 1.0 / 3.0) or (1.0 / 3.0))
-        w_mood = float(state.get("lats_dim_w_mood_busy", 1.0 / 3.0) or (1.0 / 3.0))
+        w_rel = float(state.get("lats_dim_w_relationship", 0.20) or 0.20)
+        w_stage = float(state.get("lats_dim_w_stage", 0.20) or 0.20)
+        w_mood = float(state.get("lats_dim_w_mood_busy", 0.20) or 0.20)
+        w_task = float(state.get("lats_dim_w_task_completion", 0.20) or 0.20)
+        w_strategy = float(state.get("lats_dim_w_strategy", 0.20) or 0.20)
     except Exception:
-        w_rel, w_stage, w_mood = (1.0 / 3.0), (1.0 / 3.0), (1.0 / 3.0)
-    s = max(1e-6, w_rel + w_stage + w_mood)
-    w_rel, w_stage, w_mood = w_rel / s, w_stage / s, w_mood / s
+        w_rel, w_stage, w_mood, w_task, w_strategy = 0.20, 0.20, 0.20, 0.20, 0.20
+
+    tasks_for_lats = requirements.get("tasks_for_lats") or []
+    has_urgent = False
+    if isinstance(tasks_for_lats, list):
+        for t in tasks_for_lats:
+            if isinstance(t, dict) and (t.get("is_urgent") or t.get("task_type") == "urgent"):
+                has_urgent = True
+                break
+    if has_urgent:
+        urgent_task_weight_boost = float(state.get("lats_dim_w_urgent_task_boost", 0.20) or 0.20)
+        w_task = w_task + urgent_task_weight_boost
+        print(f"[LATS_V2] Urgent tasks detected, boosting task_completion weight: {w_task:.2f}")
+
+    s = max(1e-6, w_rel + w_stage + w_mood + w_task + w_strategy)
+    w_rel, w_stage, w_mood, w_task, w_strategy = w_rel / s, w_stage / s, w_mood / s, w_task / s, w_strategy / s
 
     print(f"\n[LATS_V2] k={k}, max_regens={max_regens}, pass_rate_min={pass_rate_min:.2f}, threshold={final_threshold:.2f}")
 
@@ -132,6 +168,8 @@ def lats_search_best_plan(
     rel_cache: Dict[str, Dict[str, Any]] = {}
     stage_cache: Dict[str, Dict[str, Any]] = {}
     mood_cache: Dict[str, Dict[str, Any]] = {}
+    task_cache: Dict[str, Dict[str, Any]] = {}
+    strategy_cache: Dict[str, Dict[str, Any]] = {}
 
     def _regen_hints_from_gate(gates: List[Dict[str, Any]], *, limit: int = 4) -> str:
         """
@@ -180,7 +218,7 @@ def lats_search_best_plan(
                     out2.append(k2)
             return out2
 
-        rel_low = _low_keys(rel.get("sub_scores"), ["warmth", "trust", "closeness", "respect", "liking", "power"])
+        rel_low = _low_keys(rel.get("sub_scores"), ["attractiveness", "trust", "closeness", "respect", "liking", "power"])
         if rel_low:
             hints.append("关系维度更贴合（重点关注：" + ",".join(rel_low[:3]) + "）")
 
@@ -206,13 +244,13 @@ def lats_search_best_plan(
             state,
             llm_planner,
             k=int(k),
-            max_messages=int(max_messages),
             extra_constraints_text=extra_constraints_text,
             global_guidelines=None,
+            gen_round=gen_round,
         )
 
         if not cands:
-            rp = plan_reply_via_llm(state, llm_planner, max_messages=int(max_messages))
+            rp = plan_reply_via_llm(state, llm_planner, gen_round=gen_round)
             if not rp:
                 return None, None, None, {"error": "planner_failed"}
             proc = _compile_reply_plan_to_text_plan(rp, max_messages=int(max_messages))
@@ -403,12 +441,55 @@ def lats_search_best_plan(
                         mood_cache[k2] = r2
             return out
 
-        with ThreadPoolExecutor(max_workers=3) as ex:
+        def _run_task_batch() -> Dict[int, Dict[str, Any]]:
+            need = []
+            out: Dict[int, Dict[str, Any]] = {}
+            for it in batch:
+                k2 = it.get("key") or ""
+                idx2 = int(it.get("idx") or 0)
+                if k2 and k2 in task_cache:
+                    out[idx2] = task_cache[k2]
+                else:
+                    need.append(it)
+            if need and llm_soft_scorer:
+                got = judge_dimension_task_completion_batch_via_llm(state, llm_soft_scorer, need, requirements)
+                for it2 in need:
+                    idx2 = int(it2.get("idx") or 0)
+                    k2 = it2.get("key") or ""
+                    r2 = got.get(idx2) or {}
+                    out[idx2] = r2
+                    if k2:
+                        task_cache[k2] = r2
+            return out
+
+        def _run_strategy_batch() -> Dict[int, Dict[str, Any]]:
+            need = []
+            out: Dict[int, Dict[str, Any]] = {}
+            for it in batch:
+                k2 = it.get("key") or ""
+                idx2 = int(it.get("idx") or 0)
+                if k2 and k2 in strategy_cache:
+                    out[idx2] = strategy_cache[k2]
+                else:
+                    need.append(it)
+            if need and llm_soft_scorer:
+                got = judge_dimension_strategy_batch_via_llm(state, llm_soft_scorer, need, requirements)
+                for it2 in need:
+                    idx2 = int(it2.get("idx") or 0)
+                    k2 = it2.get("key") or ""
+                    r2 = got.get(idx2) or {}
+                    out[idx2] = r2
+                    if k2:
+                        strategy_cache[k2] = r2
+            return out
+
+        with ThreadPoolExecutor(max_workers=5) as ex:
             futs = {
-                # Propagate current-node context into worker threads so [LLM_CALL] can show node=lats_search.
                 ex.submit(contextvars.copy_context().run, _run_rel_batch): "rel",
                 ex.submit(contextvars.copy_context().run, _run_stage_batch): "stage",
                 ex.submit(contextvars.copy_context().run, _run_mood_batch): "mood",
+                ex.submit(contextvars.copy_context().run, _run_task_batch): "task",
+                ex.submit(contextvars.copy_context().run, _run_strategy_batch): "strategy",
             }
             batch_res: Dict[str, Dict[int, Dict[str, Any]]] = {}
             for fut in as_completed(futs):
@@ -420,11 +501,17 @@ def lats_search_best_plan(
                 "rel": (batch_res.get("rel") or {}).get(idx) or {},
                 "stage": (batch_res.get("stage") or {}).get(idx) or {},
                 "mood": (batch_res.get("mood") or {}).get(idx) or {},
+                "task": (batch_res.get("task") or {}).get(idx) or {},
+                "strategy": (batch_res.get("strategy") or {}).get(idx) or {},
             }
             s_rel = _score_field(res.get("rel") or {})
             s_stage = _score_field(res.get("stage") or {})
             s_mood = _score_field(res.get("mood") or {})
-            final_score = _clamp01(w_rel * s_rel + w_stage * s_stage + w_mood * s_mood)
+            s_task = _score_field(res.get("task") or {})
+            s_strategy = _score_field(res.get("strategy") or {})
+            final_score = _clamp01(
+                w_rel * s_rel + w_stage * s_stage + w_mood * s_mood + w_task * s_task + w_strategy * s_strategy
+            )
 
             item["layer2"] = res
             item["final_score"] = final_score
@@ -444,6 +531,8 @@ def lats_search_best_plan(
             rel_sub = ((layer2.get("rel") or {}).get("sub_scores") or {}) if isinstance(layer2.get("rel"), dict) else {}
             stage_sub = ((layer2.get("stage") or {}).get("sub_scores") or {}) if isinstance(layer2.get("stage"), dict) else {}
             mood_sub = ((layer2.get("mood") or {}).get("sub_scores") or {}) if isinstance(layer2.get("mood"), dict) else {}
+            task_sub = ((layer2.get("task") or {}).get("sub_scores") or {}) if isinstance(layer2.get("task"), dict) else {}
+            strategy_sub = ((layer2.get("strategy") or {}).get("sub_scores") or {}) if isinstance(layer2.get("strategy"), dict) else {}
 
             def _sub(d: Any, k2: str) -> float:
                 try:
@@ -452,6 +541,13 @@ def lats_search_best_plan(
                 except Exception:
                     pass
                 return 0.0
+
+            s_rel_b = round(float((layer2.get("rel") or {}).get("score", 0.0) or 0.0), 3)
+            s_stage_b = round(float((layer2.get("stage") or {}).get("score", 0.0) or 0.0), 3)
+            s_mood_b = round(float((layer2.get("mood") or {}).get("score", 0.0) or 0.0), 3)
+            s_task_b = round(float((layer2.get("task") or {}).get("score", 0.0) or 0.0), 3)
+            s_strategy_b = round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 3)
+            print(f"[LATS 5-judge] best rel={s_rel_b} stage={s_stage_b} mood={s_mood_b} task={s_task_b} strategy={s_strategy_b} weighted_final={best_score:.3f}")
 
             rep_ok: Dict[str, Any] = {
                 "found_solution": True,
@@ -468,7 +564,7 @@ def lats_search_best_plan(
                     "judge_rel_trust": round(_sub(rel_sub, "trust"), 4),
                     "judge_rel_liking": round(_sub(rel_sub, "liking"), 4),
                     "judge_rel_respect": round(_sub(rel_sub, "respect"), 4),
-                    "judge_rel_warmth": round(_sub(rel_sub, "warmth"), 4),
+                    "judge_rel_attractiveness": round(_sub(rel_sub, "attractiveness"), 4),
                     "judge_rel_power": round(_sub(rel_sub, "power"), 4),
                     "judge_stage": round(float((layer2.get("stage") or {}).get("score", 0.0) or 0.0), 4),
                     "judge_stage_stage_goal_alignment": round(_sub(stage_sub, "stage_goal_alignment"), 4),
@@ -480,9 +576,17 @@ def lats_search_best_plan(
                     "judge_mood_arousal": round(_sub(mood_sub, "arousal"), 4),
                     "judge_mood_dominance": round(_sub(mood_sub, "dominance"), 4),
                     "judge_mood_busyness": round(_sub(mood_sub, "busyness"), 4),
+                    "judge_task_completion": round(float((layer2.get("task") or {}).get("score", 0.0) or 0.0), 4),
+                    "judge_task_overall_completion": round(_sub(task_sub, "overall_completion"), 4),
+                    "judge_task_urgent_tasks_completed": round(_sub(task_sub, "urgent_tasks_completed"), 4),
+                    "judge_task_normal_tasks_completed": round(_sub(task_sub, "normal_tasks_completed"), 4),
+                    "judge_strategy": round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 4),
+                    "judge_strategy_fit": round(_sub(strategy_sub, "strategy_fit"), 4),
                     "w_rel": round(w_rel, 4),
                     "w_stage": round(w_stage, 4),
                     "w_mood_busy": round(w_mood, 4),
+                    "w_task_completion": round(w_task, 4),
+                    "w_strategy": round(w_strategy, 4),
                 },
                 "llm_status": "ok",
                 "llm_details": {

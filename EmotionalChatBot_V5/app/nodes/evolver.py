@@ -1,8 +1,10 @@
 """
+evolver.py
+
 6维关系演化引擎 (Relationship Engine)
 
 动静分离：
-- 静态的"信号判断标准"放在 `config/relationship_signals.yaml`
+- 静态的“信号判断标准”放在 `config/relationship_signals.yaml`
 - 动态的 State 由本模块处理
 
 双层处理：
@@ -12,10 +14,12 @@
 说明：
 - 本文件对应 LangGraph 节点名：`evolver`（与文件名保持一致）。
 - evolver 节点内部顺序执行：Analyzer -> Updater（强绑定，避免拆成两个节点造成混淆）。
+- 注意：用户基础信息/画像抽取已迁移至 memory_manager，本文件不再做 basic_info / inferred_profile 写入。
 """
 
+from __future__ import annotations
+
 import json
-import random
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List
@@ -25,28 +29,113 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from app.state import AgentState
 from src.schemas import RelationshipAnalysis
 from src.prompts.relationship import build_analyzer_prompt
-from utils.tracing import trace_if_enabled
 from utils.llm_json import parse_json_from_llm
+from utils.tracing import trace_if_enabled
 
 
-REL_DIMS = ("closeness", "trust", "liking", "respect", "warmth", "power")
+REL_DIMS = ("closeness", "trust", "liking", "respect", "attractiveness", "power")
+
+# ============================================================================
+# 仅用于“6维数值校准”的参数（不引入额外参数/不新增功能）
+# ============================================================================
+REL_HI_CAP = 0.98  # 避免 1.0 顶格饱和锁死（DB里写了1.0也会被收口）
+
+# Analyzer 输出 -3..+3 的“每级”基础增量（量纲核心旋钮）
+# 取 0.06：+1=0.06, +3=0.18（之后还会过阻尼 + stage倍率 + max_step）
+# ═══════════════════════════════════════════════════════════════════════════
+# 速率控制：只需调整这一个值即可改变所有关系变化速率
+# ═══════════════════════════════════════════════════════════════════════════
+RATE_MULTIPLIER = 5.0  # 速率倍率：1.0=原始速率，10.0=10倍速率，0.5=0.5倍速率
+
+# Analyzer 输出 -3..+3 的"每级"基础增量（量纲核心旋钮）
+# 基准值：+1=0.006, +3=0.018（之后还会过阻尼 + stage倍率 + max_step）
+# 实际值 = 基准值 × RATE_MULTIPLIER
+DELTA_UNIT_BASE = 0.006
+DELTA_UNIT = DELTA_UNIT_BASE * RATE_MULTIPLIER
+
+# 按阶段对“正向推进”减速：对齐你给的轮次估算（早期快、后期极慢）
+_STAGE_UP_MULT = {
+    "initiating": 0.50,      # 10–40 轮级别
+    "experimenting": 0.22,   # 60–200 轮级别
+    "intensifying": 0.13,    # 200–600 轮级别
+    "integrating": 0.014,    # 600–2000 轮级别
+    "bonding": 0.006,        # bonding 后几乎不再继续“变更亲密”
+}
+
+# 负向变化允许更快（背叛/冲突下降通常比上升快）
+_STAGE_DOWN_MULT = {
+    "initiating": 1.00,
+    "experimenting": 1.05,
+    "intensifying": 1.10,
+    "integrating": 1.15,
+    "bonding": 1.20,
+}
+
+# 每轮每维最大步长（最终写回前的硬帽，进一步避免“几轮冲顶”）
+# 基准值，实际值 = 基准值 × RATE_MULTIPLIER
+_MAX_STEP_UP_BASE = {
+    "closeness": 0.012,
+    "trust": 0.012,
+    "liking": 0.014,
+    "respect": 0.010,
+    "attractiveness": 0.014,
+    "power": 0.010,
+}
+_MAX_STEP_DOWN_BASE = {
+    "closeness": 0.030,
+    "trust": 0.035,
+    "liking": 0.032,
+    "respect": 0.030,
+    "attractiveness": 0.032,
+    "power": 0.020,
+}
+
+# 应用速率倍率
+_MAX_STEP_UP = {k: v * RATE_MULTIPLIER for k, v in _MAX_STEP_UP_BASE.items()}
+_MAX_STEP_DOWN = {k: v * RATE_MULTIPLIER for k, v in _MAX_STEP_DOWN_BASE.items()}
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 
+def _stage_key(x: Any) -> str:
+    s = str(x or "").strip().lower()
+    if not s:
+        return "experimenting"
+    if s == "initiation":
+        return "initiating"
+    if s == "experimentation":
+        return "experimenting"
+    if s == "intensification":
+        return "intensifying"
+    if s == "integration":
+        return "integrating"
+    if s == "termination":
+        return "terminating"
+    return s
+
+
 def _ensure_relationship_defaults(state: Dict[str, Any]) -> Dict[str, Any]:
     s = dict(state)
     rel = dict(s.get("relationship_state") or {})
-    rel.setdefault("closeness", 0.3)  # 默认值 0.3（而非 0.0）
+    rel.setdefault("closeness", 0.3)
     rel.setdefault("trust", 0.3)
     rel.setdefault("liking", 0.3)
     rel.setdefault("respect", 0.3)
-    rel.setdefault("warmth", 0.3)
+    # attractiveness 继承原 warmth（平滑过渡，若数据库已清洗可酌情移除）
+    rel.setdefault("attractiveness", rel.get("warmth", 0.3))
     rel.setdefault("power", 0.5)
-    s["relationship_state"] = rel
 
+    # 关键：把 DB 里潜在的 1.0 收口到 REL_HI_CAP，避免饱和锁死
+    for k in REL_DIMS:
+        try:
+            rel[k] = float(rel.get(k, 0.5))
+        except Exception:
+            rel[k] = 0.5
+        rel[k] = round(_clamp(rel[k], 0.0, REL_HI_CAP), 4)
+
+    s["relationship_state"] = rel
     s.setdefault("mood_state", {"pleasure": 0.0, "arousal": 0.0, "dominance": 0.0, "busyness": 0.0})
     s.setdefault("current_stage", "experimenting")
     s.setdefault("user_input", s.get("user_input") or "")
@@ -56,30 +145,25 @@ def _ensure_relationship_defaults(state: Dict[str, Any]) -> Dict[str, Any]:
 def calculate_damped_delta(current_score: float, raw_delta: float) -> float:
     """
     阻尼公式：实现边际收益递减和背叛惩罚。
-    - 正向：越高越难涨
-    - 负向：高信任/高亲密被破坏时更痛（背叛惩罚）
-    
-    注意：current_score 和返回值都是 0-1 范围。
-    raw_delta 也是 0-1 范围的增量（例如 0.1 表示 +10%）。
     """
     try:
         cs = float(current_score)
     except Exception:
-        cs = 0.5  # 0-1 范围的中性值
+        cs = 0.5
     try:
         rd = float(raw_delta)
     except Exception:
         rd = 0.0
 
     if rd > 0:
-        if cs >= 0.9:  # 0-1 范围的高值
+        if cs >= 0.9:
             return rd * 0.1
         if cs >= 0.6:
             return rd * 0.5
         return rd * 1.0
 
     if rd < 0:
-        if cs >= 0.8:  # 0-1 范围的高值
+        if cs >= 0.8:
             return rd * 1.5
         return rd * 1.0
 
@@ -88,23 +172,28 @@ def calculate_damped_delta(current_score: float, raw_delta: float) -> float:
 
 def _normalize_delta(x: Any) -> float:
     """
-    统一 delta 量纲：relationship_state 为 0-1，增量也需在合理步长内。
-    Analyzer 按 prompt/schema 输出 -3..+3 整数（0 无变化，±1 轻微，±2 中等，±3 强烈），
-    此处统一映射到 ±0.3：先按 -3..3 归一化，再兼容其它量纲。
+    统一 delta 量纲：Analyzer 按 schema 输出 -3..+3 整数。
+    这里把 -3..+3 映射到 [-DELTA_UNIT*3, +DELTA_UNIT*3]（再经阻尼+stage倍率+max_step）。
+    实际值会根据 RATE_MULTIPLIER 自动调整。
     """
     try:
         v = float(x)
     except Exception:
         return 0.0
-    # 先处理 Analyzer 标准输出：-3..+3 整档 → 步长 -0.3..+0.3（与 prompt/schema 一致）
+
+    # 主路径：-3..+3
     if -3.0 <= v <= 3.0:
-        return v / 10.0
-    # 已是 0-1 或 ±1 内的小数（其它来源）则原样
+        return float(v * DELTA_UNIT)
+
+    # 兼容：模型偶尔输出 [-1,1] 小数 → 视作 [-3,3] 的缩放
     if abs(v) <= 1.0:
-        return v
+        return float(_clamp(v * 3.0, -3.0, 3.0) * DELTA_UNIT)
+
+    # 兼容：百分制/异常值
     if abs(v) <= 100.0:
-        return v / 100.0
-    return float(_clamp(v, -1.0, 1.0))
+        return float(_clamp(v / 10.0, -3.0, 3.0) * DELTA_UNIT)
+
+    return float(_clamp(v, -3.0, 3.0) * DELTA_UNIT)
 
 
 _GREETING_PAT = re.compile(
@@ -120,7 +209,6 @@ def _is_low_info_greeting(text: str) -> bool:
     t = str(text or "").strip()
     if not t:
         return False
-    # 过长通常不是纯寒暄
     if len(t) > 32:
         return False
     return bool(_GREETING_PAT.match(t))
@@ -129,6 +217,7 @@ def _is_low_info_greeting(text: str) -> bool:
 # -------------------------------------------------------------------
 # Node 1: Analyzer (LLM) —— 只分析，不改分
 # -------------------------------------------------------------------
+
 
 def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     @trace_if_enabled(
@@ -139,75 +228,60 @@ def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState]
     )
     def node(state: AgentState) -> dict:
         safe = _ensure_relationship_defaults(state)
-        sys_prompt = build_analyzer_prompt(safe)  # 已含 summary + retrieved 记忆
+
+        sys_prompt = build_analyzer_prompt(safe)
         user_msg = safe.get("user_input") or ""
-        # chat_buffer 分条放正文，非 system
+
         chat_buffer = safe.get("chat_buffer") or []
         body_messages = list(chat_buffer[-20:])
 
-        # LLM 输出：严格 JSON，先用 parse_json_from_llm 抽取，失败时打日志并用 fallback
         raw = ""
-        data = None
+        data: Dict[str, Any] | None = None
+        analysis = None
         try:
-            resp = llm_invoker.invoke(
-                [SystemMessage(content=sys_prompt), *body_messages, HumanMessage(content=user_msg)]
-            )
-            raw = (getattr(resp, "content", str(resp)) or "").strip()
-            raw = str(raw) if raw else ""
-            data = parse_json_from_llm(raw) if raw else None
-            if data is None and raw:
-                data = json.loads(raw)
-        except Exception as e:
-            pass
-        if data is None:
-            preview = (raw[:200] + "…") if len(raw) > 200 else raw
-            print(f"[Relationship Analyzer] parse error (raw empty or invalid JSON), preview: {preview!r}")
-            data = {
-                "thought_process": "Fallback: unable to parse model output; assume neutral.",
-                "detected_signals": [],
-                "deltas": {k: 0 for k in REL_DIMS},
-            }
-
-        # Pydantic 校验
-        try:
-            analysis = RelationshipAnalysis.model_validate(data)  # pydantic v2
+            if hasattr(llm_invoker, "with_structured_output"):
+                structured = llm_invoker.with_structured_output(RelationshipAnalysis)
+                analysis = structured.invoke(
+                    [SystemMessage(content=sys_prompt), *body_messages, HumanMessage(content=user_msg)]
+                )
         except Exception:
-            # pydantic v1 兼容
-            analysis = RelationshipAnalysis.parse_obj(data)  # type: ignore[attr-defined]
+            analysis = None
+        if analysis is None:
+            try:
+                resp = llm_invoker.invoke(
+                    [SystemMessage(content=sys_prompt), *body_messages, HumanMessage(content=user_msg)]
+                )
+                raw = (getattr(resp, "content", str(resp)) or "").strip()
+                raw = str(raw) if raw else ""
+                data = parse_json_from_llm(raw) if raw else None
+                if data is None and raw:
+                    data = json.loads(raw)
+            except Exception:
+                data = None
+
+            if data is None:
+                preview = (raw[:200] + "…") if len(raw) > 200 else raw
+                print(f"[Relationship Analyzer] parse error (raw empty or invalid JSON), preview: {preview!r}")
+                data = {
+                    "thought_process": "Fallback: unable to parse model output; assume neutral.",
+                    "detected_signals": [],
+                    "deltas": {k: 0 for k in REL_DIMS},
+                    "completed_task_ids": [],
+                    "attempted_task_ids": [],
+                }
+
+            try:
+                analysis = RelationshipAnalysis.model_validate(data)
+            except Exception:
+                analysis = RelationshipAnalysis.parse_obj(data)  # type: ignore[attr-defined]
 
         analysis_dict = analysis.model_dump() if hasattr(analysis, "model_dump") else analysis.dict()
         deltas_dict = analysis.deltas.model_dump() if hasattr(analysis.deltas, "model_dump") else analysis.deltas.dict()
 
-        result: Dict[str, Any] = {
+        return {
             "latest_relationship_analysis": analysis_dict,
-            "relationship_deltas": deltas_dict,  # raw deltas（-3..3）
+            "relationship_deltas": deltas_dict,
         }
-
-        # --- User Profiling: merge basic_info_updates & new_inferred_entries ---
-        basic_updates = analysis_dict.get("basic_info_updates") or {}
-        inferred_updates = analysis_dict.get("new_inferred_entries") or {}
-        if basic_updates and isinstance(basic_updates, dict):
-            existing_basic = dict(safe.get("user_basic_info") or {})
-            for k in ("name", "age", "gender", "occupation", "location"):
-                new_val = basic_updates.get(k)
-                if new_val is not None and str(new_val).strip():
-                    old_val = existing_basic.get(k)
-                    if old_val is None or (isinstance(old_val, str) and not old_val.strip()):
-                        existing_basic[k] = new_val
-            result["user_basic_info"] = existing_basic
-        if inferred_updates and isinstance(inferred_updates, dict):
-            existing_profile = dict(safe.get("user_inferred_profile") or {})
-            for k, v in inferred_updates.items():
-                if isinstance(k, str) and k.strip() and isinstance(v, str) and v.strip():
-                    existing_profile[k.strip()] = v.strip()
-            result["user_inferred_profile"] = existing_profile
-        # 可观测：本轮是否写入了画像
-        if basic_updates or inferred_updates:
-            b_keys = list(basic_updates.keys()) if isinstance(basic_updates, dict) else []
-            i_keys = list(inferred_updates.keys()) if isinstance(inferred_updates, dict) else []
-            print(f"[Evolver] user profiling: basic_info_updates={b_keys}, new_inferred_entries={i_keys}")
-
-        return result
 
     return node
 
@@ -215,6 +289,7 @@ def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState]
 # -------------------------------------------------------------------
 # Node 2: Updater (Math) —— 应用阻尼公式，更新 relationship_state
 # -------------------------------------------------------------------
+
 
 def create_relationship_updater_node() -> Callable[[AgentState], dict]:
     @trace_if_enabled(
@@ -228,56 +303,69 @@ def create_relationship_updater_node() -> Callable[[AgentState], dict]:
 
         rel: Dict[str, float] = dict(safe.get("relationship_state") or {})
         raw_deltas = safe.get("relationship_deltas") or {}
+
+        stage = _stage_key(safe.get("current_stage"))
+        up_mult = float(_STAGE_UP_MULT.get(stage, _STAGE_UP_MULT["experimenting"]))
+        down_mult = float(_STAGE_DOWN_MULT.get(stage, 1.05))
+
         user_text = str(safe.get("user_input") or "").strip()
         try:
             conv_len = len(list(safe.get("chat_buffer") or []))
         except Exception:
             conv_len = 0
 
-        # 低信息寒暄闸门：避免把礼貌性问候当成强积极信号，导致 liking/warmth 一上来顶格跳变
         greeting_gate = _is_low_info_greeting(user_text) and conv_len <= 2
 
         applied: Dict[str, float] = {}
         for dim in REL_DIMS:
-            score = float(rel.get(dim, 0.5))  # 0-1 范围，默认 0.5
+            score = float(rel.get(dim, 0.5))
+            score = _clamp(score, 0.0, REL_HI_CAP)
+
             raw_val = raw_deltas.get(dim, 0)
             raw_delta = _normalize_delta(raw_val)
 
             if greeting_gate:
-                # 对"喜欢/温暖/尊重"的正向增量降权（礼貌寒暄 ≠ 强烈欣赏）
-                if dim in ("liking", "warmth", "respect") and raw_delta > 0:
-                    raw_delta *= 0.35
-                # 对"熟悉/信任"给极小稳定增量（更符合现实：先熟一点，再慢慢喜欢）
+                # attractiveness 暂不参与门控判断
+                if dim in ("liking", "respect") and raw_delta > 0:
+                    raw_delta *= 0.25
+                # 保留轻微启动意图，但按新量纲缩小
                 if dim in ("closeness", "trust") and abs(raw_delta) < 1e-6:
-                    raw_delta = 0.02
+                    raw_delta = 0.003 * RATE_MULTIPLIER
 
             if raw_delta == 0.0:
                 applied[dim] = 0.0
                 continue
 
             real_change = float(calculate_damped_delta(score, raw_delta))
-            # 进一步保护：寒暄阶段不允许 liking/warmth 发生"大跃迁"
-            if greeting_gate and dim in ("liking", "warmth", "respect") and real_change > 0:
-                real_change = min(real_change, 0.06)
-            new_score = _clamp(score + real_change, 0.0, 1.0)  # 0-1 范围
-            rel[dim] = round(new_score, 4)  # 保留更多小数位
+
+            # 阶段倍率：只依赖 current_stage
+            if real_change > 0:
+                real_change *= up_mult
+                lim = float(_MAX_STEP_UP.get(dim, _MAX_STEP_UP_BASE.get(dim, 0.012) * RATE_MULTIPLIER))
+                real_change = _clamp(real_change, -lim, lim)
+            else:
+                real_change *= down_mult
+                lim = float(_MAX_STEP_DOWN.get(dim, _MAX_STEP_DOWN_BASE.get(dim, 0.030) * RATE_MULTIPLIER))
+                real_change = _clamp(real_change, -lim, lim)
+
+            if greeting_gate and dim in ("liking", "respect") and real_change > 0:
+                real_change = min(real_change, 0.008 * RATE_MULTIPLIER)
+
+            new_score = _clamp(score + real_change, 0.0, REL_HI_CAP)
+            rel[dim] = round(new_score, 4)
             applied[dim] = round(real_change, 4)
 
         if greeting_gate:
-            print(f"[Evolver] greeting_gate applied (conv_len={conv_len}, user_input={user_text!r})")
-        print("[Evolver] done")
-        return {
-            "relationship_state": rel,
-            "relationship_deltas_applied": applied,
-        }
+            print(f"[Evolver] greeting_gate applied (stage={stage}, conv_len={conv_len}, user_input={user_text!r})")
+        return {"relationship_state": rel, "relationship_deltas_applied": applied}
 
     return node
 
 
 # -------------------------------------------------------------------
-# Relationship Engine (Analyzer -> Updater) —— 对外只暴露一个节点，避免混淆
-# 位置建议：processor 之后（更新下一轮关系分数，不影响当前轮生成）
+# Relationship Engine (Analyzer -> Updater)
 # -------------------------------------------------------------------
+
 
 def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     analyzer = create_relationship_analyzer_node(llm_invoker)
@@ -295,11 +383,10 @@ def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], 
                 "relationship_state",
             ]
         },
-            )
+    )
     def node(state: AgentState) -> dict:
-        out = {}
+        out: Dict[str, Any] = {}
         out.update(analyzer(state))
-        # Updater 需要读取 analyzer 写入的 deltas / analysis，所以把 state+out 合并后再算
         merged = dict(state)
         merged.update(out)
         out.update(updater(merged))
@@ -309,20 +396,42 @@ def create_relationship_engine_node(llm_invoker: Any) -> Callable[[AgentState], 
 
 
 # -------------------------------------------------------------------
-# 任务完成检测与会话池更新
-# 纯 Python 逻辑：依赖 LATS/ReplyPlanner 回写的 completed_task_ids / attempted_task_ids，
-# 不额外调用 LLM。
+# 任务完成检测与会话池更新（原样保留）
 # -------------------------------------------------------------------
 
-def _detect_completed_tasks_and_replenish(
-    state: Dict[str, Any],
-    llm_invoker: Any,
-) -> Dict[str, Any]:
-    """
-    根据 LATS/ReplyPlanner 回写的 completed_task_ids / attempted_task_ids 结算任务；
-    移除已完成的，对 backlog 类型的从 bot_task_list 也移除；
-    递补：再补 backlog 进 current_session_tasks（daily 不进入持久化池）。
-    """
+
+# 规则兜底：Bot 回复中若包含「问名字」语义，则视为 ask_user_name 已完成（不依赖 Analyzer JSON）
+_ASK_NAME_PAT = re.compile(
+    r"(你|您)(叫|称呼|贵姓)|怎么(称呼|叫你)|(请问|能问一下)(你|您)(的)?(名字|称呼)|叫什么名字"
+)
+
+
+def _get_task_completion_from_analysis(state: Dict[str, Any]) -> tuple:
+    analysis = state.get("latest_relationship_analysis") or {}
+    completed = analysis.get("completed_task_ids")
+    attempted = analysis.get("attempted_task_ids")
+
+    completed_ids = {str(x) for x in (completed or []) if str(x).strip()}
+    attempted_ids = {str(x) for x in (attempted or []) if str(x).strip()}
+
+    # 规则兜底：若本轮 Bot 回复中明确出现「问名字」语义，则视为 ask_user_name 已完成
+    bot_text = (state.get("final_response") or state.get("draft_response") or "").strip()
+    if not bot_text and isinstance(state.get("final_segments"), list):
+        bot_text = " ".join(str(s or "").strip() for s in state.get("final_segments") or []).strip()
+    if bot_text and _ASK_NAME_PAT.search(bot_text):
+        completed_ids = completed_ids | {"ask_user_name"}
+        attempted_ids = attempted_ids | {"ask_user_name"}
+
+    tasks_for_lats = state.get("tasks_for_lats") or []
+    if isinstance(tasks_for_lats, list):
+        all_ids = {str(t.get("id")) for t in tasks_for_lats if isinstance(t, dict) and t.get("id")}
+        if not attempted_ids and all_ids:
+            attempted_ids = set(all_ids)
+
+    return (completed_ids, attempted_ids)
+
+
+def _detect_completed_tasks_and_replenish(state: Dict[str, Any]) -> Dict[str, Any]:
     from app.nodes.task_planner import (
         BACKLOG_SESSION_TARGET,
         CURRENT_SESSION_TASKS_CAP,
@@ -332,32 +441,11 @@ def _detect_completed_tasks_and_replenish(
     current_session_tasks: List[Dict[str, Any]] = list(state.get("current_session_tasks") or [])
     bot_task_list: List[Dict[str, Any]] = list(state.get("bot_task_list") or [])
     tasks_for_lats = state.get("tasks_for_lats") or []
-    final_response = (state.get("final_response") or state.get("draft_response") or "").strip()
-    user_input = (state.get("user_input") or "").strip()
 
-    # 使用 LATS/ReplyPlanner 的结构化回写；无结构化字段时保守处理（不额外调 LLM）
-    completed_ids: set = set()
-    attempted_ids: set = set()
-    try:
-        c = state.get("completed_task_ids")
-        a = state.get("attempted_task_ids")
-        if isinstance(c, list):
-            completed_ids = {str(x) for x in c if str(x).strip()}
-        if isinstance(a, list):
-            attempted_ids = {str(x) for x in a if str(x).strip()}
-    except Exception:
-        pass
+    completed_ids, attempted_ids = _get_task_completion_from_analysis(state)
 
-    # attempted_ids fallback：没有显式 attempted，就用 tasks_for_lats 的 id 当作"尝试过"
-    if not attempted_ids and isinstance(tasks_for_lats, list):
-        for t in tasks_for_lats:
-            if isinstance(t, dict) and t.get("id"):
-                attempted_ids.add(str(t.get("id")))
-
-    # 从 current_session_tasks 中移除已完成的
     current_session_tasks = [t for t in current_session_tasks if str(t.get("id")) not in completed_ids]
 
-    # 清理遗留/非法类型：daily 不应进入持久化池；仅允许 backlog/immediate 常驻
     cleaned: List[Dict[str, Any]] = []
     for t in current_session_tasks:
         tt = str(t.get("task_type") or "").strip()
@@ -365,7 +453,6 @@ def _detect_completed_tasks_and_replenish(
             cleaned.append(t)
     current_session_tasks = cleaned
 
-    # 对"尝试过但未完成"的任务加急：attempt_count += 1，last_attempt_at=now（写回 DB 的 bot_task_list）
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
     bumped = 0
     if attempted_ids:
@@ -389,7 +476,6 @@ def _detect_completed_tasks_and_replenish(
             except Exception:
                 pass
 
-    # immediate 任务 TTL：每轮结算时递减；到期则移除（immediate 允许跨轮累加，但不应无限膨胀）
     def _dec_ttl_and_filter(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         out: List[Dict[str, Any]] = []
         for t in tasks:
@@ -402,7 +488,6 @@ def _detect_completed_tasks_and_replenish(
             except Exception:
                 ttl = 0
             if ttl <= 0:
-                # 没有 ttl 的 immediate，默认给 1 轮寿命（避免永久堆积）
                 ttl = 1
             ttl -= 1
             if ttl <= 0:
@@ -414,22 +499,18 @@ def _detect_completed_tasks_and_replenish(
 
     current_session_tasks = _dec_ttl_and_filter(current_session_tasks)
 
-    # 已完成的 backlog 从 bot_task_list 中移除（未完成的会随 save_turn 写回 DB）
-    backlog_task_type = ("backlog",)
     for tid in completed_ids:
         for t in list(bot_task_list):
-            if str(t.get("id")) == tid and (t.get("task_type") or "").strip() in backlog_task_type:
+            if str(t.get("id")) == tid and str(t.get("task_type") or "").strip() == "backlog":
                 bot_task_list.remove(t)
                 break
 
-    # backlog 池容量控制：历史 bug 可能导致 backlog 在 current_session_tasks 中膨胀；
-    # 这里强制收敛到固定目标数，只在"数量不足"时补齐。
     backlog_items = [t for t in current_session_tasks if str(t.get("task_type") or "").strip() == "backlog"]
     immediate_items = [t for t in current_session_tasks if str(t.get("task_type") or "").strip() == "immediate"]
+
     backlog_in_pool = len(backlog_items)
     trimmed_backlog = 0
     if backlog_in_pool > int(BACKLOG_SESSION_TARGET):
-        # 保持稳定：保留最早进入池子的 backlog（列表前面的），其余丢弃
         keep = backlog_items[: int(BACKLOG_SESSION_TARGET)]
         trimmed_backlog = backlog_in_pool - len(keep)
         current_session_tasks = keep + immediate_items
@@ -437,9 +518,9 @@ def _detect_completed_tasks_and_replenish(
         backlog_in_pool = len(backlog_items)
 
     need_backlog = max(0, int(BACKLOG_SESSION_TARGET) - int(backlog_in_pool))
-    added_backlog = 0
     existing_ids = {str(t.get("id")) for t in current_session_tasks if t.get("id")}
     backlog_new = _sample_backlog_excluding(bot_task_list, existing_ids, need_backlog) if need_backlog > 0 else []
+    added_backlog = 0
 
     def _norm(t: Dict[str, Any], prefix: str, i: int) -> Dict[str, Any]:
         return {
@@ -452,7 +533,6 @@ def _detect_completed_tasks_and_replenish(
         current_session_tasks.append(_norm(t, "backlog", len(current_session_tasks)))
         added_backlog += 1
 
-    # carry 硬上限：超过则按 priority + recency 裁剪尾部
     carry_max = int(CURRENT_SESSION_TASKS_CAP)
     if len(current_session_tasks) > carry_max:
         scored: List[tuple] = []
@@ -467,22 +547,15 @@ def _detect_completed_tasks_and_replenish(
                 ac = int(t.get("attempt_count", 0) or 0)
             except Exception:
                 ac = 0
-            # 越大越保留：immediate 优先，其次 attempt_count/importance；recency 用 idx（越靠后越新）
             score = (is_immediate, min(10, ac), imp, idx)
             scored.append((score, str(t.get("id") or ""), idx))
         scored.sort(key=lambda x: x[0], reverse=True)
-        keep_ids = set()
-        # 先选够 carry_max
-        for _, tid, _ in scored[:carry_max]:
-            if tid:
-                keep_ids.add(tid)
-        # 保持原顺序
+        keep_ids = {tid for _, tid, _ in scored[:carry_max] if tid}
         current_session_tasks = [t for t in current_session_tasks if str(t.get("id") or "") in keep_ids]
 
     if len(current_session_tasks) > CURRENT_SESSION_TASKS_CAP:
         current_session_tasks = current_session_tasks[-CURRENT_SESSION_TASKS_CAP:]
 
-    # Debug breadcrumb for logs: task settlement and replenishment
     try:
         if completed_ids or attempted_ids or added_backlog or trimmed_backlog or bumped:
             print(
@@ -493,10 +566,10 @@ def _detect_completed_tasks_and_replenish(
     except Exception:
         pass
 
-    # 紧急任务报告：高亮输出紧急任务完成情况
     try:
         urgent_in_lats = [
-            t for t in (tasks_for_lats or [])
+            t
+            for t in (tasks_for_lats or [])
             if isinstance(t, dict) and (t.get("task_type") == "urgent" or t.get("is_urgent"))
         ]
         if urgent_in_lats:
@@ -510,7 +583,7 @@ def _detect_completed_tasks_and_replenish(
                 f"[URGENT TASK REPORT]  Completed: {sorted(urgent_completed) if urgent_completed else '(none)'}\n"
                 f"[URGENT TASK REPORT]  Attempted but not completed: {sorted(urgent_attempted - urgent_completed) if (urgent_attempted - urgent_completed) else '(none)'}\n"
                 f"[URGENT TASK REPORT]  Not attempted: {sorted(urgent_not_done - urgent_attempted) if (urgent_not_done - urgent_attempted) else '(none)'}\n"
-                f"[URGENT TASK REPORT]  Descriptions: {[t.get('description', '')[:60] for t in urgent_in_lats]}\n"
+                f"[URGENT TASK REPORT]  Descriptions: {[str(t.get('description', '') or '')[:60] for t in urgent_in_lats]}\n"
                 f"[URGENT TASK REPORT] ========================================"
             )
     except Exception:
@@ -519,14 +592,12 @@ def _detect_completed_tasks_and_replenish(
     return {
         "current_session_tasks": current_session_tasks,
         "bot_task_list": bot_task_list,
+        "completed_task_ids": list(completed_ids),
+        "attempted_task_ids": list(attempted_ids),
     }
 
 
 def create_evolver_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
-    """
-    Graph 入口（与文件名一致）：
-    evolver = RelationshipEngine = Analyzer -> Updater，再执行任务完成检测与 current_session_tasks/bot_task_list 更新。
-    """
     base_engine = create_relationship_engine_node(llm_invoker)
 
     @trace_if_enabled(
@@ -541,6 +612,8 @@ def create_evolver_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
                 "relationship_state",
                 "current_session_tasks",
                 "bot_task_list",
+                "completed_task_ids",
+                "attempted_task_ids",
             ]
         },
     )
@@ -548,8 +621,7 @@ def create_evolver_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         out = base_engine(state)
         merged = dict(state)
         merged.update(out)
-        task_updates = _detect_completed_tasks_and_replenish(merged, llm_invoker)
-        out.update(task_updates)
+        out.update(_detect_completed_tasks_and_replenish(merged))
         return out
 
     return node

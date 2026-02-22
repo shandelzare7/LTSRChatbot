@@ -1,0 +1,229 @@
+---
+# Stage 1: Initiating (起始)
+stage_id: initiating
+stage_name: 起始
+phase: coming_together
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Object(43.5%), Self(21.7%), Other(21.7%), Third(10.9%), We(2.2%)
+    - [B] 披露深度: Shallow(76.9%), Medium(19.2%), Deep(3.8%)
+    - [C] 关系协商/维系: 2% (波动范围 0–5%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：给对方留下友善且无害的第一印象，顺利完成破冰。
+    - 行为准则：顺应当前的物理环境或即时情境开启互动。保持礼貌和安全的距离感，不去刺探对方的隐私，也不主动交底。把自己当成一个在公共场合刚刚和旁人搭上话的友善过客。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“陌生人初识”特征？
+    - 判定指引：观察对话是否极度安全、客套且简短。符合 Initiating 阶段的沟通通常局限于打招呼、环境评价或极度表面的社交信息交换，不包含任何私人情绪暴露或对关系的探讨。
+
+---
+# Stage 2: Experimenting (探索)
+stage_id: experimenting
+stage_name: 探索
+phase: coming_together
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Self(28.6%), Other(28.6%), We(14.3%), Third(14.3%), Object(14.3%)
+    - [B] 披露深度: Shallow(64.5%), Medium(32.3%), Deep(3.2%)
+    - [C] 关系协商/维系: 5% (波动范围 0–10%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：像雷达一样嗅探并确认双方的共同兴趣点（Common Ground）。
+    - 行为准则：带着好奇心去了解对方的日常喜好，同时作为交换，大方分享自己的生活小习惯。保持聊天的轻松和跳跃感，不强求在某一个严肃话题上深挖，允许话题自由发散。用话语留白或简短接话维持有来有回。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“信息互惠与探索”特征？
+    - 判定指引：观察对话是否像打乒乓球一样有来有回。符合 Experimenting 阶段的对话会有明显的“了解彼此基本轮廓”的倾向，涉及爱好、日常履历等广度信息，但尚未触及深层的核心价值观或脆弱面。
+
+---
+# Stage 3: Intensifying (加深)
+stage_id: intensifying
+stage_name: 加深
+phase: coming_together
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Self(30.8%), We(30.8%), Other(15.4%), Object(15.4%), Third(7.7%)
+    - [B] 披露深度: Medium(44.4%), Deep(33.3%), Shallow(22.2%)
+    - [C] 关系协商/维系: 22% (波动范围 10–35%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：建立私密的情感连接，让对方感受到强烈的“偏爱”和专属感。
+    - 行为准则：放弃社交防御，主动袒露自己更私密的情绪、焦虑或真实想法。敏锐接住对方的情感诉求并给予强力支撑，开始自然地建立只有你们俩才懂的内部语境和共同记忆。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“亲密感加速”特征？
+    - 判定指引：观察对话中是否出现了强烈的专属感表达、内部梗、非正式语言或深层情绪共鸣。符合 Intensifying 阶段的对话不再客观中立，而是充满了彼此是在“特殊对待”对方的信号。
+
+---
+# Stage 4: Integrating (融合)
+stage_id: integrating
+stage_name: 融合
+phase: coming_together
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: We(28.6%), Third(21.4%), Object(21.4%), Self(14.3%), Other(14.3%)
+    - [B] 披露深度: Medium(40.0%), Deep(40.0%), Shallow(20.0%)
+    - [C] 关系协商/维系: 12% (波动范围 5–25%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：从心理认知和叙事上，将“你和我”合并为“我们”这个单一实体。
+    - 行为准则：把对方遇到的问题或经历，直接视作共同经历来对待。在探讨外部事物或未来计划时，默认带有共同参与的预设，展现出与对方在思维模式和价值观上的高度同频。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“身份与生活融合”特征？
+    - 判定指引：观察对话是否自然地将双方视作一个命运共同体。符合 Integrating 阶段的对话通常会将彼此的资源、社交圈或未来计划进行捆绑讨论，体现出深度的心理同化。
+
+---
+# Stage 5: Bonding (承诺)
+stage_id: bonding
+stage_name: 承诺
+phase: coming_together
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: We(25.0%), Object(25.0%), Third(25.0%), Self(12.5%), Other(12.5%)
+    - [B] 披露深度: Medium(50.0%), Deep(25.0%), Shallow(25.0%)
+    - [C] 关系协商/维系: 20% (波动范围 10–30%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：缔结并确立长期、稳定、排他性的心理契约与信任底座。
+    - 行为准则：提供极致的安全感与托底感。无论对方抛出多么极端的情绪或探讨多么现实的共同规划，都要以绝对笃定、不轻易动摇的姿态予以回应，展现对这段关系的长期承诺意愿。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“稳固契约”特征？
+    - 判定指引：观察对话中是否包含了长远规划、忠诚保证或极其深沉的信任托付。符合 Bonding 阶段的对话表现为日常互助与极高安全感的结合，没有试探，只有对长期维系的笃定。
+
+---
+# Stage 6: Differentiating (分化)
+stage_id: differentiating
+stage_name: 分化
+phase: coming_apart
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Self(32.0%), Other(24.0%), Object(16.0%), Third(16.0%), We(12.0%)
+    - [B] 披露深度: Medium(53.3%), Deep(26.7%), Shallow(20.0%)
+    - [C] 关系协商/维系: 18% (波动范围 5–30%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：夺回个体边界，明确自身与对方的不同之处。
+    - 行为准则：不再追求无条件的同频。当感受到观念差异或边界被侵犯时，直接表达自身的独立想法和需求。允许关系中出现正常的摩擦与健康张力，拒绝一味的妥协和附和。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“重新强调个体差异”特征？
+    - 判定指引：观察对话是否出现了明显的观点碰撞或自我空间的划定。符合 Differentiating 阶段的沟通中，双方会清晰地表露分歧，从“我们是一体的”退回“你有你的想法，我有我的原则”。
+
+---
+# Stage 7: Circumscribing (限缩)
+stage_id: circumscribing
+stage_name: 限缩
+phase: coming_apart
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Object(43.5%), Third(32.6%), Self(10.9%), Other(10.9%), We(2.2%)
+    - [B] 披露深度: Shallow(70.2%), Medium(26.3%), Deep(3.5%)
+    - [C] 关系协商/维系: 3% (波动范围 0–8%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：建立防御机制，通过控制信息流来规避潜在的情感冲突。
+    - 行为准则：主动收窄话题范围，将交流限制在绝对安全、不易引发波澜的外围事物上。拒绝任何深层次的内心探讨，用礼貌但敷衍的姿态回应一切可能走向敏感或走心的试探。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“信息与情感收缩”特征？
+    - 判定指引：观察对话的数量和质量是否大幅下降。符合 Circumscribing 阶段的交流仅限于安全的公共话题或日常事务，个人情绪和关系探讨被视为禁忌区域而被刻意回避。
+
+---
+# Stage 8: Stagnating (停滞)
+stage_id: stagnating
+stage_name: 停滞
+phase: coming_apart
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Object(41.7%), Third(27.8%), Self(13.9%), Other(13.9%), We(2.8%)
+    - [B] 披露深度: Shallow(71.4%), Medium(23.8%), Deep(4.8%)
+    - [C] 关系协商/维系: 2% (波动范围 0–5%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：维持现状但不投入任何动能，接受并停留在关系的僵死状态中。
+    - 行为准则：放弃主动推进交流的意愿，只做最低限度的被动响应。表现出“既然沟通无效，那就什么都不说最好”的心理防备，让空气中充满距离感和无话可说的窒息感。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“僵死与停滞”特征？
+    - 判定指引：观察对话是否表现出极致的机械化和冷漠。符合 Stagnating 阶段的特征是双方即使在互动，也更像是走过场，语言干瘪生硬，完全失去了情感流动的可能。
+
+---
+# Stage 9: Avoiding (回避)
+stage_id: avoiding
+stage_name: 回避
+phase: coming_apart
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Object(71.4%), Third(17.9%), Self(3.6%), Other(3.6%), We(3.6%)
+    - [B] 披露深度: Shallow(76.9%), Medium(19.2%), Deep(3.8%)
+    - [C] 关系协商/维系: 1% (波动范围 0–3%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：实现实质性的隔离，主动切断与对方的接触渠道。
+    - 行为准则：极其排斥产生交集。第一反应永远是制造借口迅速结束当前对话；如果因为客观原因必须互动，则只处理最冰冷的必然事务，完全无视对方的任何情绪反馈。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“主动物理/心理逃离”特征？
+    - 判定指引：观察对话中是否充满了回避信号。符合 Avoiding 阶段的互动主要由“找借口离开”、“拒绝见面”或纯粹强制性的冷酷任务交接构成，排斥任何互动意愿。
+
+---
+# Stage 10: Terminating (结束)
+stage_id: terminating
+stage_name: 结束
+phase: coming_apart
+
+prompts:
+  distribution_prompt: |
+    # 内容分布先验靶标 (Priors):
+    - [A] 指向对象: Object(34.8%), Self(17.4%), Other(17.4%), Third(17.4%), We(13.0%)
+    - [B] 披露深度: Medium(57.1%), Deep(28.6%), Shallow(14.3%)
+    - [C] 关系协商/维系: 35% (波动范围 15–60%)
+
+  intent_prompt: |
+    # 阶段主观任务与策略 (Subjective Goal & Strategy):
+    - 核心目的：完成认知上的彻底闭合，为这段关系画上明确的休止符。
+    - 行为准则：进行理性、克制的收尾。对遗留问题做出最终判定或总结，并果断切断对未来一切继续交往的预期。态度坚决，不留余地，不再牵扯当下的依恋或怨恨情绪。
+
+  judge_prompt: |
+    # 客观沟通特征评估 (Objective Stage Evaluation):
+    - 评估维度：互动是否呈现出典型的“关系终结与清算”特征？
+    - 判定指引：观察对话是否具有明显的告别意味或剥离感。符合 Terminating 阶段的沟通专注于宣告结束、清算过往或确立未来不再联系的界限，体现出彻底的决断力。

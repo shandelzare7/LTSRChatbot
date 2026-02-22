@@ -2,6 +2,8 @@
 Security Response 节点：处理安全风险（注入攻击、AI测试）的回复生成。
 
 当 Detection 节点检测到安全风险时，路由到此节点，跳过 LATS 流程，直接生成最终回复。
+
+【已归档】主图未使用，仅保留供参考/测试。见 app/nodes/archive/README.md
 """
 from __future__ import annotations
 
@@ -32,7 +34,7 @@ def create_security_response_node(llm_invoker: Any) -> Callable[[AgentState], di
     def security_response_node(state: AgentState) -> dict:
         """
         生成安全响应回复。
-        
+
         策略：
         1. 调用 LLM 决定回复方案（问号、质疑AI、质疑用户）
         2. 根据方案生成具体回复
@@ -45,23 +47,19 @@ def create_security_response_node(llm_invoker: Any) -> Callable[[AgentState], di
         security_reasoning = safe_text(security_check.get("reasoning") or "")
         # 与 detection 一致：不做过滤性清洗，只做安全转义
         user_input = safe_text(state.get("user_input") or "")
-        
+
         bot_basic_info = state.get("bot_basic_info") or {}
         bot_name = safe_text(bot_basic_info.get("name") or "我")
         stage_id = str(state.get("current_stage") or "")
         stage_desc = format_stage_for_llm(stage_id, include_judge_hints=True) if stage_id else ""
         bot_big_five = state.get("bot_big_five") or {}
-        
+
         # 全对话历史（到正文）
         history_text = _format_chat_history(state)
 
         detection_ctx = {
             "security_check": security_check,
-            "detection_scores": state.get("detection_scores"),
-            "detection_meta": state.get("detection_meta"),
-            "detection_brief": state.get("detection_brief"),
-            "detection_stage_judge": state.get("detection_stage_judge"),
-            "detection_immediate_tasks": state.get("detection_immediate_tasks"),
+            "detection": state.get("detection"),
         }
 
         # ✅ 一次调用：选策略 + 输出最终回复
@@ -78,7 +76,7 @@ def create_security_response_node(llm_invoker: Any) -> Callable[[AgentState], di
             is_treat_as_assistant=is_treat_as_assistant,
             security_reasoning=security_reasoning,
         )
-        
+
         # ✅ 步骤 3: 直接设置为最终回复（跳过 LATS）
         return {
             "final_response": final_response,
@@ -92,7 +90,7 @@ def create_security_response_node(llm_invoker: Any) -> Callable[[AgentState], di
                 "treat_as_assistant": bool(is_treat_as_assistant),
             },
         }
-    
+
     return security_response_node
 
 

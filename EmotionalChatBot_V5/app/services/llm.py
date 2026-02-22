@@ -7,6 +7,7 @@ Profiling notes:
 """
 import asyncio
 import os
+import sys
 import time
 import contextvars
 from typing import Any, Optional, Type, TypeVar, Literal
@@ -114,17 +115,55 @@ class ServiceTierLLM:
             pass
         return kw
 
+    def _log_elapsed(self, dt_ms: float, node_override: Optional[str] = None) -> None:
+        """当 LTSR_LLM_ELAPSED_LOG=1 时，向 stderr 打一条用时 log。node_override 为入口处捕获的节点名，避免在 finally 中 get_current_node 因线程/异步丢失。"""
+        if not _truthy(os.getenv("LTSR_LLM_ELAPSED_LOG")):
+            return
+        node = (node_override if node_override is not None else get_current_node()) or "?"
+        line = f"[LLM_ELAPSED] node={node} model={self._model} dt_ms={dt_ms:.1f}\n"
+        try:
+            sys.stderr.write(line)
+            sys.stderr.flush()
+        except Exception:
+            pass
+
     def invoke(self, input: Any, **kwargs) -> Any:
-        return self._inner.invoke(input, **self._inject(kwargs))
+        node_capture = get_current_node() or "?"
+        t0 = time.perf_counter()
+        try:
+            return self._inner.invoke(input, **self._inject(kwargs))
+        finally:
+            self._log_elapsed((time.perf_counter() - t0) * 1000.0, node_override=node_capture)
 
     async def ainvoke(self, input: Any, **kwargs) -> Any:
+        node_capture = get_current_node() or "?"
         kw = self._inject(kwargs)
-        if hasattr(self._inner, "ainvoke") and callable(getattr(self._inner, "ainvoke")):
-            return await self._inner.ainvoke(input, **kw)
-        return await asyncio.to_thread(self._inner.invoke, input, **kw)
+        t0 = time.perf_counter()
+        try:
+            if hasattr(self._inner, "ainvoke") and callable(getattr(self._inner, "ainvoke")):
+                return await self._inner.ainvoke(input, **kw)
+            return await asyncio.to_thread(self._inner.invoke, input, **kw)
+        finally:
+            self._log_elapsed((time.perf_counter() - t0) * 1000.0, node_override=node_capture)
+
+    def bind(self, **kwargs: Any) -> "ServiceTierLLM":
+        """返回带绑定参数的包装，使 bound 对象仍支持 with_structured_output，避免 reply_planner 等回退到 raw 解析。"""
+        bound = self._inner.bind(**kwargs) if hasattr(self._inner, "bind") else self._inner
+        return ServiceTierLLM(bound, base_url=self._base_url, model=str(self._model))
 
     def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
-        structured = self._inner.with_structured_output(schema, **kwargs)
+        """对底层 LLM 做结构化输出；若 _inner 是 bind 后的 RunnableBinding，先解包再调用，避免 AttributeError。"""
+        inner = self._inner
+        bind_kwargs: dict = {}
+        # 1. 若 inner 是 RunnableBinding（先 bind 再进到这里），解包出原始 runnable 与绑定的 kwargs
+        if hasattr(inner, "bound") and hasattr(inner, "kwargs"):
+            bind_kwargs = dict(inner.kwargs) if isinstance(getattr(inner, "kwargs"), dict) else {}
+            inner = inner.bound
+        # 2. 对原始 LLM（或已解包后的 runnable）调用 with_structured_output
+        structured = inner.with_structured_output(schema, **kwargs)
+        # 3. 若有 bind 参数（如 temperature），再 bind 回结构化链条
+        if bind_kwargs and hasattr(structured, "bind"):
+            structured = structured.bind(**bind_kwargs)
         return ServiceTierLLM(structured, base_url=self._base_url, model=str(self._model))
 
 
@@ -285,6 +324,10 @@ class TimedLLM:
         self._inner = inner
         self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None)
 
+    def bind(self, **kwargs: Any) -> "TimedLLM":
+        bound = self._inner.bind(**kwargs) if hasattr(self._inner, "bind") else self._inner
+        return TimedLLM(bound)
+
     def invoke(self, input: Any, **kwargs) -> Any:
         return _TimedInvoker(self._inner, label="invoke").invoke(input, **kwargs)
 
@@ -378,6 +421,11 @@ class InstrumentedLLM:
         self._base_url = base_url or ""
         self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None) or model
         self._model = model or self.model_name or "unknown"
+
+    def bind(self, **kwargs: Any) -> "InstrumentedLLM":
+        """保持统计包装的同时绑定温度等参数。"""
+        bound = self._inner.bind(**kwargs) if hasattr(self._inner, "bind") else self._inner
+        return InstrumentedLLM(bound, role=self._role, base_url=self._base_url, model=str(self._model))
 
     def invoke(self, input: Any, **kwargs) -> Any:
         t0 = time.perf_counter()
@@ -630,21 +678,19 @@ def get_llm(
             "temperature": temperature,
             "api_key": key,
         }
-        # Best-effort timeout/retries (provider-dependent). Helps identify "卡死" vs "慢"。
+        # 超时与重试：未配置时使用合理默认，避免瞬时网络错误(如 Connection reset by peer)导致直接失败。
         timeout_s_raw = os.getenv("OPENAI_TIMEOUT_SECONDS", "").strip()
         retries_raw = os.getenv("OPENAI_MAX_RETRIES", "").strip()
         try:
-            timeout_s = float(timeout_s_raw) if timeout_s_raw else None
+            timeout_s = float(timeout_s_raw) if timeout_s_raw else 120.0
         except Exception:
-            timeout_s = None
+            timeout_s = 120.0
         try:
-            max_retries = int(retries_raw) if retries_raw else None
+            max_retries = int(retries_raw) if retries_raw else 3
         except Exception:
-            max_retries = None
-        if timeout_s is not None:
-            kwargs["timeout"] = timeout_s
-        if max_retries is not None:
-            kwargs["max_retries"] = max_retries
+            max_retries = 3
+        kwargs["timeout"] = timeout_s
+        kwargs["max_retries"] = max_retries
         # Allow OpenAI-compatible providers (e.g., DashScope) via base_url.
         # If the underlying client doesn't accept base_url, fall back silently.
         if base_url:
@@ -655,17 +701,22 @@ def get_llm(
             kwargs["http_client"] = http_client
             # Let langchain-openai include response headers in message metadata (best-effort).
             kwargs["include_response_headers"] = True
+        # 构造时传入 service_tier，确保 with_structured_output 等链式调用也会带上（链可能不转发 invoke 的 kwargs）
+        _tier = _service_tier_for_call(model=model_name, base_url=base_url or "")
+        if _tier:
+            kwargs["service_tier"] = _tier
         try:
             llm = ChatOpenAI(**kwargs)  # type: ignore[arg-type]
         except TypeError:
             kwargs.pop("base_url", None)
+            kwargs.pop("service_tier", None)
             # Some versions may not accept timeout/max_retries either.
             kwargs.pop("timeout", None)
             kwargs.pop("max_retries", None)
             kwargs.pop("http_client", None)
             kwargs.pop("include_response_headers", None)
             llm = ChatOpenAI(**kwargs)  # type: ignore[arg-type]
-        # Always inject service_tier for eligible models (independent of stats/profiling flags).
+        # 运行时再包一层 ServiceTierLLM，便于 invoke 时仍可覆盖/注入并统一打耗时 log。
         wrapped: Any = ServiceTierLLM(llm, base_url=base_url or "", model=model_name)
         if _stats_enabled():
             wrapped = InstrumentedLLM(wrapped, role=r, base_url=base_url or "", model=model_name)
@@ -704,7 +755,7 @@ class MockLLM(BaseChatModel):
                     content = (
                         '{"thought_process":"用户表达想聊聊，属于轻度自我暴露与求助信号。总体符合当前阶段。",'
                         '"detected_signals":["展示脆弱性 (在无助时求助)"],'
-                        '"deltas":{"closeness":1,"trust":1,"liking":1,"respect":0,"warmth":1,"power":0}}'
+                        '"deltas":{"closeness":1,"trust":1,"liking":1,"respect":0,"attractiveness":1,"power":0}}'
                     )
                     break
                 if "侧写" in s:

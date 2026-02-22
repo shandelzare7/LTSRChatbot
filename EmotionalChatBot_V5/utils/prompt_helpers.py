@@ -16,7 +16,7 @@ except Exception:
     load_stage_by_id = None
 
 # 6 维 key 顺序（与 state 一致）
-REL_DIM_KEYS = ("closeness", "trust", "liking", "respect", "warmth", "power")
+REL_DIM_KEYS = ("closeness", "trust", "liking", "respect", "attractiveness", "power")
 
 # 未加载 YAML 时的默认中文名与简要说明（0–1 客观语义）
 REL_DIM_DEFAULTS: Dict[str, Dict[str, str]] = {
@@ -24,8 +24,8 @@ REL_DIM_DEFAULTS: Dict[str, Dict[str, str]] = {
     "trust": {"label_zh": "信任", "brief": "可靠性/善意/可预测性确信"},
     "liking": {"label_zh": "喜爱", "brief": "好感/亲近偏好"},
     "respect": {"label_zh": "尊重", "brief": "认可/认真对待/边界承认"},
-    "warmth": {"label_zh": "暖意", "brief": "情感温度底色（冷淡↔温暖）"},
-    "power": {"label_zh": "权力/主导", "brief": "互动姿态的强势程度"},
+    "attractiveness": {"label_zh": "吸引力", "brief": "被吸引程度（无感↔被吸引）"},
+    "power": {"label_zh": "权力/主导", "brief": "用户在与 Bot 互动中的强势程度（越高越强势）"},
 }
 
 # 关系值 0–1 语义锚定：重要提示（防止误读 0）
@@ -180,32 +180,26 @@ def format_stage_for_llm(stage_id: str, include_judge_hints: bool = True) -> str
 
 
 def _format_stage_impl(stage_id: str, include_judge_hints: bool) -> str:
-    """内部实现：act 块为怎么演；可选追加 judge.detection_hints 为怎么判（仅 detection 用）。"""
+    """内部实现：act 块为怎么演（role / stage_goal / system_prompt）；可选追加 judge.content_coding_criteria 为怎么判。"""
     if load_stage_by_id is None:
         return f"阶段ID: {stage_id}"
-    
+
     try:
         stage_config = load_stage_by_id(stage_id)
         if not stage_config:
             return f"阶段ID: {stage_id}"
-        
-        # 怎么演：仅从 act 块取（兼容旧版顶层）
+
         act = stage_config.get("act") or {}
-        role = act.get("role") or stage_config.get("role") or ""
-        stage_goal = act.get("stage_goal") or stage_config.get("stage_goal") or ""
-        strategy = act.get("strategy") or stage_config.get("strategy") or []
-        
+        role = act.get("role") or ""
+        stage_goal = act.get("stage_goal") or ""
+        system_prompt = (act.get("system_prompt") or "").strip()
+
         lines = []
         lines.append(f"**阶段ID**: {stage_id}")
-        
         stage_name = stage_config.get("stage_name") or ""
-        stage_number = stage_config.get("stage_number")
         phase = stage_config.get("phase") or ""
-        
         if stage_name:
             lines.append(f"**阶段名称**: {stage_name}")
-        if stage_number:
-            lines.append(f"**阶段编号**: {stage_number}")
         if phase:
             phase_zh = "关系上升期" if phase == "coming_together" else "关系解体期"
             lines.append(f"**所属阶段**: {phase_zh}")
@@ -213,23 +207,74 @@ def _format_stage_impl(stage_id: str, include_judge_hints: bool) -> str:
             lines.append(f"**角色**: {role}")
         if stage_goal:
             lines.append(f"**阶段目标**: {stage_goal}")
-        if strategy:
+        if system_prompt:
             lines.append("**策略要点**:")
-            if isinstance(strategy, list):
-                for i, s in enumerate(strategy[:5], 1):  # 最多5条
-                    lines.append(f"  {i}. {s}")
-            else:
-                lines.append(f"  {strategy}")
-        
-        # 怎么判：仅 detection 调用时追加 judge.detection_hints
+            lines.append(system_prompt)
+
         if include_judge_hints:
             judge = stage_config.get("judge") or {}
-            hints = judge.get("detection_hints")
-            if hints and isinstance(hints, str) and hints.strip():
-                lines.append("**本阶段判读提示（供语境/越界判断）**:")
-                lines.append(hints.strip())
-        
+            ccc = judge.get("content_coding_criteria")
+            if isinstance(ccc, dict) and ccc:
+                parts = [f"Unit: {ccc.get('unit', 'Message/Turn')}"]
+                for k in ("A_check", "B_check", "C_check"):
+                    if ccc.get(k):
+                        parts.append(f"{k}: {ccc[k]}")
+                if len(parts) > 1:
+                    lines.append("**本阶段判读提示（供语境/越界判断）**:")
+                    lines.append("\n".join(parts))
+
         return "\n".join(lines)
     except Exception as e:
         return f"阶段ID: {stage_id}（加载描述失败: {e}）"
+
+
+def stage_to_knapp_index(stage: Any) -> int:
+    """将 current_stage 字符串或数字映射为 1-10 的 Knapp 阶段索引，与 config/strategies.yaml 的 knapp_stages 一致。"""
+    if stage is None:
+        return 1
+    if isinstance(stage, int):
+        return max(1, min(10, stage))
+    if isinstance(stage, str):
+        s = stage.strip().lower()
+        stage_map = {
+            "initiating": 1,
+            "experimenting": 2,
+            "intensifying": 3,
+            "integrating": 4,
+            "bonding": 5,
+            "differentiating": 6,
+            "circumscribing": 7,
+            "stagnating": 8,
+            "avoiding": 9,
+            "terminating": 10,
+        }
+        if s in stage_map:
+            return stage_map[s]
+        try:
+            return max(1, min(10, int(stage)))
+        except (TypeError, ValueError):
+            pass
+    return 1
+
+
+def knapp_baseline_momentum(stage: Any) -> float:
+    """
+    关系驱动的冷启动基线：根据 Knapp 阶段返回该阶段的默认初始冲量 (0.0~1.0)。
+    用于新 Session（如距上次消息 ≥4h）时重新初始化 conversation_momentum。
+    - Stage 1-2 (初识期): 0.4
+    - Stage 3 (升温期): 0.6
+    - Stage 4-5 (亲密/融合期): 0.8
+    - Stage 6-7 (冷淡/分化期): 0.3
+    - Stage 8-9-10 (停滞/回避/终结期): 0.1
+    """
+    idx = stage_to_knapp_index(stage)
+    if idx <= 2:
+        return 0.4
+    if idx == 3:
+        return 0.6
+    if idx <= 5:
+        return 0.8
+    if idx <= 7:
+        return 0.3
+    return 0.1
 

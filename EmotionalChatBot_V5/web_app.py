@@ -320,10 +320,10 @@ def _truthy(v: Optional[str]) -> bool:
 
 
 def get_graph_fast():
-    """Web fast-return graph: end at final_validator (no tail writes)."""
+    """Web fast-return graph: end at processor (no tail writes)."""
     global _graph_fast
     if _graph_fast is None:
-        _graph_fast = build_graph(entry_point="loader", end_at="final_validator")
+        _graph_fast = build_graph(entry_point="loader", end_at="processor")
     return _graph_fast
 
 
@@ -492,33 +492,18 @@ async def push_unsubscribe(session_id: Optional[str] = Cookie(None)):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(
-    request: Request,
-    response: Response,
-    session_id: Optional[str] = Cookie(None),
-    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
-    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
-):
-    """主入口：检查会话，返回相应页面"""
-    resolved = _get_user_bot_from_session_or_cookies(
-        session_id=session_id, web_user_id=web_user_id, bot_id_cookie=bot_id_cookie
+async def index():
+    """直接进入 b 版 bot 选择页（暂不使用首页）"""
+    return HTMLResponse(
+        content=get_bot_selection_html_b(),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
-    if resolved:
-        user_id, bot_id = resolved
-        # if in-memory session was lost (Render restart), recreate it so /api/chat can use same session_id
-        if not session_id or not get_session(session_id):
-            session_id = create_session(user_id, bot_id)
-            _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
-        return get_chat_html(bot_id)
-
-    # 无会话或过期，返回 bot 选择页面
-    return get_bot_selection_html()
 
 
 @app.get("/bots", response_class=HTMLResponse)
 async def bot_selection_page():
-    """始终返回 bot 选择页，不检查会话；cookie 保留，从首页再点进同一 bot 即恢复原会话"""
-    return get_bot_selection_html()
+    """始终返回 b 版 bot 选择页，不检查会话；cookie 保留，从选 Bot 页再点进同一 bot 即恢复原会话"""
+    return get_bot_selection_html_b()
 
 
 @app.get("/chat/{bot_id}", response_class=HTMLResponse)
@@ -550,7 +535,7 @@ async def chat_with_bot(
             
             if not bot:
                 # Bot不存在，返回选择页面
-                return get_bot_selection_html()
+                return get_bot_selection_html_b()
             
             bot_id_str = str(bot.id)
         
@@ -558,19 +543,19 @@ async def chat_with_bot(
         if session_id:
             existing_session = get_session(session_id)
             if existing_session and existing_session["bot_id"] == bot_id_str:
-                # 已有匹配的会话，直接返回聊天界面
-                return get_chat_html(bot_id_str)
+                # 已有匹配的会话，直接返回聊天界面（b 版）
+                return get_chat_html_b(bot_id_str)
         
         # 创建新会话（优先复用持久 cookie 的 web_user_id，避免 IP 变化导致“历史丢失”）
         user_id = (request.cookies.get(_COOKIE_WEB_USER_ID) or "").strip() or generate_user_id_from_request(request)
         new_session_id = create_session(user_id, bot_id_str)
         _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id_str, session_id=new_session_id)
         
-        # 返回聊天界面
-        return get_chat_html(bot_id_str)
+        # 返回聊天界面（b 版）
+        return get_chat_html_b(bot_id_str)
     except Exception as e:
         # 出错时返回选择页面
-        return get_bot_selection_html()
+        return get_bot_selection_html_b()
 
 
 @app.get("/api/bots")
@@ -847,7 +832,10 @@ async def chat(
                     reply = " ".join(result["final_segments"])
                 if not reply:
                     reply = result.get("draft_response") or "（无回复）"
-                
+
+                # 本轮回复耗时（秒），追加到 reply_duration_seconds_list 供下一轮 strategy_resolver 判定是否走 fast
+                new_reply_duration_list = (result.get("reply_duration_seconds_list") or []) + [t_graph_ms / 1000.0]
+
                 # 优先使用 processor 产出的 humanized_output.segments（包含 delay/action），web 层不篡改 delay。
                 humanized = result.get("humanized_output") or {}
                 segments_with_delay = humanized.get("segments") or []
@@ -889,6 +877,11 @@ async def chat(
                         tail_state.update(result)
                     tail_state["ai_sent_at"] = ai_sent_at
                     tail_state["skip_user_message_write"] = True
+                    tail_state["reply_duration_seconds_list"] = new_reply_duration_list
+                    tail_state["relationship_state"] = {
+                        **(tail_state.get("relationship_state") or {}),
+                        "reply_duration_seconds_list": new_reply_duration_list,
+                    }
 
                     async def _run_tail_local():
                         log_file2, _ = get_or_create_log_file(session_id, user_id, bot_id)
@@ -911,6 +904,17 @@ async def chat(
                         tail_task = asyncio.create_task(_run_tail_local())
                         async with inflight["lock"]:
                             inflight["tail_task"] = tail_task
+                    except Exception:
+                        pass
+                else:
+                    # 非 fast return：主图已跑完 memory_writer，但当时 state 无本轮耗时，此处补写
+                    try:
+                        if db:
+                            await db.update_reply_duration_list(user_id, bot_id, new_reply_duration_list)
+                        else:
+                            from app.core.local_store import LocalStoreManager
+                            store = LocalStoreManager()
+                            store.update_reply_duration_list(user_id, bot_id, new_reply_duration_list)
                     except Exception:
                         pass
 
@@ -1291,6 +1295,78 @@ async def get_all_share_links(request: Request):
 
 
 # HTML 模板函数
+
+def get_home_html() -> str:
+    """V2 极简科研风首页：左文右图 + 大按钮 + 按钮下方内容占位区"""
+    return """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>面向多角色与持续会话的对话系统界面原型</title>
+    <link rel="stylesheet" href="/static/b/styles.css">
+    <link rel="stylesheet" href="/static/b/home.css?v=3">
+</head>
+<body>
+    <main class="app-shell home-min">
+        <div class="home-hero">
+            <div class="home-copy">
+                <div class="home-brand">
+                    EmotionalChatBot <span class="home-muted">v5.0</span>
+                </div>
+
+                <h1 class="home-title">面向多角色与持续会话的对话系统界面原型</h1>
+                <div class="home-subtitle">
+                    A Multi‑Persona Chat Interface Prototype for Longitudinal Dialogue
+                </div>
+
+                <p class="home-intro">
+                    本页面为研究原型入口，用于展示多角色选择与持续对话的交互流程。
+                    演示页面提供角色列表与会话入口。
+                </p>
+
+                <ul class="home-bullets">
+                    <li><b>多角色（Persona）</b>：统一的角色呈现与选择入口。</li>
+                    <li><b>持续会话</b>：会话状态持久化与恢复机制（演示页实现）。</li>
+                    <li><b>研究用途</b>：用于交互流程验证与多角色对比实验准备。</li>
+                </ul>
+
+                <a class="btn-primary home-cta home-cta-lg" href="/bots">
+                    进入演示 / Choose a Chatbot
+                </a>
+
+                <div class="home-meta">
+                    Research Prototype · Last updated: 2026‑02 · License: MIT
+                </div>
+            </div>
+
+            <figure class="home-figure bot-card">
+                <div class="home-figure-placeholder">Figure 0 · UI Preview</div>
+                <figcaption class="home-figcap">
+                    图0：多角色选择与对话界面预览（示例）。
+                </figcaption>
+            </figure>
+        </div>
+
+        <section class="home-content-below" aria-label="页面内容">
+            <div class="home-placeholder-block">
+                <h2 class="home-placeholder-title">内容占位一</h2>
+                <p class="home-placeholder-text">此处可放置说明、数据概览或功能入口。保留区域便于后续扩展。</p>
+            </div>
+            <div class="home-placeholder-block">
+                <h2 class="home-placeholder-title">内容占位二</h2>
+                <p class="home-placeholder-text">第二块占位区域，可用于展示实验设置、参与方式或相关链接。</p>
+            </div>
+            <div class="home-placeholder-block">
+                <h2 class="home-placeholder-title">内容占位三</h2>
+                <p class="home-placeholder-text">第三块占位区域，可放置更新日志、引用或联系方式等。</p>
+            </div>
+        </section>
+    </main>
+</body>
+</html>"""
+
+
 def get_bot_selection_html() -> str:
     """返回bot选择页面HTML"""
     return """<!DOCTYPE html>
@@ -1369,6 +1445,117 @@ def get_chat_html(bot_id: str) -> str:
     </script>
 </body>
 </html>"""
+
+
+# ---------- B 版界面（紫色玻璃风，带头像与 chip） ----------
+
+def get_bot_selection_html_b() -> str:
+    """B 版：选 Bot 页 HTML"""
+    return """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>选择 Chatbot</title>
+    <link rel="stylesheet" href="/static/b/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+        <h1 class="h1" style="text-align:center; margin-bottom:24px;">选择一个 Chatbot 开始对话</h1>
+        <div class="b-resume">
+            <h3>通过会话ID 恢复之前的会话</h3>
+            <div class="b-resume-row">
+                <input type="text" id="resume-user-id" placeholder="输入会话ID (UUID)..." autocomplete="off" />
+                <button class="btn-primary" onclick="resumeByUserId()">恢复会话</button>
+            </div>
+        </div>
+        <div id="bot-list" class="bot-list">
+            <div class="loading">加载中...</div>
+        </div>
+    </div>
+    <script src="/static/b/chat.js"></script>
+    <script>loadBots();</script>
+</body>
+</html>"""
+
+
+def get_chat_html_b(bot_id: str) -> str:
+    """B 版：聊天页 HTML（含头部 bot 头像、气泡、输入条）"""
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>对话</title>
+    <link rel="stylesheet" href="/static/b/styles.css">
+</head>
+<body>
+    <div class="app-shell">
+        <div class="b-chat-header">
+            <div class="b-chat-header-left">
+                <div id="chat-header-avatar" class="avatar">?</div>
+                <h1 id="chat-header-title" class="h1">对话中</h1>
+                <div id="user-db-id" class="b-user-id"></div>
+            </div>
+            <div class="b-chat-header-right">
+                <a href="/" class="btn-secondary">返回选 Bot</a>
+            </div>
+        </div>
+        <div id="chat-messages" class="b-chat-messages"></div>
+        <div class="chat-input-bar">
+            <div class="chat-input">
+                <input type="text" id="message-input" placeholder="输入消息..." autocomplete="off" />
+                <button type="button" id="send-btn" class="btn-primary btn-send">发送</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/b/chat.js"></script>
+    <script>initChat();</script>
+</body>
+</html>"""
+
+
+@app.get("/b", response_class=HTMLResponse)
+async def bot_selection_page_b():
+    """B 版：始终返回选 Bot 页"""
+    return get_bot_selection_html_b()
+
+
+@app.get("/b/chat/{{bot_id}}", response_class=HTMLResponse)
+async def chat_with_bot_b(
+    bot_id: str, request: Request, response: Response,
+    session_id: Optional[str] = Cookie(None),
+):
+    """B 版：直接进入指定 bot 聊天，自动初始化会话"""
+    try:
+        db = get_db_manager()
+        async with db.Session() as session:
+            bot_uuid = None
+            try:
+                import uuid as uuid_lib
+                bot_uuid = uuid_lib.UUID(bot_id)
+            except ValueError:
+                pass
+            if bot_uuid:
+                result = await session.execute(select(Bot).where(Bot.id == bot_uuid))
+            else:
+                result = await session.execute(select(Bot).where(Bot.name == bot_id))
+            bot = result.scalar_one_or_none()
+            if not bot:
+                return get_bot_selection_html_b()
+            bot_id_str = str(bot.id)
+
+        if session_id:
+            existing_session = get_session(session_id)
+            if existing_session and existing_session["bot_id"] == bot_id_str:
+                return get_chat_html_b(bot_id_str)
+
+        user_id = (request.cookies.get(_COOKIE_WEB_USER_ID) or "").strip() or generate_user_id_from_request(request)
+        new_session_id = create_session(user_id, bot_id_str)
+        _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id_str, session_id=new_session_id)
+        return get_chat_html_b(bot_id_str)
+    except Exception:
+        return get_bot_selection_html_b()
 
 
 if __name__ == "__main__":

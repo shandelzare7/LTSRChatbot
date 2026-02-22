@@ -159,7 +159,7 @@ async def main() -> None:
             "detection_category": "NORMAL",
             "humanized_output": {"total_latency_seconds": 0.5},
             "current_stage": "initiating",
-            "relationship_state": {"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "warmth": 0, "power": 50},
+            "relationship_state": {"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "attractiveness": 0, "power": 50},
             "mood_state": {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
             "new_memory_content": "新库创建并完成首次对话。",
         }

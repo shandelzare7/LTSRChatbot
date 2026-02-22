@@ -1,0 +1,693 @@
+好的，我直接输出所有 4 个文件的完整改动代码块。
+
+---
+
+## 文件 1: `app/state.py` — 添加 2 个字段
+
+在 `AgentState` 类中，找到 `processor_use_llm` 那行之后、`# --- Behavioral Layer Output` 之前，插入：
+
+```python
+    # --- 对话冲量 (Conversation Momentum) ---
+    turn_count_in_session: int           # 当前会话内用户轮次计数
+    conversation_momentum: float         # 当前冲量值 0.0~1.0
+```
+
+即该区域变为：
+
+```python
+    processor_use_llm: Optional[bool]
+
+    # --- 对话冲量 (Conversation Momentum) ---
+    turn_count_in_session: int           # 当前会话内用户轮次计数
+    conversation_momentum: float         # 当前冲量值 0.0~1.0
+
+    # --- Behavioral Layer Output (Processor) ---
+    # 更细粒度的"拟人化输出"，供客户端按 delay 播放打字/气泡
+    humanized_output: Optional[HumanizedOutput]
+```
+
+---
+
+## 文件 2: `app/nodes/loader.py` — 3 处 return dict 添加轮次递增
+
+在 loader 的 **每个 return dict** 中添加一行：
+
+```python
+"turn_count_in_session": (state.get("turn_count_in_session") or 0) + 1,
+```
+
+具体位置（3 处 return）：
+
+### 2a. DB 路径 return（约第 130 行附近的 `return {`）
+
+在 `"memories": ...` 行之后加：
+
+```python
+                "turn_count_in_session": (state.get("turn_count_in_session") or 0) + 1,
+```
+
+### 2b. LocalStore 路径 return（约第 190 行附近的 `return {`）
+
+同样在 `"memories": ...` 行之后加：
+
+```python
+                "turn_count_in_session": (state.get("turn_count_in_session") or 0) + 1,
+```
+
+### 2c. Memory fallback 路径 return（约第 220 行附近的 `return {`）
+
+在 `"memory_context": ...` 行之后加：
+
+```python
+            "turn_count_in_session": (state.get("turn_count_in_session") or 0) + 1,
+```
+
+---
+
+## 文件 3: `app/nodes/detection.py` — 添加 interest 分数
+
+### 3a. `_default_scores()` 添加 interest
+
+```python
+def _default_scores() -> Dict[str, float]:
+    return {
+        "friendly": 0.0,
+        "hostile": 0.0,
+        "overstep": 0.0,
+        "low_effort": 0.0,
+        "confusion": 0.0,
+        "interest": 0.0,    # 新增：用户对话题/对话的兴趣投入度
+    }
+```
+
+### 3b. prompt 的 scores 说明中添加 interest 定义
+
+找到 `system_content` 中 `1. scores（0~1）：` 部分，在 `confusion:` 行之后添加：
+
+```
+   - interest: 用户对当前话题/对话本身的兴趣投入度（追问、展开、长段回复、主动引入新话题 → 高；敷衍、转移、想结束 → 低）。注意：interest 与 friendly 独立，用户可以不友好但高兴趣（激烈辩论），也可以很友好但低兴趣（礼貌告别）。
+```
+
+即 scores 部分变为：
+
+```
+1. scores（0~1）：
+   - friendly: 用户对我释放友好/亲近信号强度
+   - hostile: 敌意/攻击/轻蔑/施压强度
+   - overstep: 相对于当前关系阶段的越界强度（stage-conditional）
+   - low_effort: 敷衍/短促/不接球/「嗯/随便/你看着办」等低投入强度
+   - confusion: 这句话让人迷惑的程度（可由语义闭合不足派生）
+   - interest: 用户对当前话题/对话本身的兴趣投入度（追问、展开、长段回复、主动引入新话题 → 高；敷衍、转移、想结束 → 低）。注意：interest 与 friendly 独立，用户可以不友好但高兴趣（激烈辩论），也可以很友好但低兴趣（礼貌告别）。
+```
+
+---
+
+## 文件 4: `app/nodes/style.py` — 完整替换
+
+以下是完整的新 `style.py`，直接替换整个文件：
+
+```python
+"""Style 节点：根据关系、情绪、信号和阶段语境计算 12 维风格参数和 2 个门控变量（纯计算，无 LLM）。"""
+from __future__ import annotations
+
+import math
+from typing import Any, Callable, Dict
+
+from utils.tracing import trace_if_enabled
+from app.state import AgentState
+
+
+def _clip01(x: float) -> float:
+    """将值限制在 [0.0, 1.0] 范围内。"""
+    return max(0.0, min(1.0, x))
+
+
+def _avg2(a: float, b: float) -> float:
+    """计算两个数的平均值。"""
+    return (a + b) / 2.0
+
+
+def _safe_get(d: Dict[str, Any], *keys: str, default: float = 0.0) -> float:
+    """安全地从嵌套字典中获取值。"""
+    current = d
+    for key in keys:
+        if isinstance(current, dict):
+            current = current.get(key, {})
+        else:
+            return default
+    if isinstance(current, (int, float)):
+        return float(current)
+    return default
+
+
+# Knapp stage baseline（invest 现在仅用于冲量衰减参数，不直接调制 style）
+STAGE_PROFILE: Dict[int, Dict[str, float]] = {
+    1:  {"invest": 0.15, "ctx": 0.10},
+    2:  {"invest": 0.25, "ctx": 0.20},
+    3:  {"invest": 0.45, "ctx": 0.40},
+    4:  {"invest": 0.60, "ctx": 0.55},
+    5:  {"invest": 0.75, "ctx": 0.70},
+    6:  {"invest": 0.68, "ctx": 0.65},
+    7:  {"invest": 0.55, "ctx": 0.55},
+    8:  {"invest": 0.40, "ctx": 0.45},
+    9:  {"invest": 0.25, "ctx": 0.30},
+    10: {"invest": 0.10, "ctx": 0.15},
+}
+
+
+def _get_stage_index(stage: Any) -> int:
+    """从 stage 字符串或数字获取 stage_index (1-10)。"""
+    if isinstance(stage, int):
+        return max(1, min(10, stage))
+    if isinstance(stage, str):
+        stage_lower = stage.lower()
+        stage_map = {
+            "initiating": 1, "experimenting": 2, "intensifying": 3,
+            "integrating": 4, "bonding": 5, "differentiating": 6,
+            "circumscribing": 7, "stagnating": 8, "avoiding": 9,
+            "terminating": 10,
+        }
+        if stage_lower in stage_map:
+            return stage_map[stage_lower]
+        try:
+            return max(1, min(10, int(stage)))
+        except Exception:
+            pass
+    return 1
+
+
+# ─── 冲量衰减引擎 ───────────────────────────────────────────
+
+def _invest_to_momentum_params(invest: float) -> Dict[str, float]:
+    """
+    将 invest (0.10~0.75) 映射到冲量衰减参数。
+
+    invest 越高（关系越深）→ sustain 越长、half_life 越大、floor 越高
+    即：亲密关系中人们能聊更久才开始"疲倦"。
+
+    映射区间：
+      invest 0.10 → sustain=2,  half_life=6,  floor=0.15
+      invest 0.75 → sustain=8,  half_life=20, floor=0.45
+    """
+    # 归一化 invest 到 0~1（原始范围 0.10~0.75）
+    t = _clip01((invest - 0.10) / 0.65)
+
+    sustain   = 2.0 + 6.0 * t       # 2 ~ 8 轮
+    half_life = 6.0 + 14.0 * t      # 6 ~ 20 轮
+    floor     = 0.15 + 0.30 * t     # 0.15 ~ 0.45
+
+    return {"sustain": sustain, "half_life": half_life, "floor": floor}
+
+
+def _momentum_curve(turn: int, sustain: float, half_life: float, floor: float) -> float:
+    """
+    对话冲量衰减曲线。
+    - 前 sustain 轮：1.0（全力投入）
+    - 之后指数衰减到 floor
+    """
+    if turn <= sustain:
+        return 1.0
+    t_eff = turn - sustain
+    decay = math.exp(-0.693 * t_eff / max(half_life, 1.0))  # ln(2) ≈ 0.693
+    return floor + (1.0 - floor) * decay
+
+
+def _compute_momentum(
+    turn: int,
+    invest: float,
+    interest: float = 0.0,
+    friendly: float = 0.0,
+    low_effort: float = 0.0,
+) -> float:
+    """
+    计算当前对话冲量。
+
+    基础衰减由 invest 决定，用户信号可局部调制：
+    - interest（主通道）：用户对话题感兴趣 → 冲量回弹
+    - friendly（辅助通道）：用户友好 → 冲量小幅回弹
+    - low_effort：用户敷衍 → 冲量加速下降
+    """
+    params = _invest_to_momentum_params(invest)
+    momentum = _momentum_curve(turn, **params)
+
+    # 用户信号调制：interest 为主（0.12），friendly 为辅（0.04）
+    boost = 0.12 * interest + 0.04 * friendly - 0.08 * low_effort
+    momentum = _clip01(momentum + boost)
+
+    # 用户敷衍时额外衰减
+    if low_effort > 0.6:
+        momentum *= 0.88
+
+    return momentum
+
+
+# ─── Style 节点工厂 ──────────────────────────────────────────
+
+def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], dict]:
+    """
+    创建 Style 节点：纯计算，根据关系、情绪、信号和阶段语境计算风格参数。
+    注意：llm_invoker 参数保留以兼容 graph.py，但不会被使用。
+    """
+
+    @trace_if_enabled(
+        name="Style",
+        run_type="chain",
+        tags=["node", "style", "computation"],
+        metadata={"state_outputs": ["style", "llm_instructions"]},
+    )
+    def style_node(state: AgentState) -> dict:
+        """
+        计算 12 维风格参数和 2 个门控变量。
+
+        核心改动：
+        - invest 不再直接加权 style 维度（移除所有 + W * invest 项）
+        - invest 映射到冲量衰减参数 (sustain/half_life/floor)
+        - 衰减曲线产出 momentum (0~1)，作为乘数调制 style 输出
+        - interest + friendly 用于恢复冲量（interest 为主通道）
+        """
+
+        # ── A. 输入提取 ──
+        relationship_state = state.get("relationship_state") or {}
+        mood_state = state.get("mood_state") or {}
+        detection_signals = state.get("detection_signals") or {}
+        current_stage = state.get("current_stage") or "initiating"
+
+        # 1) 6维关系（系统内部统一为 0-1）
+        closeness = _clip01(float(relationship_state.get("closeness", 0.5) or 0.5))
+        trust     = _clip01(float(relationship_state.get("trust", 0.5) or 0.5))
+        liking    = _clip01(float(relationship_state.get("liking", 0.5) or 0.5))
+        respect   = _clip01(float(relationship_state.get("respect", 0.5) or 0.5))
+        warmth    = _clip01(float(relationship_state.get("warmth", 0.5) or 0.5))
+        power     = _clip01(float(relationship_state.get("power", 0.5) or 0.5))
+
+        # 2) PAD（-1..1 转为 0..1，缺省 0.5）
+        P_raw = mood_state.get("pleasure", 0.0) or 0.0
+        A_raw = mood_state.get("arousal", 0.0) or 0.0
+        D_raw = mood_state.get("dominance", 0.0) or 0.0
+
+        P = _clip01((P_raw + 1.0) / 2.0) if P_raw < 0 or P_raw > 1 else _clip01(P_raw)
+        A = _clip01((A_raw + 1.0) / 2.0) if A_raw < 0 or A_raw > 1 else _clip01(A_raw)
+        D = _clip01((D_raw + 1.0) / 2.0) if D_raw < 0 or D_raw > 1 else _clip01(D_raw)
+
+        if P == 0.0 and A == 0.0 and D == 0.0:
+            P = A = D = 0.5
+
+        # 3) busy（缺省 0）
+        busy = _clip01(mood_state.get("busyness", 0.0) or 0.0)
+
+        # 4) detection_signals
+        composite  = detection_signals.get("composite") or {}
+        trace      = detection_signals.get("trace") or {}
+        instant_eff = detection_signals.get("instant_eff") or {}
+        stage_ctx  = detection_signals.get("stage_ctx") or {}
+
+        pos    = _safe_get(composite, "goodwill", default=0.0)
+        neg    = _safe_get(composite, "conflict_eff", default=0.0)
+        prov   = _safe_get(composite, "provocation", default=0.0)
+        press  = _safe_get(composite, "pressure", default=0.0)
+        uncert = _safe_get(trace, "confusion", default=0.0)
+        if uncert == 0.0:
+            uncert = _safe_get(instant_eff, "confusion", default=0.0)
+
+        # 5) stage_ctx（缺的当 0）
+        too_close_too_fast      = _safe_get(stage_ctx, "too_close_too_fast", default=0.0)
+        too_distant_too_cold    = _safe_get(stage_ctx, "too_distant_too_cold", default=0.0)
+        betrayal_violation      = _safe_get(stage_ctx, "betrayal_violation", default=0.0)
+        over_caring             = _safe_get(stage_ctx, "over_caring", default=0.0)
+        dependency_bid          = _safe_get(stage_ctx, "dependency_bid", default=0.0)
+        possessiveness_jealousy = _safe_get(stage_ctx, "possessiveness_jealousy", default=0.0)
+        power_move              = _safe_get(stage_ctx, "power_move", default=0.0)
+        stonewalling_intent     = _safe_get(stage_ctx, "stonewalling_intent", default=0.0)
+
+        # 6) Knapp stage（缺省 1）
+        stage_index = _get_stage_index(current_stage)
+
+        # ── B. 派生量计算 ──
+        Aff  = _clip01(0.55 * liking + 0.25 * warmth + 0.20 * closeness)   # 亲和
+        Saf  = _clip01(0.50 * trust + 0.35 * respect + 0.15 * closeness)   # 安全感
+        PowC = power - 0.50  # -0.5..+0.5
+
+        stage_profile = STAGE_PROFILE.get(stage_index, STAGE_PROFILE[1])
+        invest = stage_profile["invest"]
+        ctx    = stage_profile["ctx"]
+        break_n = 0.0 if stage_index <= 5 else (stage_index - 5) / 5.0  # 6..10 -> 0.2..1.0
+
+        BoundaryNeed = _clip01(
+            0.45 * betrayal_violation + 0.35 * power_move +
+            0.25 * stonewalling_intent + 0.20 * too_distant_too_cold +
+            0.20 * possessiveness_jealousy + 0.15 * over_caring
+        )
+        Unease = _clip01(
+            0.35 * too_close_too_fast + 0.25 * dependency_bid +
+            0.25 * over_caring + 0.20 * possessiveness_jealousy +
+            0.15 * power_move
+        )
+
+        # ── C. 计算冲量 ──
+        turn = state.get("turn_count_in_session") or 1
+
+        # 从 detection_signals 获取 interest / friendly / low_effort 用于冲量调制
+        scores = detection_signals.get("scores") or {}
+        interest   = float(scores.get("interest", 0.0) or 0.0)
+        friendly   = float(scores.get("friendly", 0.0) or 0.0)
+        low_effort = float(scores.get("low_effort", 0.0) or 0.0)
+
+        momentum = _compute_momentum(
+            turn=turn,
+            invest=invest,
+            interest=interest,
+            friendly=friendly,
+            low_effort=low_effort,
+        )
+
+        # ── D. 12维 style 公式（已移除 invest 的直接调制项）──
+
+        # 1) self_disclosure（自我暴露）
+        # 原: + 0.10 * invest → 已移除
+        self_disclosure = _clip01(
+            0.10
+            + 0.55 * _avg2(trust, closeness)
+            - 0.25 * A
+            + 0.15 * pos
+        )
+
+        # 2) topic_adherence（话题粘性）
+        topic_adherence = _clip01(
+            0.20
+            + 0.70 * respect
+            - 0.25 * uncert
+            - 0.15 * prov
+            + 0.08 * (1 - ctx)  # 默契越低越守规矩
+        )
+
+        # 3) initiative（主动权）
+        # 原: + 0.08 * invest → 已移除
+        initiative = _clip01(
+            0.15
+            + 0.45 * power
+            + 0.35 * liking
+            - 0.35 * busy
+            + 0.10 * neg
+        )
+
+        # 4) advice_style（建议风格）
+        # 原: + 0.06 * invest → 已移除
+        advice_style = _clip01(
+            0.10
+            + 0.45 * power
+            + 0.35 * liking
+            + 0.20 * BoundaryNeed
+            - 0.20 * busy
+        )
+
+        # 5) subjectivity（主观性/立场强）— 原本无 invest 项，不变
+        subjectivity = _clip01(
+            0.35
+            + 0.55 * power
+            - 0.45 * respect
+            + 0.30 * D
+            + 0.25 * BoundaryNeed
+            + 0.10 * break_n
+        )
+
+        # 6) memory_hook（记忆回扣）— 原本无 invest 项，不变
+        memory_hook = _clip01(
+            0.05
+            + 0.80 * closeness
+            + 0.10 * pos
+            - 0.25 * busy
+            + 0.15 * ctx
+        )
+
+        # 7) verbal_length（篇幅）
+        # 原: + 0.10 * invest → 已移除
+        verbal_length = _clip01(
+            0.20
+            + 0.45 * _avg2(warmth, closeness)
+            - 0.55 * busy
+            - 0.20 * neg
+            - 0.15 * BoundaryNeed
+            - 0.20 * break_n
+        )
+
+        # 8) social_distance（社交距离）— 原本无 invest 项，不变
+        social_distance = _clip01(
+            0.40
+            + 0.40 * power
+            + 0.25 * respect
+            - 0.55 * closeness
+            + 0.20 * neg
+            + 0.25 * BoundaryNeed
+            - 0.20 * ctx
+            + 0.30 * break_n
+        )
+
+        # 9) tone_temperature（情感温度）
+        # 原: + 0.10 * invest → 已移除
+        tone_temperature = _clip01(
+            0.20
+            + 0.45 * _avg2(warmth, liking)
+            + 0.25 * P
+            - 0.25 * neg
+            - 0.20 * Unease
+            - 0.25 * break_n
+        )
+
+        # 10) emotional_display（情绪显露）— 依赖 social_distance
+        # 原: + 0.08 * invest → 已移除
+        emotional_display = _clip01(
+            0.10
+            + 0.45 * _avg2(trust, closeness)
+            + 0.35 * A
+            - 0.25 * social_distance
+            - 0.12 * break_n
+        )
+
+        # 11) wit_and_humor（幽默机趣）— 原本无 invest 项，不变
+        wit_and_humor = _clip01(
+            0.05
+            + 0.45 * _avg2(liking, closeness)
+            + 0.20 * pos
+            - 0.30 * BoundaryNeed
+            - 0.20 * neg
+            + 0.15 * ctx
+            - 0.25 * break_n
+        )
+
+        # 12) non_verbal_cues（动作/表情包倾向）— 原本无 invest 项，不变
+        non_verbal_cues = _clip01(
+            0.05
+            + 0.65 * closeness
+            + 0.10 * pos
+            - 0.45 * busy
+            - 0.20 * social_distance
+            + 0.10 * ctx
+            - 0.15 * break_n
+        )
+
+        # ── E. 冲量调制：对受影响的维度施加衰减乘数 ──
+        # momentum=1.0 时无影响；momentum→floor 时抑制最大
+        # m_soft  用于温和衰减的维度（自我暴露、温度、情绪显露、幽默、非语言）
+        # m_steep 用于明显衰减的维度（主动性、篇幅）
+        m_soft  = 0.55 + 0.45 * momentum   # 范围 0.62 ~ 1.0
+        m_steep = 0.40 + 0.60 * momentum   # 范围 0.49 ~ 1.0
+
+        self_disclosure   = _clip01(self_disclosure * m_soft)
+        initiative        = _clip01(initiative * m_steep)       # 主动性衰减明显
+        verbal_length     = _clip01(verbal_length * m_steep)    # 话多→话少
+        tone_temperature  = _clip01(tone_temperature * m_soft)
+        emotional_display = _clip01(emotional_display * m_soft)
+        wit_and_humor     = _clip01(wit_and_humor * m_soft)
+        non_verbal_cues   = _clip01(non_verbal_cues * m_soft)
+
+        # ── F. 两个门控变量 ──
+        # coldness_gate（冷淡/敷衍/嗯啊哦/不回）
+        coldness_gate = _clip01(
+            0.10
+            + 0.45 * stonewalling_intent
+            + 0.25 * too_distant_too_cold
+            + 0.25 * neg
+            + 0.25 * busy
+            - 0.20 * _avg2(closeness, warmth)
+            + 0.35 * break_n
+            - 0.10 * ctx
+        )
+
+        # boundary_gate（设边界/强硬/回怼）
+        # 原: + 0.10 * invest → 已移除
+        boundary_gate = _clip01(
+            0.10
+            + 0.45 * betrayal_violation
+            + 0.25 * power_move
+            + 0.20 * press
+            + 0.15 * prov
+            + 0.10 * D
+            - 0.20 * Saf
+            + 0.20 * break_n
+        )
+
+        # ── G. mode.style_bias ──
+        mode = state.get("current_mode")
+        if mode and hasattr(mode, "style_bias"):
+            bias = mode.style_bias
+            if hasattr(bias, "verbal_length") and bias.verbal_length is not None:
+                verbal_length = _clip01(0.7 * verbal_length + 0.3 * bias.verbal_length)
+            if hasattr(bias, "tone_temperature") and bias.tone_temperature is not None:
+                tone_temperature = _clip01(0.7 * tone_temperature + 0.3 * bias.tone_temperature)
+            if hasattr(bias, "social_distance") and bias.social_distance is not None:
+                social_distance = _clip01(0.7 * social_distance + 0.3 * bias.social_distance)
+            if hasattr(bias, "advice_style") and bias.advice_style is not None:
+                advice_style = _clip01(0.7 * advice_style + 0.3 * bias.advice_style)
+            if hasattr(bias, "wit_and_humor") and bias.wit_and_humor is not None:
+                wit_and_humor = _clip01(0.7 * wit_and_humor + 0.3 * bias.wit_and_humor)
+            if hasattr(bias, "emotional_display") and bias.emotional_display is not None:
+                emotional_display = _clip01(0.7 * emotional_display + 0.3 * bias.emotional_display)
+
+        # ── H. 输出 ──
+        style_output = {
+            # 12维
+            "self_disclosure": self_disclosure,
+            "topic_adherence": topic_adherence,
+            "initiative": initiative,
+            "advice_style": advice_style,
+            "subjectivity": subjectivity,
+            "memory_hook": memory_hook,
+            "verbal_length": verbal_length,
+            "social_distance": social_distance,
+            "tone_temperature": tone_temperature,
+            "emotional_display": emotional_display,
+            "wit_and_humor": wit_and_humor,
+            "non_verbal_cues": non_verbal_cues,
+            # 两个门控
+            "coldness_gate": coldness_gate,
+            "boundary_gate": boundary_gate,
+            # 冲量信息
+            "conversation_momentum": round(momentum, 3),
+            # 调试派生量
+            "derived": {
+                "Aff": Aff,
+                "Saf": Saf,
+                "BoundaryNeed": BoundaryNeed,
+                "Unease": Unease,
+                "invest": invest,
+                "ctx": ctx,
+                "break_n": break_n,
+                "momentum_params": _invest_to_momentum_params(invest),
+                "turn": turn,
+            },
+        }
+
+        # 兼容旧字段名（llm_instructions）
+        llm_instructions = {
+            "self_disclosure": self_disclosure,
+            "topic_adherence": topic_adherence,
+            "initiative": initiative,
+            "advice_style": advice_style,
+            "subjectivity": subjectivity,
+            "memory_hook": memory_hook,
+            "verbal_length": verbal_length,
+            "social_distance": social_distance,
+            "tone_temperature": tone_temperature,
+            "emotional_display": emotional_display,
+            "wit_and_humor": wit_and_humor,
+            "non_verbal_cues": non_verbal_cues,
+        }
+
+        print(
+            f"[Style] 12D computed: disclosure={self_disclosure:.2f}, "
+            f"length={verbal_length:.2f}, temp={tone_temperature:.2f}, "
+            f"momentum={momentum:.2f} (turn={turn}), "
+            f"gates: cold={coldness_gate:.2f}, boundary={boundary_gate:.2f}"
+        )
+
+        return {
+            "style": style_output,
+            "llm_instructions": llm_instructions,
+            "conversation_momentum": round(momentum, 3),
+            "style_analysis": f"12D computed (momentum={momentum:.2f}, cold_gate={coldness_gate:.2f}, boundary_gate={boundary_gate:.2f})",
+        }
+
+    return style_node
+```
+
+---
+
+## 文件 5: `app/nodes/task_planner.py` — 冲量注入 prompt（影响 word_budget 与任务选择）
+
+在构建 task_planner 的 LLM system prompt 时，注入当前冲量及使用说明，供模型在决定 word_budget 和是否追问时参考：
+
+```python
+# 在构建 planner prompt 时加入（例如在 style/关系等上下文之后）：
+momentum = state.get("conversation_momentum", 1.0)
+momentum = float(momentum) if momentum is not None else 1.0
+prompt += f"""
+- 对话冲量(conversation_momentum): {momentum:.2f}
+  冲量说明：1.0=对话刚开始精力充沛，越低说明聊得越久越倦怠。
+  当冲量 < 0.5 时：
+    - word_budget 建议不超过 30（除非话题非常重要）
+    - 减少追问类任务（clarify/ask_scope），除非理解置信度很低
+    - 不主动开新话题
+  当冲量 < 0.3 时：
+    - word_budget 建议不超过 20
+    - 仅执行必要的回应，不附加任何额外内容
+"""
+```
+
+---
+
+## 文件 6: `app/nodes/detection.py` — 冲量低时减少 immediate_tasks 产出（补充）
+
+在 detection 节点的 system prompt 中，当冲量较低时追加一段说明，让模型少产「好奇驱动」的追问任务，仅在高必要性时产 immediate_tasks：
+
+```python
+# 在 detection 构建 system_content 之后、调用 LLM 之前：
+momentum = state.get("conversation_momentum", 1.0)
+momentum = float(momentum) if momentum is not None else 1.0
+if momentum < 0.5:
+    system_content += f"""
+注意：当前对话冲量为 {momentum:.2f}（较低），bot 精力有限。
+- 仅在 understanding_confidence < 0.5 或 importance > 0.7 时才生成 immediate_tasks
+- 避免产出"好奇驱动"的追问任务
+- low_effort 的阈值可以适当放宽（bot 自己也在降低投入）
+"""
+```
+
+说明：与文件 3 的 interest 分数为不同改动；此处为「冲量低时对 prompt 的追加」，二者可同时存在。
+
+---
+
+## 文件 7: `app/nodes/processor.py` — 冲量低时减少分段
+
+在 `_calculate_dynamics_modifiers` 中，用 `conversation_momentum` 调制碎片化倾向，冲量低时少分段、回复更紧凑：
+
+```python
+def _calculate_dynamics_modifiers(self) -> Dict[str, float]:
+    # ... 现有代码（speed_factor、fragmentation_tendency 等）...
+
+    # 冲量调制：低冲量 → 少分段、回复更紧凑
+    momentum = _clip01(float(self.state.get("conversation_momentum", 1.0) or 1.0))
+    frag_tendency *= momentum  # 冲量低时减少碎片化
+
+    return {
+        "speed_factor": ...,
+        "fragmentation_tendency": _clamp(float(frag_tendency), 0.0, 1.0),
+        # ...
+    }
+```
+
+说明：需在 processor 内能访问 `self.state` 且已有 `fragmentation_tendency` 或等价变量的位置加入；若使用 `_clip01`/`_clamp` 需与现有工具函数一致。
+
+---
+
+## 变更总结
+
+| 文件 | 改动内容 |
+|---|---|
+| **state.py** | AgentState 新增 `turn_count_in_session: int` 和 `conversation_momentum: float` |
+| **loader.py** | 3 处 return dict 各加一行 `"turn_count_in_session": (state.get(...) or 0) + 1` |
+| **detection.py** | `_default_scores()` 加 `"interest": 0.0`；prompt 的 scores 说明加 interest 定义；**补充**：冲量 < 0.5 时在 system prompt 中追加「少产 immediate_tasks」说明 |
+| **style.py** | 完整重写：移除 6 处 `+ W * invest` 直接调制 → 新增 `import math` + 冲量引擎 (`_invest_to_momentum_params` / `_momentum_curve` / `_compute_momentum`) → 用 `m_soft`/`m_steep` 乘数调制 7 个维度 → `boundary_gate` 移除 invest → 输出新增 `conversation_momentum` 写回 state |
+| **task_planner.py** | 在构建 planner 的 system prompt 时注入 `conversation_momentum` 及使用说明（word_budget / 追问 / 开新话题的约束） |
+| **processor.py** | 在 `_calculate_dynamics_modifiers` 中用 `conversation_momentum` 调制 `fragmentation_tendency`，冲量低时少分段 |
+
+如果你授权了文件写入权限，告诉我，我可以直接帮你应用这些改动。

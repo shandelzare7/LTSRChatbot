@@ -99,7 +99,7 @@ async def _check_db_load(bot_id: str, user_id: str) -> dict:
     report["samples"]["user_inferred_profile_keys"] = list(uf.keys())
 
     rel = data.get("relationship_state") or {}
-    if not rel or set(rel.keys()) != {"closeness", "trust", "liking", "respect", "warmth", "power"}:
+    if not rel or set(rel.keys()) != {"closeness", "trust", "liking", "respect", "attractiveness", "power"}:
         report["issues"].append("relationship_state 维度不完整或键名不符")
         report["ok"] = False
 
@@ -148,7 +148,7 @@ def _run_graph_and_collect_issues(bot_id: str, user_id: str) -> dict:
             issues.append("loader: 最终 state 缺少 bot_persona")
         if result.get("user_inferred_profile") is None and "user_inferred_profile" not in result:
             issues.append("loader: 最终 state 缺少 user_inferred_profile")
-        if not result.get("relationship_state") or set((result.get("relationship_state") or {}).keys()) != {"closeness", "trust", "liking", "respect", "warmth", "power"}:
+        if not result.get("relationship_state") or set((result.get("relationship_state") or {}).keys()) != {"closeness", "trust", "liking", "respect", "attractiveness", "power"}:
             issues.append("loader: relationship_state 缺失或 6 维不完整")
         if result.get("current_stage") is None:
             issues.append("loader: current_stage 缺失")

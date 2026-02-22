@@ -81,22 +81,26 @@ def _merge_and_sanitize_relationship(prev: Dict[str, Any], inc: Dict[str, Any]) 
                 x = 1.0
         return float(max(0.0, min(1.0, x)))
 
-    merged: Dict[str, Any] = dict(prev)
+    merged = dict(prev)
     merged.update(inc)
+    # attractiveness 继承原 warmth（迁移）；只保留新 schema
+    if merged.get("warmth") is not None and "attractiveness" not in merged:
+        merged["attractiveness"] = merged["warmth"]
+    merged.pop("warmth", None)
     for k, default in (
         ("closeness", 0.3),
         ("trust", 0.3),
         ("liking", 0.3),
         ("respect", 0.3),
-        ("warmth", 0.3),
+        ("attractiveness", 0.3),
         ("power", 0.5),
     ):
         if k not in merged:
-            merged[k] = prev.get(k, default)
+            merged[k] = prev.get(k, prev.get("warmth" if k == "attractiveness" else None, default))
 
     max_step = 0.20
     out: Dict[str, float] = {}
-    for k in ("closeness", "trust", "liking", "respect", "warmth", "power"):
+    for k in ("closeness", "trust", "liking", "respect", "attractiveness", "power"):
         old = _norm01(prev.get(k, merged.get(k)))
         new = _norm01(merged.get(k))
         d = new - old
@@ -297,8 +301,23 @@ class LocalStoreManager:
             for r in chat_rows
         ]
 
+        # 从 relationship_assets 读取持久化的轮次计数
+        assets = rel.get("relationship_assets") or {}
+        turn_count_in_session = 0
+        if isinstance(assets, dict):
+            try:
+                turn_count_in_session = int(assets.get("turn_count_in_session") or 0)
+            except (ValueError, TypeError):
+                turn_count_in_session = 0
+
+        reply_duration_list = rel.get("reply_duration_seconds_list")
+        if not isinstance(reply_duration_list, list):
+            reply_duration_list = []
+        reply_duration_list = [float(x) for x in reply_duration_list if isinstance(x, (int, float))][-20:]
+
         return {
             "relationship_state": _merge_and_sanitize_relationship(rel.get("relationship_state") or {}, {}),
+            "reply_duration_seconds_list": reply_duration_list,
             "mood_state": rel.get("mood_state") or {},
             "current_stage": rel.get("current_stage") or "initiating",
             "user_inferred_profile": rel.get("user_inferred_profile") or {},
@@ -310,6 +329,7 @@ class LocalStoreManager:
             "bot_persona": rel.get("bot_persona") or {},
             "user_basic_info": rel.get("user_basic_info") or {},
             "chat_buffer": chat_buffer,
+            "turn_count_in_session": turn_count_in_session,
         }
 
     def clear_relationship(self, user_id: str, bot_id: str) -> bool:
@@ -322,6 +342,24 @@ class LocalStoreManager:
             shutil.rmtree(p.rel_dir, ignore_errors=True)
             return True
         return False
+
+    def update_reply_duration_list(
+        self, user_id: str, bot_id: str, reply_duration_seconds_list: List[float]
+    ) -> None:
+        """仅更新 relationship.json 中的 reply_duration_seconds_list（最近 20 条）。用于每轮结束后由 web 层追加本轮耗时。"""
+        if not isinstance(reply_duration_seconds_list, list):
+            return
+        capped = [float(x) for x in reply_duration_seconds_list if isinstance(x, (int, float))][-20:]
+        p = self._paths(user_id, bot_id)
+        rel = {}
+        if p.relationship_json.exists():
+            try:
+                rel = json.loads(p.relationship_json.read_text(encoding="utf-8") or "{}")
+            except Exception:
+                rel = {}
+        rel["reply_duration_seconds_list"] = capped
+        rel["updated_at"] = _now_iso()
+        p.relationship_json.write_text(json.dumps(rel, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def save_turn(self, user_id: str, bot_id: str, state: Dict[str, Any], new_memory: Optional[str] = None) -> None:
         p = self._paths(user_id, bot_id)
@@ -360,9 +398,36 @@ class LocalStoreManager:
             except Exception:
                 rel = {}
 
+        # 合并 relationship_assets，并持久化 turn_count_in_session
+        assets_prev = rel.get("relationship_assets") or {}
+        assets_state = state.get("relationship_assets") or {}
+        assets = dict(assets_prev) if isinstance(assets_prev, dict) else {}
+        if isinstance(assets_state, dict):
+            assets.update(dict(assets_state))
+        # 持久化轮次计数：会话开始时为 0，每完成一轮（产生一次 bot 回复）+1，不按消息条数算
+        try:
+            n = int(state.get("turn_count_in_session") or 0)
+            assets["turn_count_in_session"] = n + 1
+        except (ValueError, TypeError):
+            assets["turn_count_in_session"] = 1
+        # 与 DB 对齐：持久化当前会话任务池与 Bot 任务清单（供 loader 恢复）
+        session_tasks = state.get("current_session_tasks")
+        if isinstance(session_tasks, list):
+            assets["current_session_tasks"] = [dict(t) for t in session_tasks if isinstance(t, dict)]
+        bot_task_list = state.get("bot_task_list")
+        if isinstance(bot_task_list, list):
+            assets["bot_task_list"] = [dict(t) for t in bot_task_list if isinstance(t, dict)]
+
+        reply_duration_list = state.get("reply_duration_seconds_list")
+        if isinstance(reply_duration_list, list):
+            reply_duration_list = [float(x) for x in reply_duration_list if isinstance(x, (int, float))][-20:]
+        else:
+            reply_duration_list = list(rel.get("reply_duration_seconds_list") or [])[-20:]
+
         rel.update(
             {
                 "current_stage": state.get("current_stage") or rel.get("current_stage") or "initiating",
+                "reply_duration_seconds_list": reply_duration_list,
                 # 关系维度：合并写入，避免部分字段把其它维度抹掉；统一到 0-1 并截断单轮跳变
                 "relationship_state": (lambda prev, inc: _merge_and_sanitize_relationship(prev, inc))(
                     rel.get("relationship_state") or {},
@@ -370,7 +435,7 @@ class LocalStoreManager:
                 ),
                 "mood_state": state.get("mood_state") or rel.get("mood_state") or {},
                 "user_inferred_profile": state.get("user_inferred_profile") or rel.get("user_inferred_profile") or {},
-                "relationship_assets": state.get("relationship_assets") or rel.get("relationship_assets") or {},
+                "relationship_assets": assets,
                 "spt_info": state.get("spt_info") or rel.get("spt_info") or {},
                 "conversation_summary": state.get("conversation_summary") or rel.get("conversation_summary") or "",
                 "bot_basic_info": state.get("bot_basic_info") or rel.get("bot_basic_info") or {},

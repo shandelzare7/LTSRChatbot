@@ -697,8 +697,7 @@ class DBManager:
                 chat_buffer = _to_langchain_messages([(r, c, t) for (r, c, t) in rows])
 
                 user_basic = dict(user.basic_info or {})
-                if user_basic.get("name") is None:
-                    user_basic["name"] = "User"
+                # 不再默认设置 name="User"，以便 task_planner 能正确触发 ask_user_name 等基础信息任务
 
                 # 关系维度：统一 0-1 量纲并补齐缺失 key（缺失不应默认为 0）
                 dims = dict(user.dimensions or {})
@@ -715,13 +714,20 @@ class DBManager:
                             x = 1.0
                     return float(max(0.0, min(1.0, x)))
 
+                # attractiveness 继承原 liking 或 warmth 数值（迁移；优先 liking）
+                if "attractiveness" not in dims:
+                    dims = dict(dims)
+                    if "liking" in dims:
+                        dims["attractiveness"] = dims["liking"]
+                    elif "warmth" in dims:
+                        dims["attractiveness"] = dims["warmth"]
                 normalized_dims: Dict[str, float] = {}
                 for k, default in (
                     ("closeness", 0.3),
                     ("trust", 0.3),
                     ("liking", 0.3),
                     ("respect", 0.3),
-                    ("warmth", 0.3),
+                    ("attractiveness", 0.3),
                     ("power", 0.5),
                 ):
                     normalized_dims[k] = round(_norm01(dims.get(k, default)), 4)
@@ -802,12 +808,18 @@ class DBManager:
                         }
                 # 当前会话任务池：从 assets 恢复，供 task_planner 续用
                 current_session_tasks: List[Dict[str, Any]] = []
+                turn_count_in_session: int = 0
                 try:
                     assets = user.assets or {}
                     if isinstance(assets, dict):
                         raw = assets.get("current_session_tasks")
                         if isinstance(raw, list):
                             current_session_tasks = [dict(t) for t in raw if isinstance(t, dict)]
+                        # 从 assets 读取持久化的轮次计数
+                        try:
+                            turn_count_in_session = int(assets.get("turn_count_in_session") or 0)
+                        except (ValueError, TypeError):
+                            turn_count_in_session = 0
                 except Exception:
                     pass
 
@@ -876,13 +888,25 @@ class DBManager:
                 except Exception as e:
                     print(f"[URGENT TASK] Failed to load urgent tasks: {e}")
 
+                # 每轮回复耗时列表（用于 fast 路由：前两条总用时 < 阈值则走 fast）
+                reply_duration_list = dims.get("reply_duration_seconds_list")
+                if not isinstance(reply_duration_list, list):
+                    reply_duration_list = []
+                reply_duration_list = [float(x) for x in reply_duration_list if isinstance(x, (int, float))][-20:]
+
+                # conversation_momentum 存在 user.assets 中，供 loader 的 _resolve_conversation_momentum 使用
+                assets_for_load = user.assets or {}
+                conversation_momentum_stored = assets_for_load.get("conversation_momentum")
+
                 return {
                     "relationship_id": str(user.id),
                     "relationship_state": normalized_dims,
+                    "reply_duration_seconds_list": reply_duration_list,
                     "mood_state": bot.mood_state or {},
                     "current_stage": user.current_stage,
+                    "conversation_momentum": conversation_momentum_stored,
                     "user_inferred_profile": user.inferred_profile or {},
-                    "relationship_assets": user.assets or {},
+                    "relationship_assets": assets_for_load,
                     "spt_info": user.spt_info or {},
                     "conversation_summary": user.conversation_summary or "",
                     "bot_basic_info": bot_basic_info,
@@ -893,6 +917,7 @@ class DBManager:
                     "bot_task_list": bot_task_list,
                     "current_session_tasks": current_session_tasks,
                     "db_urgent_tasks": db_urgent_tasks,
+                    "turn_count_in_session": turn_count_in_session,
                 }
 
     async def clear_messages_for(self, user_id: str, bot_id: str) -> int:
@@ -1174,6 +1199,23 @@ class DBManager:
 
                 merged_dims = dict(prev_dims)
                 merged_dims.update(incoming_dims)
+                # 每轮回复耗时列表：仅保留最近 20 条，避免无限增长
+                if "reply_duration_seconds_list" in merged_dims:
+                    lst = merged_dims["reply_duration_seconds_list"]
+                    if isinstance(lst, list):
+                        merged_dims["reply_duration_seconds_list"] = [
+                            float(x) for x in lst if isinstance(x, (int, float))
+                        ][-20:]
+                    else:
+                        merged_dims.pop("reply_duration_seconds_list", None)
+                # attractiveness 继承原 liking 或 warmth（迁移；优先 liking）；写入时只保留新 schema
+                if "attractiveness" not in merged_dims:
+                    if "liking" in merged_dims:
+                        merged_dims["attractiveness"] = merged_dims["liking"]
+                    elif "warmth" in merged_dims:
+                        merged_dims["attractiveness"] = merged_dims["warmth"]
+                for old_key in ("warmth",):
+                    merged_dims.pop(old_key, None)
 
                 # 补齐关键维度（缺失不应回退到 0）
                 for k, default in (
@@ -1181,16 +1223,19 @@ class DBManager:
                     ("trust", 0.3),
                     ("liking", 0.3),
                     ("respect", 0.3),
-                    ("warmth", 0.3),
+                    ("attractiveness", 0.3),
                     ("power", 0.5),
                 ):
                     if k not in merged_dims:
-                        merged_dims[k] = prev_dims.get(k, default)
+                        fallback = prev_dims.get("liking") if k == "attractiveness" else None
+                        if fallback is None and k == "attractiveness":
+                            fallback = prev_dims.get("warmth")
+                        merged_dims[k] = prev_dims.get(k, fallback if fallback is not None else default)
 
                 # 单轮跳变审计与截断（避免 0.22 -> 1.00 这种爆炸）
                 max_step = 0.20
                 audited: Dict[str, Any] = {}
-                for k in ("closeness", "trust", "liking", "respect", "warmth", "power"):
+                for k in ("closeness", "trust", "liking", "respect", "attractiveness", "power"):
                     old = _norm01(prev_dims.get(k, merged_dims.get(k)))
                     new = _norm01(merged_dims.get(k))
                     delta = new - old
@@ -1239,6 +1284,20 @@ class DBManager:
                 session_tasks = state.get("current_session_tasks")
                 if isinstance(session_tasks, list):
                     assets["current_session_tasks"] = [dict(t) for t in session_tasks if isinstance(t, dict)]
+                # 持久化轮次计数：会话开始时为 0，每完成一轮（产生一次 bot 回复）+1，不按消息条数算
+                turn_count = state.get("turn_count_in_session")
+                try:
+                    n = int(turn_count or 0)
+                    assets["turn_count_in_session"] = n + 1
+                except (ValueError, TypeError):
+                    assets["turn_count_in_session"] = 1
+                # 持久化 conversation_momentum，否则下一轮 loader 拿不到会退化为 default=1.0，导致“锁在 1”
+                momentum = state.get("conversation_momentum")
+                if momentum is not None:
+                    try:
+                        assets["conversation_momentum"] = float(momentum)
+                    except (TypeError, ValueError):
+                        pass
                 user.assets = assets
                 user.spt_info = dict(state.get("spt_info") or user.spt_info or {})
                 user.conversation_summary = state.get("conversation_summary") or user.conversation_summary
@@ -1299,6 +1358,21 @@ class DBManager:
                             )
                 except Exception as e:
                     print(f"[URGENT TASK] Failed to clear urgent tasks from DB: {e}")
+
+    async def update_reply_duration_list(
+        self, user_id: str, bot_id: str, reply_duration_seconds_list: List[float]
+    ) -> None:
+        """仅更新 user.dimensions 中的 reply_duration_seconds_list（最近 20 条）。用于每轮结束后由 web 层追加本轮耗时。"""
+        if not isinstance(reply_duration_seconds_list, list):
+            return
+        capped = [float(x) for x in reply_duration_seconds_list if isinstance(x, (int, float))][-20:]
+        async with self.Session() as session:
+            async with session.begin():
+                user = await self._get_or_create_user(session, bot_id, user_id)
+                dims = dict(user.dimensions or {})
+                dims["reply_duration_seconds_list"] = capped
+                user.dimensions = dims
+                user.updated_at = func.now()  # type: ignore[assignment]
 
     async def append_message(
         self,

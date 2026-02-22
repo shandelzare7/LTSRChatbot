@@ -1,0 +1,186 @@
+/* 首页 V2 极简科研风：左文右图，在现有 tokens / app-shell / bot-card / btn-primary 基础上 */
+
+.home-min {
+  max-width: 1100px;
+  margin: 72px auto;
+  padding: 40px 40px;
+}
+
+.home-hero {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.home-brand {
+  font-size: 14px;
+  font-weight: 650;
+  color: rgba(31, 36, 48, 0.86);
+  margin-bottom: 14px;
+}
+
+.home-muted {
+  font-weight: 500;
+  color: rgba(31, 36, 48, 0.55);
+  margin-left: 6px;
+}
+
+/* 学术气息：标题 serif */
+.home-title {
+  font-family: ui-serif, "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
+  font-size: 32px;
+  line-height: 1.18;
+  margin: 0 0 10px;
+  font-weight: 720;
+  letter-spacing: 0.2px;
+}
+
+.home-subtitle {
+  font-family: ui-serif, Georgia, serif;
+  font-size: 16px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+  color: rgba(31, 36, 48, 0.7);
+}
+
+.home-intro {
+  margin: 0 0 14px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: rgba(31, 36, 48, 0.78);
+  max-width: 72ch;
+}
+
+/* 三条 bullets：像论文贡献点 */
+.home-bullets {
+  margin: 0 0 18px;
+  padding-left: 18px;
+  color: rgba(31, 36, 48, 0.76);
+  line-height: 1.7;
+  font-size: 14px;
+}
+
+.home-bullets li {
+  margin: 6px 0;
+}
+
+.home-bullets b {
+  color: rgba(31, 36, 48, 0.92);
+}
+
+.home-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  border-radius: 14px;
+  padding: 10px 14px;
+}
+
+/* 首页主按钮加大 */
+.home-cta-lg {
+  padding: 16px 28px;
+  font-size: 17px;
+  font-weight: 600;
+  border-radius: 16px;
+  min-height: 52px;
+  min-width: 200px;
+}
+
+.home-meta {
+  margin-top: 14px;
+  font-size: 12px;
+  color: rgba(31, 36, 48, 0.55);
+}
+
+/* Figure：右侧论文图 + 图注 */
+.home-figure {
+  padding: 16px;
+  margin: 0;
+}
+
+.home-figure-img {
+  width: 100%;
+  height: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(17, 24, 39, 0.1);
+  display: block;
+}
+
+.home-figure-placeholder {
+  height: 260px;
+  border-radius: 14px;
+  border: 1px dashed rgba(17, 24, 39, 0.18);
+  background: rgba(17, 24, 39, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(31, 36, 48, 0.55);
+  font-size: 13px;
+}
+
+.home-figcap {
+  margin-top: 10px;
+  color: rgba(31, 36, 48, 0.6);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* 按钮下方内容占位区 */
+.home-content-below {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid rgba(17, 24, 39, 0.08);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 24px;
+}
+
+.home-placeholder-block {
+  padding: 24px;
+  background: rgba(17, 24, 39, 0.02);
+  border: 1px dashed rgba(17, 24, 39, 0.12);
+  border-radius: 14px;
+}
+
+.home-placeholder-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: rgba(31, 36, 48, 0.88);
+  margin: 0 0 10px;
+}
+
+.home-placeholder-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(31, 36, 48, 0.65);
+  margin: 0;
+}
+
+@media (max-width: 960px) {
+  .home-min {
+    margin: 52px 14px;
+    padding: 28px 20px;
+  }
+  .home-hero {
+    grid-template-columns: 1fr;
+  }
+  .home-title {
+    font-size: 26px;
+  }
+  .home-figure-placeholder {
+    height: 200px;
+  }
+  .home-cta-lg {
+    padding: 14px 22px;
+    font-size: 16px;
+    min-height: 48px;
+    min-width: 180px;
+  }
+  .home-content-below {
+    margin-top: 36px;
+    padding-top: 24px;
+    grid-template-columns: 1fr;
+  }
+}

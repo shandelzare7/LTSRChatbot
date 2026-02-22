@@ -17,7 +17,7 @@ RELATIONSHIP_TEMPLATES: List[Dict[str, float]] = [
         "trust": 0.18,
         "liking": 0.40,
         "respect": 0.52,
-        "warmth": 0.45,
+        "attractiveness": 0.45,
         "power": 0.50,
     },
     {
@@ -27,7 +27,7 @@ RELATIONSHIP_TEMPLATES: List[Dict[str, float]] = [
         "trust": 0.25,
         "liking": 0.55,
         "respect": 0.58,
-        "warmth": 0.60,
+        "attractiveness": 0.60,
         "power": 0.48,
     },
     {
@@ -37,7 +37,7 @@ RELATIONSHIP_TEMPLATES: List[Dict[str, float]] = [
         "trust": 0.22,
         "liking": 0.45,
         "respect": 0.55,
-        "warmth": 0.52,
+        "attractiveness": 0.52,
         "power": 0.50,
     },
 ]
@@ -54,7 +54,7 @@ def get_random_relationship_template() -> Dict[str, float]:
             "trust": float,
             "liking": float,
             "respect": float,
-            "warmth": float,
+            "attractiveness": float,
             "power": float,
         }
     """
@@ -64,7 +64,7 @@ def get_random_relationship_template() -> Dict[str, float]:
         "trust": template["trust"],
         "liking": template["liking"],
         "respect": template["respect"],
-        "warmth": template["warmth"],
+        "attractiveness": template["attractiveness"],
         "power": template["power"],
     }
 
@@ -86,7 +86,7 @@ def get_relationship_template_by_name(name: Literal["neutral_stranger", "friendl
                 "trust": template["trust"],
                 "liking": template["liking"],
                 "respect": template["respect"],
-                "warmth": template["warmth"],
+                "attractiveness": template["attractiveness"],
                 "power": template["power"],
             }
     # fallback to random if not found

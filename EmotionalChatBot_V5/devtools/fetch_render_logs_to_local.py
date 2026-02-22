@@ -1,10 +1,13 @@
 """
-从「数据库」表 web_chat_logs 拉取所有记录，保存到本地 render_log 文件夹。
+从「数据库」表 web_chat_logs 拉取记录，保存到本地 render_log 文件夹。
 （Render 上你已要求把 log 都存在数据库里，本脚本从该表读出并落盘到本地。）
 
 使用：
   # 必须用 Render 的库连接串，否则会连到本地库（可能没有记录）
   RENDER_DATABASE_URL=postgresql+asyncpg://user:pass@dpg-xxx/render_db python -m devtools.fetch_render_logs_to_local
+
+  # 只下载某一天的日志（按 updated_at 所在日，UTC；不设则拉取全部）
+  RENDER_LOG_DATE=2026-02-22 RENDER_DATABASE_URL=... python -m devtools.fetch_render_logs_to_local
 
   若未设置 RENDER_DATABASE_URL 则用 DATABASE_URL（可能是本地库）。
 """
@@ -15,7 +18,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from urllib.parse import urlparse
 
 try:
@@ -37,6 +40,7 @@ except Exception:
     pass
 
 from sqlalchemy import select
+from sqlalchemy.sql import and_
 from app.core.database import WebChatLog, DBManager
 from app.core.database import _create_async_engine_from_database_url
 
@@ -73,12 +77,29 @@ async def main() -> None:
     out_dir = PROJECT_ROOT / "render_log"
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"输出目录: {out_dir.resolve()}")
+
+    # 可选：只拉取某一天的日志（RENDER_LOG_DATE=YYYY-MM-DD，按 updated_at 所在日 UTC）
+    log_date_str = (os.getenv("RENDER_LOG_DATE") or "").strip()
+    date_filter = None
+    if log_date_str:
+        try:
+            log_date = date.fromisoformat(log_date_str)
+            start_utc = datetime(log_date.year, log_date.month, log_date.day, 0, 0, 0, tzinfo=timezone.utc)
+            end_utc = start_utc + timedelta(days=1)
+            date_filter = and_(
+                WebChatLog.updated_at >= start_utc,
+                WebChatLog.updated_at < end_utc,
+            )
+            print(f"仅下载日期: {log_date_str} (UTC)")
+        except (ValueError, TypeError):
+            print(f"⚠ RENDER_LOG_DATE 格式无效，忽略: {log_date_str!r}")
     print()
 
     async with db.Session() as session:
-        result = await session.execute(
-            select(WebChatLog).order_by(WebChatLog.updated_at.desc())
-        )
+        q = select(WebChatLog).order_by(WebChatLog.updated_at.desc())
+        if date_filter is not None:
+            q = q.where(date_filter)
+        result = await session.execute(q)
         rows = list(result.scalars().all())
 
     if not rows:

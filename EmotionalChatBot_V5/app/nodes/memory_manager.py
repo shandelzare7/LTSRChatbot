@@ -17,7 +17,10 @@ from typing import Any, Callable, Dict, List, Optional
 import os
 import uuid
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
 from app.state import AgentState
+from src.schemas import MemoryManagerOutput
 from utils.llm_json import parse_json_from_llm
 
 
@@ -48,6 +51,24 @@ def _safe_float(x: Any) -> Optional[float]:
         return None
 
 
+def _clamp01(x: Optional[float]) -> Optional[float]:
+    if x is None:
+        return None
+    try:
+        v = float(x)
+    except Exception:
+        return None
+    if v < 0.0:
+        return 0.0
+    if v > 1.0:
+        return 1.0
+    return v
+
+
+def _as_str(x: Any) -> str:
+    return str(x) if x is not None else ""
+
+
 def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     """
     记忆管理节点（每轮更新）：
@@ -55,6 +76,10 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
       1) 更新 conversation_summary（running summary）
       2) 抽取 derived notes（稳定事实/偏好/决策/正在做什么）
       3) 生成 transcript 元数据（entities/topic/importance/short_context）
+      4) 严格抽取基础信息 basic_info（name/age/gender/occupation/location）：必须来自“最新 user_input”
+         - LLM 输出值 + confidence + evidence（evidence 必须逐字出现在 user_input 中）
+         - Python 侧只做最小门控：evidence 子串校验 + 置信度阈值 + 不覆盖已有字段
+      5) 可选抽取 new_inferred_entries（少而精），用于 user_inferred_profile 增量沉淀
     - 落盘：优先 DB（transcripts/derived_notes），无 DB 时用 LocalStore jsonl。
     """
 
@@ -76,63 +101,272 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         if not user_input and not bot_text:
             return {}
 
-        prompt = f"""你是经验丰富的记录总结专家，擅长从对话中提炼关键信息并形成结构化记录。请基于【旧摘要】+【本轮对话】，输出一个严格的 JSON，用于更新摘要并沉淀稳定记忆。
+        # 现有 relationship_assets 与 topic_history（用于话题历史更新）
+        existing_assets = state.get("relationship_assets") or {}
+        existing_topic_history = list(existing_assets.get("topic_history") or [])
 
-要求（重要，影响稳定性）：
+        # 现有画像（用于“只补空不覆盖”）
+        existing_basic: Dict[str, Any] = dict(state.get("user_basic_info") or {})
+        existing_profile: Dict[str, Any] = dict(state.get("user_inferred_profile") or {})
+
+        sys_prompt = """你是经验丰富的记录总结专家，擅长从对话中提炼关键信息并形成结构化记录。
+你将基于【旧摘要】+【本轮对话】输出严格 JSON，用于更新摘要、沉淀稳定记忆与抽取用户基础信息。
+
+通用要求（影响稳定性）：
 1) 摘要要“可持续更新”：在旧摘要基础上增量更新，不要推翻重写；保持精炼、客观、可复用。
 2) 只写“稳定事实/偏好/正在做什么/已决策/关键约束”，不要猜测、不要心理分析。
-3) Derived notes 要少而精（0~5 条），每条必须是可检验/可复用的信息。
-4) entities/topic/short_context 也要保守，不确定就留空或给更泛化的表述。
-5) importance 建议 0~1（越接近 1 越重要）。
+3) notes（Derived Notes）要少而精（0~5 条），每条必须是可检验/可复用的信息。
+4) entities/topic/short_context 保守：不确定就留空或更泛化；importance 建议 0~1。
+5) 任何字段都不允许凭空补全；不确定就输出 null/空。
 
-【旧摘要】
+【User Basic Info Extraction（严格）】
+你必须只从“最新用户消息 user_input”中提取用户基础信息（name/age/gender/occupation/location）。
+
+硬规则（必须遵守）：
+- 只能依据最新 user_input，不得引用历史对话或 assistant 的内容，不得猜测。
+- 只有当用户“明确自报”时才允许填值；否则该字段必须为 null 且 confidence=0。
+- 每个被填字段必须提供 evidence（原文片段），且 evidence 必须逐字出现在 user_input 中。
+- 如果 evidence 不存在于 user_input，视为无效提取：该字段必须输出 null、confidence=0。
+- 特别是 name：绝不能把情绪短语/评价短语/动词短语当作姓名（如“很开心/很期待/会尽全力/一直在想/令人兴奋/倍感振奋”等）。遇到不确定，一律不填（null）。
+
+“明确自报”的语义标准（提示，不是模式匹配要求）：
+- name：用户表达“我叫…/我的名字是…/你可以叫我…/大家叫我…/叫我…就行”
+- age：用户表达“我xx岁/今年xx/年龄xx”
+- gender：用户明确说明“我是男/女/男性/女性/性别…”
+- occupation：用户说明“我做…工作/职业是…/我是…（职业）”
+- location：用户说明“我在…/来自…/住在…”
+
+【Inferred Profile（保守）】
+- new_inferred_entries 用于沉淀“稳定、可复用”的偏好/约束/长期目标/习惯等（0~5 条）。
+- 不要把一时情绪、客套、泛泛表达当作画像条目；宁可少，不要凑数。
+
+【话题历史检测（Topic History）】
+你需要判断本轮对话是否引入了与现有话题历史不同的新话题。
+
+规则：
+- 比较现有 topic_history 和本轮对话内容（user_input + bot_text）
+- 只有当对话明确涉及“与已有话题明显不同”的主题时，才认为是新话题
+- 避免重复：如果话题与已有话题相似或只是已有话题的细分，不要添加
+- 话题应该是概括性的主题词（如“工作”、“电影”、“旅行”），而不是具体细节
+- 如果本轮没有新话题，返回空数组 []
+{infer_gender_block}"""
+
+        # 若用户性别未知，在本轮 LLM 中要求根据对话推断性别并填 inferred_user_gender
+        has_gender = bool(
+            existing_basic.get("gender") is not None and str(existing_basic.get("gender")).strip()
+        )
+        infer_gender_block = ""
+        if not has_gender:
+            infer_gender_block = """
+【用户性别推断（仅当用户画像中性别未知时）】
+当前用户画像中性别为空。请根据【本轮对话】及上下文（称呼、用词、自述等）推断用户性别，在 inferred_user_gender 中填写：男 / 女 / 其他。若无把握则留空。
+"""
+
+        sys_prompt = sys_prompt.replace("{infer_gender_block}", infer_gender_block)
+
+        existing_topic_history_str = ", ".join(existing_topic_history) if existing_topic_history else "（空）"
+        human_prompt = f"""【旧摘要】
 {prev_summary if prev_summary else "（空）"}
 
 【本轮对话】
 - time: {now}
-- user: {user_input}
+- user_input: {user_input}
 - bot: {bot_text}
 
-输出 JSON schema（必须完全符合）：
-{{
-  "new_summary": "string（建议 80~220 字）",
-  "transcript_meta": {{
-    "entities": ["string", "..."],
-    "topic": "string",
-    "importance": 0.0,
-    "short_context": "string（<=40字）"
-  }},
-  "notes": [
-    {{
-      "note_type": "fact|preference|activity|decision|other",
-      "content": "string",
-      "importance": 0.0
-    }}
-  ]
-}}
-"""
+【现有话题历史】
+{existing_topic_history_str}
 
-        # 1) 调 LLM 抽取
+请判断本轮对话是否引入了新话题。如果有，在 new_topics 中返回新话题列表。new_summary 建议 80~220 字；short_context 不超过 40 字。
+
+（输出格式由系统约束。）"""
+
+        # 1) 调 LLM 抽取（优先方法2 固定 schema）
+        data: Dict[str, Any] = {}
         try:
-            msg = llm_invoker.invoke(prompt)
-            content = getattr(msg, "content", str(msg)) or ""
-            data = parse_json_from_llm(content) or {}
-        except Exception as e:
+            if hasattr(llm_invoker, "with_structured_output"):
+                try:
+                    structured = llm_invoker.with_structured_output(MemoryManagerOutput)
+                    obj = structured.invoke(
+                        [SystemMessage(content=sys_prompt), HumanMessage(content=human_prompt)]
+                    )
+                    data = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+                except Exception:
+                    data = {}
+            if not data:
+                resp = llm_invoker.invoke(
+                    [SystemMessage(content=sys_prompt), HumanMessage(content=human_prompt)]
+                )
+                raw_content = getattr(resp, "content", str(resp)) or ""
+                data = parse_json_from_llm(raw_content) or {}
+            if not isinstance(data, dict):
+                data = {}
+        except Exception:
             data = {}
 
+        # 2) 解析 LLM 结果（摘要 + 元数据 + notes）
         new_summary = str(data.get("new_summary") or prev_summary or "").strip()
+
         meta = data.get("transcript_meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
         entities = meta.get("entities") or []
         if not isinstance(entities, list):
             entities = []
+        entities = [str(x).strip() for x in entities if str(x).strip()][:20]
+
         topic = meta.get("topic")
+        topic = str(topic).strip() if topic is not None and str(topic).strip() else None
+
         short_context = meta.get("short_context")
-        importance = _safe_float(meta.get("importance"))
+        short_context = str(short_context).strip() if short_context is not None and str(short_context).strip() else None
+        if short_context and len(short_context) > 40:
+            short_context = short_context[:40]
+
+        importance = _clamp01(_safe_float(meta.get("importance")))
+
         notes = data.get("notes") or []
         if not isinstance(notes, list):
             notes = []
+        cleaned_notes: List[Dict[str, Any]] = []
+        for n in notes[:5]:
+            if not isinstance(n, dict):
+                continue
+            note_type = str(n.get("note_type") or "other").strip()
+            if note_type not in ("fact", "preference", "activity", "decision", "other"):
+                note_type = "other"
+            content = str(n.get("content") or "").strip()
+            if not content:
+                continue
+            imp = _clamp01(_safe_float(n.get("importance")))
+            cleaned_notes.append(
+                {"note_type": note_type, "content": content, "importance": imp if imp is not None else 0.5}
+            )
 
-        # 2) Store A/B 落盘
+        # 解析新话题
+        new_topics_raw = data.get("new_topics") or []
+        if not isinstance(new_topics_raw, list):
+            new_topics_raw = []
+        new_topics: List[str] = []
+        for t in new_topics_raw:
+            ts = str(t).strip()
+            if ts and len(ts) <= 20:
+                new_topics.append(ts)
+
+        # 3) 基础信息：LLM 输出 + Python 最小门控（不用正则）
+        basic_updates_raw = data.get("basic_info_updates")
+        basic_updates = basic_updates_raw.model_dump() if hasattr(basic_updates_raw, "model_dump") else (basic_updates_raw if isinstance(basic_updates_raw, dict) else {})
+        basic_conf_raw = data.get("basic_info_confidence")
+        basic_conf = basic_conf_raw.model_dump() if hasattr(basic_conf_raw, "model_dump") else (basic_conf_raw if isinstance(basic_conf_raw, dict) else {})
+        basic_ev_raw = data.get("basic_info_evidence")
+        basic_ev = basic_ev_raw.model_dump() if hasattr(basic_ev_raw, "model_dump") else (basic_ev_raw if isinstance(basic_ev_raw, dict) else {})
+
+        if not isinstance(basic_updates, dict):
+            basic_updates = {}
+        if not isinstance(basic_conf, dict):
+            basic_conf = {}
+        if not isinstance(basic_ev, dict):
+            basic_ev = {}
+
+        user_src = user_input or ""
+        # 调试：LLM 是否返回了 basic_info（便于排查“为何 DB 未写入”）
+        _up = {k: basic_updates.get(k) for k in ("name", "age", "gender", "occupation", "location") if basic_updates.get(k)}
+        if _up or user_src.strip():
+            print(
+                f"[MemoryManager] basic_info 抽取: LLM 返回 updates={_up} "
+                f"confidence={dict((k, basic_conf.get(k)) for k in ('name','age','gender','occupation','location') if basic_conf.get(k) is not None)} "
+                f"evidence={dict((k, (str(basic_ev.get(k)) or '')[:40]) for k in ('name','age','gender','occupation','location') if basic_ev.get(k))} "
+                f"user_input_len={len(user_src)}"
+            )
+
+        TH = {"name": 0.88, "age": 0.80, "gender": 0.85, "occupation": 0.80, "location": 0.80}
+
+        updated_basic = dict(existing_basic)
+        wrote_basic_keys: List[str] = []
+
+        for k in ("name", "age", "gender", "occupation", "location"):
+            new_val = basic_updates.get(k)
+            if new_val is None:
+                continue
+            new_val_s = str(new_val).strip()
+            if not new_val_s:
+                continue
+
+            conf = _safe_float(basic_conf.get(k)) or 0.0
+            if conf < TH.get(k, 0.9):
+                print(f"[MemoryManager] basic_info 门控跳过 {k}: 置信度 {conf:.2f} < {TH.get(k, 0.9)}")
+                continue
+
+            ev = basic_ev.get(k)
+            if ev is None:
+                print(f"[MemoryManager] basic_info 门控跳过 {k}: 无 evidence")
+                continue
+            ev_s = str(ev).strip()
+            if not ev_s:
+                print(f"[MemoryManager] basic_info 门控跳过 {k}: evidence 为空")
+                continue
+
+            # 门控 1：evidence 必须是 user_input 的子串
+            if ev_s not in user_src:
+                print(f"[MemoryManager] basic_info 门控跳过 {k}: evidence 不在 user_input 中 (ev={ev_s[:40]}...)")
+                continue
+
+            # 门控 2：提取值应当出现在 evidence 中（降低“乱填”概率）
+            # （允许 age="31" evidence="31岁"；name="小明" evidence="叫我小明"）
+            if new_val_s not in ev_s:
+                print(f"[MemoryManager] basic_info 门控跳过 {k}: 值 {new_val_s!r} 不在 evidence 中")
+                continue
+
+            # 门控 3：只补空，不覆盖已有
+            old_val = updated_basic.get(k)
+            if old_val is not None and str(old_val).strip():
+                continue
+
+            updated_basic[k] = new_val_s
+            wrote_basic_keys.append(k)
+
+        # 若用户性别仍为空且本轮 LLM 返回了推断性别，则写回
+        if not (updated_basic.get("gender") and str(updated_basic.get("gender")).strip()):
+            inferred_gender = data.get("inferred_user_gender")
+            if inferred_gender is not None and str(inferred_gender).strip():
+                updated_basic["gender"] = str(inferred_gender).strip()
+                wrote_basic_keys.append("gender")
+                print(f"[MemoryManager] 性别推断写回: {updated_basic['gender']!r}")
+
+        # 4) new_inferred_entries：保守合并（少而精；schema 为 List[InferredEntry]，转为 dict）
+        inferred_raw = data.get("new_inferred_entries") or []
+        if not isinstance(inferred_raw, list):
+            inferred_raw = []
+        inferred_updates: Dict[str, str] = {}
+        for item in inferred_raw[:10]:
+            if isinstance(item, dict):
+                k, v = item.get("key"), item.get("value")
+            elif hasattr(item, "key") and hasattr(item, "value"):
+                k, v = item.key, item.value
+            else:
+                continue
+            if k is not None and v is not None and str(k).strip():
+                inferred_updates[str(k).strip()] = str(v).strip()
+        updated_profile = dict(existing_profile)
+        wrote_profile_keys: List[str] = []
+        max_profile = 5
+        for k, v in list(inferred_updates.items())[: max_profile * 2]:
+            ks = str(k).strip()
+            vs = str(v).strip()
+            if not ks or not vs:
+                continue
+            if len(ks) > 60:
+                ks = ks[:60]
+            if len(vs) > 240:
+                vs = vs[:240]
+            # 不覆盖已有（除非已有为空）
+            if ks in updated_profile and str(updated_profile.get(ks) or "").strip():
+                continue
+            updated_profile[ks] = vs
+            wrote_profile_keys.append(ks)
+            if len(wrote_profile_keys) >= max_profile:
+                break
+
+        # 5) Store A/B 落盘
         db = _get_db_manager()
         if db and relationship_id:
             # DB 模式：写 transcripts + derived_notes
@@ -149,14 +383,31 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
                     importance=importance,
                     short_context=str(short_context) if short_context else None,
                 )
+
                 # notes 写入（带 source_pointer）
-                for n in notes:
-                    n.setdefault("source_pointer", f"transcript:{transcript_id}")
-                await db.append_notes(
-                    relationship_id=str(relationship_id),
-                    transcript_id=str(transcript_id),
-                    notes=notes,  # type: ignore[arg-type]
-                )
+                notes_for_db: List[Dict[str, Any]] = []
+                for n in cleaned_notes:
+                    nn = dict(n)
+                    nn.setdefault("source_pointer", f"transcript:{transcript_id}")
+                    notes_for_db.append(nn)
+
+                # 若本轮写入了 basic_info，也额外落一条 note（可溯源）
+                if wrote_basic_keys:
+                    notes_for_db.append(
+                        {
+                            "note_type": "fact",
+                            "content": f"用户基础信息更新：{', '.join(wrote_basic_keys)}",
+                            "importance": 0.8,
+                            "source_pointer": f"transcript:{transcript_id}",
+                        }
+                    )
+
+                if notes_for_db:
+                    await db.append_notes(
+                        relationship_id=str(relationship_id),
+                        transcript_id=str(transcript_id),
+                        notes=notes_for_db,  # type: ignore[arg-type]
+                    )
             except Exception as e:
                 print(f"[MemoryManager] DB 写入失败: {e}")
         else:
@@ -183,17 +434,88 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
                         "short_context": short_context,
                     },
                 )
-                for n in notes:
-                    n.setdefault("source_pointer", f"transcript:{transcript_id}")
-                    n.setdefault("transcript_id", transcript_id)
-                store.append_derived_notes(user_id, bot_id, notes)  # type: ignore[arg-type]
+
+                notes_for_local: List[Dict[str, Any]] = []
+                for n in cleaned_notes:
+                    nn = dict(n)
+                    nn.setdefault("source_pointer", f"transcript:{transcript_id}")
+                    nn.setdefault("transcript_id", transcript_id)
+                    notes_for_local.append(nn)
+
+                if wrote_basic_keys:
+                    notes_for_local.append(
+                        {
+                            "note_type": "fact",
+                            "content": f"用户基础信息更新：{', '.join(wrote_basic_keys)}",
+                            "importance": 0.8,
+                            "source_pointer": f"transcript:{transcript_id}",
+                            "transcript_id": transcript_id,
+                        }
+                    )
+
+                if notes_for_local:
+                    store.append_derived_notes(user_id, bot_id, notes_for_local)  # type: ignore[arg-type]
             except Exception as e:
                 print(f"[MemoryManager] LocalStore 写入失败: {e}")
 
+        # Debug breadcrumb
+        try:
+            if wrote_basic_keys or wrote_profile_keys:
+                print(
+                    f"[MemoryManager] wrote_basic={wrote_basic_keys if wrote_basic_keys else '(none)'} "
+                    f"wrote_profile={wrote_profile_keys if wrote_profile_keys else '(none)'}"
+                )
+        except Exception:
+            pass
+
+        # 更新 relationship_assets：topic_history 和 breadth_score
+        updated_assets = dict(existing_assets)
+        if new_topics:
+            combined_topics = existing_topic_history + new_topics
+            unique_topics = list(dict.fromkeys(combined_topics))
+            updated_assets["topic_history"] = unique_topics
+            updated_assets["breadth_score"] = len(unique_topics)
+            print(
+                f"[MemoryManager] topic_history updated: added {len(new_topics)} new topic(s), total={len(unique_topics)}"
+            )
+        else:
+            if "topic_history" not in updated_assets:
+                updated_assets["topic_history"] = existing_topic_history
+            if "breadth_score" not in updated_assets:
+                updated_assets["breadth_score"] = len(set(existing_topic_history))
+
         print("[MemoryManager] done")
-        return {
+        out: Dict[str, Any] = {
             "conversation_summary": new_summary,
+            "relationship_assets": updated_assets,
         }
 
-    return node
+        # 将本轮更新写回 state（供 memory_writer 持久化）
+        # 始终回写完整合并结果，保证 save_turn 拿到的是最新 state，避免未写入轮次丢失已有数据
+        out["user_basic_info"] = updated_basic
+        out["user_inferred_profile"] = updated_profile
 
+        # 基本信息紧急任务完成判定：若 user 的 basic_info 已有对应字段，则视为该任务已完成
+        _BASIC_FIELD_TO_TASK_ID = [
+            ("name", "ask_user_name"),
+            ("age", "ask_user_age"),
+            ("gender", "ask_user_gender"),
+            ("occupation", "ask_user_occupation"),
+            ("location", "ask_user_location"),
+        ]
+
+        def _has_val(v: Any) -> bool:
+            if v is None:
+                return False
+            s = str(v).strip()
+            return bool(s)
+
+        completed_from_basic = {
+            tid for field, tid in _BASIC_FIELD_TO_TASK_ID if _has_val(updated_basic.get(field))
+        }
+        existing_completed = set(state.get("completed_task_ids") or [])
+        out["completed_task_ids"] = list(existing_completed | completed_from_basic)
+
+        return out
+
+    return node

@@ -24,7 +24,7 @@ class RelationshipStateModel(BaseModel):
     trust: float = Field(0.3, ge=0.0, le=1.0)
     liking: float = Field(0.3, ge=0.0, le=1.0)
     respect: float = Field(0.3, ge=0.0, le=1.0)
-    warmth: float = Field(0.3, ge=0.0, le=1.0)
+    attractiveness: float = Field(0.3, ge=0.0, le=1.0)
     power: float = Field(0.5, ge=0.0, le=1.0)
 
 

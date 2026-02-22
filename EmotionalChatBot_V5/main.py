@@ -18,10 +18,8 @@ except Exception:
     pass
 
 from langchain_core.messages import HumanMessage
-from app.core.mode_base import PsychoMode
 from app.graph import build_graph
 from app.state import AgentState
-from utils.yaml_loader import get_project_root, load_modes_from_dir
 
 
 class TeeWriter:
@@ -50,39 +48,14 @@ class TeeWriter:
             self._out.flush()
 
 
-def get_default_mode() -> PsychoMode:
-    """加载默认模式（normal_mode）。"""
-    proot = get_project_root()
-    modes_dir = proot / "config" / "modes"
-    raw = load_modes_from_dir(modes_dir)
-    for m in raw:
-        if m.get("id") == "normal_mode":
-            return PsychoMode.model_validate(m)
-    # Fallback: 如果找不到 normal_mode.yaml，创建一个最小化的默认模式
-    from app.core.mode_base import BehaviorContract, LatsBudget, RequirementsPolicy, CriticCriteria, StyleBias
-    return PsychoMode(
-        id="normal_mode",
-        name="Normal",
-        description="默认模式",
-        behavior_contract=BehaviorContract(),
-        lats_budget=LatsBudget(),
-        requirements_policy=RequirementsPolicy(),
-        critic_criteria=CriticCriteria(),
-        style_bias=StyleBias(),
-        disallowed=[],
-    )
-
-
 def _make_initial_state(user_id: str, bot_id: str) -> AgentState:
     """构造每轮可复用的初始 state 骨架（只差 messages / current_time）。"""
-    default_mode = get_default_mode()
     now = datetime.now().isoformat()
     return {
         "messages": [],
         "current_time": now,
         "user_id": user_id,
         "bot_id": bot_id,
-        "current_mode": default_mode,
         "user_profile": {},
         "memories": "",
         "deep_reasoning_trace": {},

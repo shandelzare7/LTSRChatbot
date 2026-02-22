@@ -1,11 +1,3 @@
-"""
-TaskPlanner 节点：在 LATS 之前运行。
-- 先组装候选任务列表（backlog + immediate + daily），再一次 LLM 调用同时完成：
-  1) 预算规划：word_budget (0-60)、task_budget_max (0-2)
-  2) 任务选择：从候选列表中选出最相关的 2 个 + 1 个随机任务（返回索引）
-- 紧急任务（urgent）绕过 LLM 直接注入。
-- 输出 tasks_for_lats / task_budget_max / word_budget / completion_temperature 供 LATS 使用。
-"""
 from __future__ import annotations
 
 import random
@@ -15,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.state import AgentState
+from src.schemas import TaskPlannerOutput
 from utils.llm_json import parse_json_from_llm
 from utils.tracing import trace_if_enabled
 from utils.yaml_loader import get_project_root, load_yaml
@@ -26,6 +19,7 @@ try:
 except Exception:
     def _is_systemic_task_desc(desc: str) -> bool:  # type: ignore
         return False
+
 
 # 日常任务库：优先从 config/daily_tasks.yaml 加载，失败时用内置兜底
 def _load_daily_pool() -> List[Dict[str, Any]]:
@@ -109,76 +103,107 @@ def _plan_and_select_with_llm(
     mood = state.get("mood_state") or {}
     stage_id = str(state.get("current_stage") or "initiating")
     stage_desc = format_stage_for_llm(stage_id, include_judge_hints=True)
-    scores = state.get("detection_scores") or {}
-    stage_judge = state.get("detection_stage_judge") or {}
-    direction = str((stage_judge or {}).get("direction") or "none")
+    detection = state.get("detection") or {}
+    hostility = int(detection.get("hostility_level") or 0)
+    engagement = int(detection.get("engagement_level") or 5)
+    topic_appeal = int(detection.get("topic_appeal") or 5)
+    stage_pacing = str(detection.get("stage_pacing") or "正常").strip()
     inner_monologue = str(state.get("inner_monologue") or "").strip()[:800]
+    momentum = state.get("conversation_momentum", 1.0)
+    momentum = float(momentum) if momentum is not None else 1.0
 
-    lines = []
+    # 候选任务列表（保持你原来的“只给描述”口径，不丢你现有实现信息）
+    lines: List[str] = []
     for i, t in enumerate(candidates):
         desc = t.get("description") or t.get("id") or ""
-        lines.append(f"  {i}: {desc}")
+        lines.append(f"{i}: {desc}")
     task_list_str = "\n".join(lines)
 
-    sys = f"""你是日常生活语言沟通专家，深谙人际交往中的分寸与节奏。请凭借你对日常沟通的敏锐判断，一次完成以下两件事：
+    # ✅ 自然语言 System Prompt（保留原文开头 + 全部规则点）
+    sys = f"""你是日常生活语言沟通专家，深谙人际交往中的分寸与节奏。请凭借你对日常沟通的敏锐判断，一次完成两件事：预算规划 + 任务选择。
 
-## A. 预算规划
-为下游回复生成系统产出两个预算值：
-- word_budget：整数 0-60（0 = 本轮不回复）
-- task_budget_max：整数 0-2（本轮最多完成的任务数）
+你需要产出两个预算值：
+- word_budget：整数 0–60（0 = 本轮不回复）
+- task_budget_max：整数 0–2（本轮最多完成的任务数）
 
-决策建议（非硬规则）：
-- 用户明显敌意/越界/敷衍：倾向降低 word_budget，必要时给 0。
-- 关系早期且越界推进：降低 word_budget 与 task_budget_max。
-- 用户提出明确问题且关系/情绪尚可：保持正常预算（40-60）。
-- 若有紧急任务，即使保守也别把 word_budget 设为 0（除非极端）。
+预算决策建议（必须参考 Detection 输出，0-10 分）：
+Detection 输出含义：
+- hostility_level: 敌意/攻击性（≥5→降低 word_budget，≥7→可设为0）
+- engagement_level: 用户投入度/信息量（高→可正常预算，低→保守）
+- topic_appeal: 话题对 Bot 的吸引力（高→可保持预算）
+- stage_pacing: 关系节奏（正常/过分亲密/过分生疏）
 
-## B. 任务选择
-下方有一组编号候选任务（0 ~ {len(candidates) - 1}）。
-- 选出你认为**最相关**的 2 个任务索引（top2_indices）。
-- 再从剩余任务中**随机**选 1 个索引（random_index）。
+预算决策规则：
+- 用户明显敌意（hostility_level ≥ 5）：倾向降低 word_budget，≥7 时可给 0。
+- 用户投入低（engagement_level ≤ 3）：保守预算。
+- 投入高（engagement_level ≥ 6）且敌意低（hostility_level ≤ 3）：保持正常预算（40–60）。
+- 若有 DB 紧急任务：即使保守也尽量别把 word_budget 设为 0（除非极端情况）。
+
+另外，你必须参考“对话冲量 conversation_momentum = m”做调节：
+- m=1.0 表示刚开始精力充沛；越低表示聊得越久越倦怠。
+- 当 m < 0.5：
+  - word_budget 通常不超过 30（除非话题非常重要）
+  - 减少追问类任务（clarify/ask_scope/ask_example/confirm_gap），除非理解置信度很低
+  - 不主动开新话题
+- 当 m < 0.3：
+  - word_budget 通常不超过 20
+  - 只执行必要的回应，不附加任何额外内容
+
+当前 m={momentum:.2f}
+
+任务选择规则：
+我会给你一组编号候选任务（编号从 0 到 {len(candidates) - 1}）。
+- 选出你认为最相关的 2 个任务索引（top2_indices）。
+- 再从剩余任务中随机选 1 个索引（random_index），不要与 top2 重复。
 - 如果候选不足 3 个，有多少选多少即可。
 
-## 输出格式（严格 JSON，不要其他文字）
-{{{{
-  "word_budget": 60,
-  "task_budget_max": 2,
-  "top2_indices": [0, 3],
-  "random_index": 5
-}}}}"""
+（输出格式由系统约束。）"""
 
-    user_body = f"""【当轮用户消息】
+    # ✅ 自然语言 User Body（信息不丢，但去掉冗余标题/解释）
+    user_body = f"""当轮用户消息：
 {user_text or "(空)"}
 
-【关系/情绪】
+关系/情绪：
 relationship_state={rel}
 mood_state={mood}
 
-【阶段信息】
-{stage_desc}
+阶段信息：
+stage_id={stage_id}
+stage_desc={stage_desc}
 
-【Detection 感知分数】（0-1）
-{scores}
+Detection（0-10）：
+hostility_level={hostility}, engagement_level={engagement}, topic_appeal={topic_appeal}, stage_pacing={stage_pacing}
 
-【Detection 阶段方向】
-direction={direction}
-
-【Inner Monologue】（可选参考）
+Inner Monologue（可选参考）：
 {inner_monologue or "(无)"}
 
-【候选任务列表】
+对话冲量：
+conversation_momentum={momentum:.2f}
+
+候选任务（编号: 描述）：
 {task_list_str}"""
 
     try:
-        resp = llm_invoker.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
-        raw = (getattr(resp, "content", "") or str(resp)).strip()
-        data = parse_json_from_llm(raw)
+        data = None
+        if hasattr(llm_invoker, "with_structured_output"):
+            try:
+                structured = llm_invoker.with_structured_output(TaskPlannerOutput)
+                obj = structured.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
+                data = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+            except Exception:
+                data = None
+        if data is None:
+            resp = llm_invoker.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
+            raw = (getattr(resp, "content", "") or str(resp)).strip()
+            data = parse_json_from_llm(raw)
         if isinstance(data, dict):
             wb = _clamp_int(data.get("word_budget"), 0, 60, 60)
             tb = _clamp_int(data.get("task_budget_max"), 0, 2, 2)
+
             max_idx = len(candidates) - 1
             top2_raw = data.get("top2_indices") or []
             top2 = [int(x) for x in top2_raw if isinstance(x, (int, float)) and 0 <= int(x) <= max_idx][:2]
+
             rand_raw = data.get("random_index")
             rand_idx: List[int] = []
             if rand_raw is not None:
@@ -188,10 +213,12 @@ direction={direction}
                         rand_idx = [ri]
                 except Exception:
                     pass
+
             selected = list(dict.fromkeys(top2 + rand_idx))  # dedupe, preserve order
             return wb, tb, selected
     except Exception:
         pass
+
     fallback_indices = list(range(min(3, len(candidates))))
     return 60, 2, fallback_indices
 
@@ -272,33 +299,15 @@ BACKLOG_SESSION_TARGET = 3
 
 
 def _immediate_from_detection(state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """从 state 的 detection_immediate_tasks 读取当轮任务（Detection 节点已产出，无数量限制）。"""
-    tasks = state.get("detection_immediate_tasks") or []
-    if not isinstance(tasks, list):
-        return []
-    out: List[Dict[str, Any]] = []
-    for i, t in enumerate(tasks):
-        if not isinstance(t, dict):
-            continue
-        desc = str(t.get("description") or "").strip()
-        if not desc:
-            continue
-        out.append({
-            "id": t.get("id") or f"detection_immediate_{i}",
-            "description": desc,
-            "task_type": str(t.get("task_type") or "immediate"),
-            "importance": float(t.get("importance", 0.5) or 0.5),
-            "ttl_turns": int(t.get("ttl_turns", 4) or 4),
-            "source": str(t.get("source") or "detection"),
-        })
-    return out
+    """Detection 已简化，不再产出当轮任务，返回空列表。"""
+    return []
 
 
 def _urgent_tasks_from_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """合并 DB 级别 + Detection 级别的紧急任务，标记 is_urgent=True。"""
+    """从 state 读取 DB 紧急任务，标记 is_urgent=True。（Detection 已简化，不再产出紧急任务。）"""
     out: List[Dict[str, Any]] = []
     idx = 0
-    for source_key in ("db_urgent_tasks", "detection_urgent_tasks"):
+    for source_key in ("db_urgent_tasks",):
         tasks = state.get(source_key) or []
         if not isinstance(tasks, list):
             continue
@@ -322,11 +331,11 @@ def _urgent_tasks_from_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 _BASIC_INFO_FIELDS: List[Tuple[str, str, str]] = [
-    ("name",       "ask_user_name",       "在合适的时机自然地询问对方的姓名或称呼"),
-    ("age",        "ask_user_age",        "在合适的时机自然地了解对方的年龄"),
-    ("gender",     "ask_user_gender",     "在合适的时机自然地了解对方的性别"),
-    ("occupation", "ask_user_occupation", "在合适的时机自然地了解对方的职业"),
-    ("location",   "ask_user_location",   "在合适的时机自然地了解对方是哪里人"),
+    ("name",       "ask_user_name",       "本轮或近期回复中务必明确询问对方的姓名或称呼"),
+    ("age",        "ask_user_age",        "本轮或近期回复中务必明确询问对方的年龄"),
+    ("gender",     "ask_user_gender",     "本轮或近期回复中务必明确询问对方的性别"),
+    ("occupation", "ask_user_occupation", "本轮或近期回复中务必明确询问对方的职业"),
+    ("location",   "ask_user_location",   "本轮或近期回复中务必明确询问对方所在城市/地区"),
 ]
 
 
@@ -362,19 +371,18 @@ def _dedupe_understanding(tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 def create_task_planner_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
-    """TaskPlanner 节点：产出 tasks_for_lats / task_budget_max / word_budget / completion_temperature。"""
+    """TaskPlanner 节点：产出 tasks_for_lats / task_budget_max / no_reply。"""
 
     @trace_if_enabled(
         name="TaskPlanner",
         run_type="chain",
         tags=["node", "task_planner", "task_budget"],
-        metadata={"state_outputs": ["tasks_for_lats", "task_budget_max", "word_budget", "completion_temperature", "no_reply", "current_session_tasks"]},
+        metadata={"state_outputs": ["tasks_for_lats", "task_budget_max", "no_reply", "current_session_tasks"]},
     )
     def task_planner_node(state: AgentState) -> dict:
-        completion_temperature = float(state.get("completion_temperature", 1.0) or 1.0)
-
-        # ── 1. 紧急任务：合并 DB + Detection + basic_info 来源，绕过 LLM 直接注入 ──
-        urgent_tasks = _urgent_tasks_from_state(state)
+        # ── 1. 紧急任务：仅保留 basic_info 来源；DB 来源暂注释 ──
+        # urgent_tasks = _urgent_tasks_from_state(state)
+        urgent_tasks: List[Dict[str, Any]] = []
         profile_urgent = _basic_info_urgent_task(state)
         if profile_urgent:
             urgent_tasks.append(profile_urgent)
@@ -382,139 +390,120 @@ def create_task_planner_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         has_urgent = len(urgent_tasks) > 0
         has_db_urgent = any(t.get("_level") in ("bot", "user") for t in urgent_tasks)
 
-        # ── 2. 组装候选列表（backlog + immediate + daily）──
-        bot_task_list = state.get("bot_task_list") or []
-        pool: List[Dict[str, Any]] = list(state.get("current_session_tasks") or [])
-        pool = [
-            t for t in pool
-            if isinstance(t, dict) and not _is_systemic_task_desc(str(t.get("description") or ""))
-        ]
-        existing_ids = {str(t.get("id")) for t in pool if t.get("id")}
+        # ── 2. 以下整块暂注释：候选池组装（backlog + immediate + daily）──
+        # bot_task_list = state.get("bot_task_list") or []
+        # pool: List[Dict[str, Any]] = list(state.get("current_session_tasks") or [])
+        # pool = [
+        #     t for t in pool
+        #     if isinstance(t, dict) and not _is_systemic_task_desc(str(t.get("description") or ""))
+        # ]
+        # existing_ids = {str(t.get("id")) for t in pool if t.get("id")}
+        #
+        # def _norm(t: Dict[str, Any], prefix: str, i: int) -> Dict[str, Any]:
+        #     return {
+        #         "id": t.get("id") or f"{prefix}_{i}",
+        #         "description": str(t.get("description") or t.get("id") or "").strip() or "（无描述）",
+        #         "task_type": str(t.get("task_type") or "other"),
+        #     }
+        #
+        # carry_n = len(pool)
+        # seeded_backlog = 0
+        # added_immediate = 0
+        #
+        # backlog_in_pool = sum(1 for t in pool if str(t.get("task_type") or "").strip() == "backlog")
+        # if backlog_in_pool <= 0 and bot_task_list:
+        #     backlog_seed = _sample_backlog_excluding(bot_task_list, existing_ids, BACKLOG_SESSION_TARGET)
+        #     for i, t in enumerate(backlog_seed):
+        #         nt = _norm(t, "backlog", len(pool))
+        #         tid = str(nt.get("id") or "")
+        #         if tid and tid not in existing_ids:
+        #             pool.append(nt)
+        #             existing_ids.add(tid)
+        #             seeded_backlog += 1
+        #
+        # immediate = _immediate_from_detection(state)
+        # for i, t in enumerate(immediate):
+        #     nt = _norm(t, "immediate", len(pool))
+        #     if "ttl_turns" in t:
+        #         try:
+        #             nt["ttl_turns"] = int(t.get("ttl_turns") or 0)
+        #         except Exception:
+        #             nt["ttl_turns"] = 4
+        #     if "importance" in t:
+        #         try:
+        #             nt["importance"] = float(t.get("importance") or 0.5)
+        #         except Exception:
+        #             pass
+        #     if "source" in t:
+        #         nt["source"] = str(t.get("source") or "")
+        #     tid = str(nt.get("id") or "")
+        #     if tid and tid not in existing_ids:
+        #         pool.append(nt)
+        #         existing_ids.add(tid)
+        #         added_immediate += 1
+        #
+        # if len(pool) > CURRENT_SESSION_TASKS_CAP:
+        #     pool = pool[-CURRENT_SESSION_TASKS_CAP:]
+        # current_session_tasks = pool
+        #
+        # daily2 = random.sample(DAILY_POOL, min(2, len(DAILY_POOL))) if DAILY_POOL else []
+        # daily_candidates = [_norm(t, "daily", i) for i, t in enumerate(daily2)]
+        #
+        # candidates = list(current_session_tasks) + list(daily_candidates)
+        current_session_tasks = list(state.get("current_session_tasks") or [])
 
-        def _norm(t: Dict[str, Any], prefix: str, i: int) -> Dict[str, Any]:
-            return {
-                "id": t.get("id") or f"{prefix}_{i}",
-                "description": str(t.get("description") or t.get("id") or "").strip() or "（无描述）",
-                "task_type": str(t.get("task_type") or "other"),
-            }
+        # ── 3. 以下暂注释：LLM 预算规划 + 任务选择 ──
+        # word_budget, task_budget_max, selected_indices = _plan_and_select_with_llm(
+        #     state, candidates, llm_invoker,
+        # )
+        # if word_budget == 0 and not has_urgent:
+        #     return {
+        #         "tasks_for_lats": [],
+        #         "task_budget_max": 0,
+        #         "word_budget": 0,
+        #         "no_reply": True,
+        #         "detection_category": "NO_REPLY",
+        #         "detection_result": "NO_REPLY",
+        #         "current_session_tasks": current_session_tasks,
+        #         "_urgent_tasks_consumed": False,
+        #     }
+        # if word_budget == 0 and has_urgent:
+        #     word_budget = 60
+        #     print("[TaskPlanner] word_budget was 0 but urgent tasks present, overriding to 60")
+        task_budget_max = min(1, len(urgent_tasks)) if has_urgent else 0
 
-        carry_n = len(pool)
-        seeded_backlog = 0
-        added_immediate = 0
-
-        backlog_in_pool = sum(1 for t in pool if str(t.get("task_type") or "").strip() == "backlog")
-        if backlog_in_pool <= 0 and bot_task_list:
-            backlog_seed = _sample_backlog_excluding(bot_task_list, existing_ids, BACKLOG_SESSION_TARGET)
-            for i, t in enumerate(backlog_seed):
-                nt = _norm(t, "backlog", len(pool))
-                tid = str(nt.get("id") or "")
-                if tid and tid not in existing_ids:
-                    pool.append(nt)
-                    existing_ids.add(tid)
-                    seeded_backlog += 1
-
-        immediate = _immediate_from_detection(state)
-        for i, t in enumerate(immediate):
-            nt = _norm(t, "immediate", len(pool))
-            if "ttl_turns" in t:
-                try:
-                    nt["ttl_turns"] = int(t.get("ttl_turns") or 0)
-                except Exception:
-                    nt["ttl_turns"] = 4
-            if "importance" in t:
-                try:
-                    nt["importance"] = float(t.get("importance") or 0.5)
-                except Exception:
-                    pass
-            if "source" in t:
-                nt["source"] = str(t.get("source") or "")
-            tid = str(nt.get("id") or "")
-            if tid and tid not in existing_ids:
-                pool.append(nt)
-                existing_ids.add(tid)
-                added_immediate += 1
-
-        if len(pool) > CURRENT_SESSION_TASKS_CAP:
-            pool = pool[-CURRENT_SESSION_TASKS_CAP:]
-        current_session_tasks = pool
-
-        daily2 = random.sample(DAILY_POOL, min(2, len(DAILY_POOL))) if DAILY_POOL else []
-        daily_candidates = [_norm(t, "daily", i) for i, t in enumerate(daily2)]
-
-        candidates = list(current_session_tasks) + list(daily_candidates)
-
-        # ── 3. 单次 LLM 调用：预算规划 + 任务选择 ──
-        word_budget, task_budget_max, selected_indices = _plan_and_select_with_llm(
-            state, candidates, llm_invoker,
-        )
-
-        # word_budget=0 且无紧急任务 → NO_REPLY
-        if word_budget == 0 and not has_urgent:
-            return {
-                "tasks_for_lats": [],
-                "task_budget_max": 0,
-                "word_budget": 0,
-                "completion_temperature": completion_temperature,
-                "no_reply": True,
-                "detection_category": "NO_REPLY",
-                "detection_result": "NO_REPLY",
-                "current_session_tasks": current_session_tasks,
-                "_urgent_tasks_consumed": False,
-            }
-        if word_budget == 0 and has_urgent:
-            word_budget = 60
-            print("[TaskPlanner] word_budget was 0 but urgent tasks present, overriding to 60")
-
-        # ── 4. 按 LLM 返回的索引拣选普通任务 ──
-        urgent_for_lats: List[Dict[str, Any]] = [
+        # ── 4. 仅保留紧急任务注入；普通任务拣选暂注释 ──
+        urgent_for_lats = [
             {"id": t["id"], "description": t["description"], "task_type": "urgent", "is_urgent": True}
             for t in urgent_tasks
         ]
-        normal_slots = max(0, 3 - len(urgent_for_lats))
+        # normal_slots = max(0, 3 - len(urgent_for_lats))
+        # selected_normal = []
+        # if candidates and normal_slots > 0:
+        #     for idx in selected_indices:
+        #         if len(selected_normal) >= normal_slots:
+        #             break
+        #         if 0 <= idx < len(candidates):
+        #             selected_normal.append(candidates[idx])
+        #     selected_normal = _dedupe_understanding(selected_normal)
+        # tasks_for_lats = urgent_for_lats + [
+        #     {"id": t["id"], "description": t["description"], "task_type": t.get("task_type")}
+        #     for t in selected_normal
+        # ]
+        tasks_for_lats = urgent_for_lats
 
-        selected_normal: List[Dict[str, Any]] = []
-        if candidates and normal_slots > 0:
-            for idx in selected_indices:
-                if len(selected_normal) >= normal_slots:
-                    break
-                if 0 <= idx < len(candidates):
-                    selected_normal.append(candidates[idx])
-            selected_normal = _dedupe_understanding(selected_normal)
-
-        tasks_for_lats = urgent_for_lats + [
-            {"id": t["id"], "description": t["description"], "task_type": t.get("task_type")}
-            for t in selected_normal
-        ]
-
-        # Debug breadcrumb
-        try:
-            sel_types = [str(t.get("task_type") or "other") for t in tasks_for_lats]
-            sel_daily = sum(1 for x in sel_types if x == "daily")
-            sel_backlog = sum(1 for x in sel_types if x == "backlog")
-            sel_urgent = sum(1 for x in sel_types if x == "urgent")
-            if sel_urgent > 0:
-                print(
-                    f"[TaskPlanner] ========================================\n"
-                    f"[TaskPlanner]  URGENT: {sel_urgent} urgent task(s) injected directly into LATS\n"
-                    f"[TaskPlanner]  Descriptions: {[t['description'][:60] for t in urgent_for_lats]}\n"
-                    f"[TaskPlanner] ========================================"
-                )
-            print(
-                f"[TaskPlanner] pool(carry={carry_n}, seed_backlog={seeded_backlog}, +immediate={added_immediate}, daily_sampled={len(daily_candidates)}) "
-                f"candidates={len(candidates)} selected_indices={selected_indices} selected(urgent={sel_urgent}, backlog={sel_backlog}, daily={sel_daily})"
-            )
-        except Exception:
-            pass
+        # if sel_urgent > 0: print(...); print(...)
+        if has_urgent:
+            print(f"[TaskPlanner] 基本信息紧急任务: {[t['description'][:50] for t in urgent_for_lats]}")
 
         return {
             "tasks_for_lats": tasks_for_lats,
             "task_budget_max": task_budget_max,
-            "word_budget": word_budget,
-            "completion_temperature": completion_temperature,
             "no_reply": False,
             "detection_category": "NORMAL",
             "detection_result": "NORMAL",
             "current_session_tasks": current_session_tasks,
             "_urgent_tasks_consumed": has_db_urgent,
         }
+
     return task_planner_node

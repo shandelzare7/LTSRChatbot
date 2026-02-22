@@ -157,7 +157,7 @@ def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
         "trust": float(rng.randint(0, 100)),
         "liking": float(rng.randint(0, 100)),
         "respect": float(rng.randint(0, 100)),
-        "warmth": float(rng.randint(0, 100)),
+        "attractiveness": float(rng.randint(0, 100)),
         "power": float(rng.randint(0, 100)),
     }
     state: AgentState = {
@@ -181,7 +181,7 @@ def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
 
 def main():
     rng = random.Random(42)
-    base_llm = get_llm()
+    base_llm = get_llm(role="fast")  # 脚本用 gpt-4o-mini
     llm = TestLLM(base_llm, seed=123)
 
     detection_fn = create_detection_node(llm)

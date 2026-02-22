@@ -1,6 +1,12 @@
 """
 Processor 拆句/延迟系统测试脚本（论文复现友好：每组用固定随机种子）。
 
+当前 processor 行为：
+- 启用 LLM 时：由 LLM 根据 fragmentation_tendency / split_threshold 拆句并拟人化标点。
+- 未启用 LLM 或解析失败时：走 process_fallback，整段作为一条气泡输出（不再做正则切分）。
+
+本脚本使用 create_processor_node() 无 LLM，故全部走 fallback，每案仅 1 条 segment；下方 dyn 为近似值仅用于打印参考。
+
 用法：
   cd EmotionalChatBot_V5
   python3 devtools/processor_segmentation_tests.py
@@ -66,7 +72,7 @@ def _mk_state(c: Case) -> AgentState:
             "trust": c.trust,
             "liking": 50.0,
             "respect": 50.0,
-            "warmth": 50.0,
+            "attractiveness": 50.0,
             "power": 50.0,
         },
         "mood_state": {
@@ -208,7 +214,7 @@ def main() -> None:
             busyness=0.2,
         ),
         Case(
-            name="Short response (should become 1-2 bubbles)",
+            name="Short response (fallback: 1 bubble)",
             seed=6,
             stage="integrating",
             user_input="嗯。",

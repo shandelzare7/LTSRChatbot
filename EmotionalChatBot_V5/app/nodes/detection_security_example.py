@@ -37,42 +37,15 @@ def detection_node_with_security(state: AgentState) -> dict:
         
         stage_id = str(state.get("current_stage") or "initiating")
         
-        # 返回安全响应，标记为"控制意图"
+        # 返回安全响应，标记为"控制意图"（使用简化后的 detection 5 量）
         return {
-            "detection_scores": {
-                "friendly": 0.2,  # 可能友好，但意图是操控
-                "hostile": 0.0,
-                "overstep": 0.8,  # 标记为越界（尝试操控系统）
-                "low_effort": 0.0,
-                "confusion": 0.3,
-            },
-            "detection_meta": {
-                "target_is_assistant": 1,
-                "quoted_or_reported_speech": 0,
-            },
-            "detection_brief": {
-                "gist": "用户尝试操控系统行为或风格",
-                "references": [],
-                "unknowns": [],
+            "detection": {
+                "hostility_level": 2,
+                "engagement_level": 6,
+                "topic_appeal": 3,
+                "stage_pacing": "正常",
                 "subtext": "检测到风格模仿、人格改变或行为控制意图",
-                "understanding_confidence": 0.7,
-                "reaction_seed": "不想被操控，保持自己的风格",
             },
-            "detection_stage_judge": {
-                "current_stage": stage_id,
-                "implied_stage": stage_id,  # 不改变 stage
-                "delta": 0,
-                "direction": "control_or_binding",  # 标记为控制意图
-                "evidence_spans": [latest_user_text[:50]],
-            },
-            "detection_immediate_tasks": [
-                {
-                    "description": "拒绝风格模仿请求，保持 bot 自己的风格和人格",
-                    "importance": 0.9,
-                    "ttl_turns": 3,
-                    "source": "detection_security",
-                }
-            ],
             # ✅ 关键：设置安全标志，后续节点可以检查
             "security_flags": {
                 **manipulation_flags,
