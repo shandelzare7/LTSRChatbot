@@ -1203,6 +1203,14 @@ async def get_session_status(
                     select(Message.id).where(Message.user_id == user.id).limit(1)
                 )
                 has_history = result.scalar_one_or_none() is not None
+                # 无历史时写入开场白到聊天历史，便于前端拉取并展示
+                if not has_history:
+                    first_msg = "你好，我是" + (bot_name or "Chatbot")
+                    db_session.add(
+                        Message(user_id=user.id, role="ai", content=first_msg)
+                    )
+                    await db_session.commit()
+                    has_history = True
     except Exception:
         # 状态接口尽量不因数据库异常影响页面；前端会降级显示通用开场白
         pass

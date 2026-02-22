@@ -16,17 +16,7 @@ async function fetchSessionStatus() {
 function buildFirstBotMessage(status) {
     const botName = (status && status.bot_name) ? status.bot_name : 'Chatbot';
     currentBotName = botName || 'Chatbot';
-    const basicInfo = (status && status.bot_basic_info) ? status.bot_basic_info : {};
-    const age = basicInfo.age;
-    const occupation = basicInfo.occupation;
-    if (status && status.has_history) {
-        return `欢迎回来，我是${botName}。我们继续聊吧：你现在最想聊什么？也可以先说说你此刻的心情。`;
-    }
-    const parts = [];
-    if (occupation) parts.push(`职业是${occupation}`);
-    if (age) parts.push(`今年${age}岁`);
-    const introTail = parts.length ? `我${parts.join('，')}。` : '';
-    return `你好，我是${botName}。${introTail}我可以陪你聊天、倾听，或者一起梳理想法。你也可以先简单介绍一下你自己吗？（昵称/想聊的话题/此刻的心情都可以）`;
+    return '你好，我是' + botName;
 }
 
 async function ensureFirstBotMessage() {
