@@ -12,6 +12,7 @@ from app.state import AgentState
 from app.lats.prompt_utils import sanitize_memory_text, filter_retrieved_memories
 from utils.external_text import sanitize_external_text, detect_internal_leak
 from utils.prompt_helpers import knapp_baseline_momentum
+from utils.busy_schedule import get_busy_fallback_from_schedule
 
 # 距上次消息超过此时长视为新 Session，按 Knapp 阶段重新初始化 conversation_momentum
 COLD_START_THRESHOLD_SEC = 4 * 3600  # 4 小时
@@ -71,6 +72,26 @@ def _resolve_conversation_momentum(
     delta_t_hours = (seconds_since_last or 0.0) / 3600.0
     m_init = m_last * math.exp(-MOMENTUM_DECAY_LAMBDA * delta_t_hours)
     return max(0.0, min(1.0, m_init))
+
+
+def _apply_busy_fallback_to_output(out: Dict[str, Any], state: Dict[str, Any]) -> None:
+    """每轮会话开始：按当前时间给 bot 的 busy 赋兜底值，写入 out['mood_state']['busyness']。"""
+    dt = None
+    ct = state.get("current_time")
+    if isinstance(ct, str) and ct.strip():
+        try:
+            s = ct.strip()
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            dt = datetime.fromisoformat(s)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    busy = get_busy_fallback_from_schedule(dt, use_utc=False)
+    mood = dict(out.get("mood_state") or {})
+    mood["busyness"] = busy
+    out["mood_state"] = mood
 
 
 def _ensure_messages_have_timestamp(messages: List[BaseMessage], default_ts: Optional[str] = None) -> List[BaseMessage]:
@@ -257,7 +278,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             new_session = seconds_since_last is None or seconds_since_last >= COLD_START_THRESHOLD_SEC
             turn_count = 0 if new_session else int(db_data.get("turn_count_in_session") or 0)
 
-            return {
+            out = {
                 "bot_id": str(bot_id),
                 "relationship_id": str(db_data.get("relationship_id") or ""),
                 "relationship_state": db_data.get("relationship_state") or {},
@@ -286,6 +307,8 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "memories": db_data.get("conversation_summary") or "",
                 "turn_count_in_session": turn_count,
             }
+            _apply_busy_fallback_to_output(out, state)
+            return out
 
         try:
             from app.core.local_store import LocalStoreManager
@@ -337,7 +360,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             new_session = seconds_since_last is None or seconds_since_last >= COLD_START_THRESHOLD_SEC
             turn_count = 0 if new_session else int(local_data.get("turn_count_in_session") or 0)
 
-            return {
+            out = {
                 "bot_id": str(bot_id),
                 "relationship_state": local_data.get("relationship_state") or {},
                 "reply_duration_seconds_list": local_data.get("reply_duration_seconds_list") or [],
@@ -364,6 +387,8 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "memories": local_data.get("conversation_summary") or "",
                 "turn_count_in_session": turn_count,
             }
+            _apply_busy_fallback_to_output(out, state)
+            return out
         except Exception:
             pass
 
