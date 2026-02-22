@@ -121,10 +121,10 @@ def _task_to_user_instruction(task: Any) -> str:
     mapping = {
         "ask_user_name": "回复中必须明确询问对方的姓名或称呼",
         "ask_user_age": "回复中必须明确询问对方的年龄",
-        "ask_user_gender": "回复中必须明确询问对方的性别",
         "ask_user_occupation": "回复中必须明确询问对方的职业/身份",
         "ask_user_location": "回复中必须明确询问对方所在城市/地区",
     }
+    # 性别无单独任务，由 memory_manager 根据对话推断
     if action_l in mapping:
         return mapping[action_l]
 

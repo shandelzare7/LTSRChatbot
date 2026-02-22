@@ -333,10 +333,10 @@ def _urgent_tasks_from_state(state: Dict[str, Any]) -> List[Dict[str, Any]]:
 _BASIC_INFO_FIELDS: List[Tuple[str, str, str]] = [
     ("name",       "ask_user_name",       "本轮或近期回复中务必明确询问对方的姓名或称呼"),
     ("age",        "ask_user_age",        "本轮或近期回复中务必明确询问对方的年龄"),
-    ("gender",     "ask_user_gender",     "本轮或近期回复中务必明确询问对方的性别"),
     ("occupation", "ask_user_occupation", "本轮或近期回复中务必明确询问对方的职业"),
     ("location",   "ask_user_location",   "本轮或近期回复中务必明确询问对方所在城市/地区"),
 ]
+# 性别不设问性别任务，仅靠 memory_manager 根据对话推断并写回 basic_info
 
 
 def _basic_info_urgent_task(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:

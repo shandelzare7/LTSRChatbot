@@ -873,7 +873,7 @@ async def main() -> None:
                 rel_trust = rel_current.get("trust")
                 
                 # 2.3 基础信息任务触发追踪
-                basic_info_task_ids = {"ask_user_name", "ask_user_age", "ask_user_gender", "ask_user_occupation", "ask_user_location"}
+                basic_info_task_ids = {"ask_user_name", "ask_user_age", "ask_user_occupation", "ask_user_location"}
                 tasks_for_lats = (result_state or {}).get("tasks_for_lats") or []
                 triggered_this_round = {}
                 for task_list, label in [(tasks_for_lats, "tasks_for_lats")]:

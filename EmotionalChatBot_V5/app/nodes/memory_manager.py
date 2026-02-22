@@ -495,11 +495,10 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         out["user_basic_info"] = updated_basic
         out["user_inferred_profile"] = updated_profile
 
-        # 基本信息紧急任务完成判定：若 user 的 basic_info 已有对应字段，则视为该任务已完成
+        # 基本信息紧急任务完成判定：若 user 的 basic_info 已有对应字段，则视为该任务已完成（性别仅靠 memory_manager 推断，无问性别任务）
         _BASIC_FIELD_TO_TASK_ID = [
             ("name", "ask_user_name"),
             ("age", "ask_user_age"),
-            ("gender", "ask_user_gender"),
             ("occupation", "ask_user_occupation"),
             ("location", "ask_user_location"),
         ]
