@@ -410,14 +410,15 @@ body::after {
 .b-msg-row {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
     max-width: 85%;
 }
 .b-msg-row.msg-me {
     align-self: flex-end;
+    align-items: flex-end;
 }
 .b-msg-row.msg-bot {
     align-self: flex-start;
+    align-items: flex-start;
 }
 
 /* 聊天气泡 */
