@@ -9,6 +9,10 @@
   # 只下载某一天的日志（按 updated_at 所在日，UTC；不设则拉取全部）
   RENDER_LOG_DATE=2026-02-22 RENDER_DATABASE_URL=... python -m devtools.fetch_render_logs_to_local
 
+  # 只下载某天某时段（北京时间），例如今天 7 点到 14 点
+  RENDER_LOG_DATE=2026-02-23 RENDER_LOG_TIME_START=07:00 RENDER_LOG_TIME_END=14:00 RENDER_DATABASE_URL=... python -m devtools.fetch_render_logs_to_local
+  # 不设 RENDER_LOG_DATE 时默认「今天」北京时间；不设时段则拉取该日全天（UTC 当日 0:00~24:00）。
+
   若未设置 RENDER_DATABASE_URL 则用 DATABASE_URL（可能是本地库）。
 """
 from __future__ import annotations
@@ -78,21 +82,55 @@ async def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"输出目录: {out_dir.resolve()}")
 
-    # 可选：只拉取某一天的日志（RENDER_LOG_DATE=YYYY-MM-DD，按 updated_at 所在日 UTC）
+    # 可选：只拉取某一天的日志（RENDER_LOG_DATE=YYYY-MM-DD）
+    # 若同时设置 RENDER_LOG_TIME_START 与 RENDER_LOG_TIME_END（HH:MM 或 H:MM，北京时间），则只拉取该时段
     log_date_str = (os.getenv("RENDER_LOG_DATE") or "").strip()
+    time_start_str = (os.getenv("RENDER_LOG_TIME_START") or "").strip()
+    time_end_str = (os.getenv("RENDER_LOG_TIME_END") or "").strip()
+
     date_filter = None
     if log_date_str:
         try:
             log_date = date.fromisoformat(log_date_str)
+        except (ValueError, TypeError):
+            log_date = None
+    else:
+        # 未设日期但设了时段时，用「今天」北京时间
+        if time_start_str or time_end_str:
+            log_date = datetime.now(BEIJING_TZ or timezone.utc).date() if BEIJING_TZ else date.today()
+        else:
+            log_date = None
+
+    if log_date is not None:
+        if time_start_str and time_end_str and BEIJING_TZ:
+            # 时段过滤：北京时间 [time_start, time_end) 当日
+            def _parse_hm(s: str):
+                s = s.strip()
+                if ":" in s:
+                    a, b = s.split(":", 1)
+                    return int(a.strip()), int(b.strip() or 0)
+                if len(s) <= 2:
+                    return int(s or 0), 0
+                return 0, 0
+            h1, m1 = _parse_hm(time_start_str)
+            h2, m2 = _parse_hm(time_end_str)
+            start_local = datetime(log_date.year, log_date.month, log_date.day, h1, m1, 0, tzinfo=BEIJING_TZ)
+            end_local = datetime(log_date.year, log_date.month, log_date.day, h2, m2, 0, tzinfo=BEIJING_TZ)
+            start_utc = start_local.astimezone(timezone.utc)
+            end_utc = end_local.astimezone(timezone.utc)
+            date_filter = and_(
+                WebChatLog.updated_at >= start_utc,
+                WebChatLog.updated_at < end_utc,
+            )
+            print(f"仅下载: {log_date} 北京时间 {time_start_str}~{time_end_str} (UTC {start_utc.strftime('%H:%M')}~{end_utc.strftime('%H:%M')})")
+        else:
             start_utc = datetime(log_date.year, log_date.month, log_date.day, 0, 0, 0, tzinfo=timezone.utc)
             end_utc = start_utc + timedelta(days=1)
             date_filter = and_(
                 WebChatLog.updated_at >= start_utc,
                 WebChatLog.updated_at < end_utc,
             )
-            print(f"仅下载日期: {log_date_str} (UTC)")
-        except (ValueError, TypeError):
-            print(f"⚠ RENDER_LOG_DATE 格式无效，忽略: {log_date_str!r}")
+            print(f"仅下载日期: {log_date} (UTC 当日)")
     print()
 
     async with db.Session() as session:

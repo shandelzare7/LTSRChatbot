@@ -146,6 +146,68 @@ def lats_search_best_plan(
     except Exception:
         w_rel, w_stage, w_mood, w_task, w_strategy, w_repetition = 0.20, 0.20, 0.20, 0.20, 0.20, 0.15
 
+    def _build_judge_score_breakdown(
+        layer2: Dict[str, Any],
+        gate: Dict[str, Any],
+        w_r: float,
+        w_s: float,
+        w_m: float,
+        w_t: float,
+        w_st: float,
+        w_rep: float,
+    ) -> Dict[str, Any]:
+        """从 layer2 与 gate 构建 score_breakdown 中的 judge_* 与 w_* 字段，供成功/早退/gate 回退路径统一使用。"""
+        rel_sub = ((layer2.get("rel") or {}).get("sub_scores") or {}) if isinstance(layer2.get("rel"), dict) else {}
+        stage_sub = ((layer2.get("stage") or {}).get("sub_scores") or {}) if isinstance(layer2.get("stage"), dict) else {}
+        mood_sub = ((layer2.get("mood") or {}).get("sub_scores") or {}) if isinstance(layer2.get("mood"), dict) else {}
+        task_sub = ((layer2.get("task") or {}).get("sub_scores") or {}) if isinstance(layer2.get("task"), dict) else {}
+        strategy_sub = ((layer2.get("strategy") or {}).get("sub_scores") or {}) if isinstance(layer2.get("strategy"), dict) else {}
+        repetition_sub = ((layer2.get("repetition") or {}).get("sub_scores") or {}) if isinstance(layer2.get("repetition"), dict) else {}
+
+        def _sub(d: Any, k2: str) -> float:
+            try:
+                if isinstance(d, dict) and k2 in d:
+                    return _clamp01(float(d.get(k2) or 0.0))
+            except Exception:
+                pass
+            return 0.0
+
+        return {
+            "judge_rel": round(float((layer2.get("rel") or {}).get("score", 0.0) or 0.0), 4),
+            "judge_rel_closeness": round(_sub(rel_sub, "closeness"), 4),
+            "judge_rel_trust": round(_sub(rel_sub, "trust"), 4),
+            "judge_rel_liking": round(_sub(rel_sub, "liking"), 4),
+            "judge_rel_respect": round(_sub(rel_sub, "respect"), 4),
+            "judge_rel_attractiveness": round(_sub(rel_sub, "attractiveness"), 4),
+            "judge_rel_power": round(_sub(rel_sub, "power"), 4),
+            "judge_stage": round(float((layer2.get("stage") or {}).get("score", 0.0) or 0.0), 4),
+            "judge_stage_stage_goal_alignment": round(_sub(stage_sub, "stage_goal_alignment"), 4),
+            "judge_stage_pacing_notes_followed": round(_sub(stage_sub, "pacing_notes_followed"), 4),
+            "judge_stage_allowed_acts_fit": round(_sub(stage_sub, "allowed_acts_fit"), 4),
+            "judge_stage_forbidden_acts_avoided": round(_sub(stage_sub, "forbidden_acts_avoided"), 4),
+            "judge_mood_busy": round(float((layer2.get("mood") or {}).get("score", 0.0) or 0.0), 4),
+            "judge_mood_pleasure": round(_sub(mood_sub, "pleasure"), 4),
+            "judge_mood_arousal": round(_sub(mood_sub, "arousal"), 4),
+            "judge_mood_dominance": round(_sub(mood_sub, "dominance"), 4),
+            "judge_mood_busyness": round(_sub(mood_sub, "busyness"), 4),
+            "judge_task_completion": round(float((layer2.get("task") or {}).get("score", 0.0) or 0.0), 4),
+            "judge_task_overall_completion": round(_sub(task_sub, "overall_completion"), 4),
+            "judge_task_urgent_tasks_completed": round(_sub(task_sub, "urgent_tasks_completed"), 4),
+            "judge_task_normal_tasks_completed": round(_sub(task_sub, "normal_tasks_completed"), 4),
+            "judge_strategy": round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 4),
+            "judge_strategy_fit": round(_sub(strategy_sub, "strategy_fit"), 4),
+            "judge_repetition": round(float((layer2.get("repetition") or {}).get("score", 0.0) or 0.0), 4),
+            "judge_repetition_no_repeat_user": round(_sub(repetition_sub, "no_repeat_user"), 4),
+            "judge_repetition_no_repeat_self": round(_sub(repetition_sub, "no_repeat_self"), 4),
+            "judge_repetition_information_increment": round(_sub(repetition_sub, "information_increment"), 4),
+            "w_rel": round(w_r, 4),
+            "w_stage": round(w_s, 4),
+            "w_mood_busy": round(w_m, 4),
+            "w_task_completion": round(w_t, 4),
+            "w_strategy": round(w_st, 4),
+            "w_repetition": round(w_rep, 4),
+        }
+
     tasks_for_lats = requirements.get("tasks_for_lats") or []
     has_urgent = False
     if isinstance(tasks_for_lats, list):
@@ -353,6 +415,36 @@ def lats_search_best_plan(
                 "failed_checks": [{"id": "gate_pass_rate_low", "reason": (reasons_txt or "")[:300]}],
                 "score_breakdown": {"gate_pass_rate": round(pass_rate, 4), "gate_best_ok_count": float(best_ok), "gate_best_ok_ratio": round(float(best_ok) / 3.0, 4)},
             }
+            # 补跑 6-judge，保证 score_breakdown 中始终有 judge_*（含 repetition）便于监控与淘汰
+            single_batch = [{"idx": best_idx, "reply_plan": rp, "processor_plan": proc, "key": _judge_cache_key_from_proc(proc)}]
+            if llm_soft_scorer:
+                with ThreadPoolExecutor(max_workers=6) as ex:
+                    futs = [
+                        ex.submit(contextvars.copy_context().run, lambda: judge_dimension_relationship_batch_via_llm(state, llm_soft_scorer, single_batch, requirements)),
+                        ex.submit(contextvars.copy_context().run, lambda: judge_dimension_stage_batch_via_llm(state, llm_soft_scorer, single_batch, requirements)),
+                        ex.submit(contextvars.copy_context().run, lambda: judge_dimension_mood_busy_batch_via_llm(state, llm_soft_scorer, single_batch, requirements)),
+                        ex.submit(contextvars.copy_context().run, lambda: judge_dimension_task_completion_batch_via_llm(state, llm_soft_scorer, single_batch, requirements)),
+                        ex.submit(contextvars.copy_context().run, lambda: judge_dimension_strategy_batch_via_llm(state, llm_soft_scorer, single_batch, requirements)),
+                        ex.submit(contextvars.copy_context().run, lambda: judge_dimension_repetition_batch_via_llm(state, llm_soft_scorer, single_batch, requirements)),
+                    ]
+                    rel_res = futs[0].result() or {}
+                    stage_res = futs[1].result() or {}
+                    mood_res = futs[2].result() or {}
+                    task_res = futs[3].result() or {}
+                    strategy_res = futs[4].result() or {}
+                    repetition_res = futs[5].result() or {}
+                layer2_gate = {
+                    "rel": rel_res.get(best_idx) or {},
+                    "stage": stage_res.get(best_idx) or {},
+                    "mood": mood_res.get(best_idx) or {},
+                    "task": task_res.get(best_idx) or {},
+                    "strategy": strategy_res.get(best_idx) or {},
+                    "repetition": repetition_res.get(best_idx) or {},
+                }
+                gate_for_best = next((c.get("gate") for c in round_report["candidates"] if c.get("idx") == best_idx), {})
+                rep["score_breakdown"].update(
+                    _build_judge_score_breakdown(layer2_gate, gate_for_best, w_rel, w_stage, w_mood, w_task, w_strategy, w_repetition)
+                )
             tree["best_id"] = f"round{gen_round}_idx{best_idx}"
             return rp, proc, rep, tree
 
@@ -557,27 +649,13 @@ def lats_search_best_plan(
             proc = best_item["processor_plan"]
             gate = best_item.get("gate") or {}
             layer2 = best_item.get("layer2") or {}
-            rel_sub = ((layer2.get("rel") or {}).get("sub_scores") or {}) if isinstance(layer2.get("rel"), dict) else {}
-            stage_sub = ((layer2.get("stage") or {}).get("sub_scores") or {}) if isinstance(layer2.get("stage"), dict) else {}
-            mood_sub = ((layer2.get("mood") or {}).get("sub_scores") or {}) if isinstance(layer2.get("mood"), dict) else {}
-            task_sub = ((layer2.get("task") or {}).get("sub_scores") or {}) if isinstance(layer2.get("task"), dict) else {}
-            strategy_sub = ((layer2.get("strategy") or {}).get("sub_scores") or {}) if isinstance(layer2.get("strategy"), dict) else {}
-            repetition_sub = ((layer2.get("repetition") or {}).get("sub_scores") or {}) if isinstance(layer2.get("repetition"), dict) else {}
-
-            def _sub(d: Any, k2: str) -> float:
-                try:
-                    if isinstance(d, dict) and k2 in d:
-                        return _clamp01(float(d.get(k2) or 0.0))
-                except Exception:
-                    pass
-                return 0.0
-
-            s_rel_b = round(float((layer2.get("rel") or {}).get("score", 0.0) or 0.0), 3)
-            s_stage_b = round(float((layer2.get("stage") or {}).get("score", 0.0) or 0.0), 3)
-            s_mood_b = round(float((layer2.get("mood") or {}).get("score", 0.0) or 0.0), 3)
-            s_task_b = round(float((layer2.get("task") or {}).get("score", 0.0) or 0.0), 3)
-            s_strategy_b = round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 3)
-            s_repetition_b = round(float((layer2.get("repetition") or {}).get("score", 0.0) or 0.0), 3)
+            judge_bd = _build_judge_score_breakdown(layer2, gate, w_rel, w_stage, w_mood, w_task, w_strategy, w_repetition)
+            s_rel_b = judge_bd["judge_rel"]
+            s_stage_b = judge_bd["judge_stage"]
+            s_mood_b = judge_bd["judge_mood_busy"]
+            s_task_b = judge_bd["judge_task_completion"]
+            s_strategy_b = judge_bd["judge_strategy"]
+            s_repetition_b = judge_bd["judge_repetition"]
             print(f"[LATS 6-judge] best rel={s_rel_b} stage={s_stage_b} mood={s_mood_b} task={s_task_b} strategy={s_strategy_b} repetition={s_repetition_b} weighted_final={best_score:.3f}")
 
             rep_ok: Dict[str, Any] = {
@@ -590,39 +668,7 @@ def lats_search_best_plan(
                     "gate_assistantiness_ok": 1.0 if bool(((gate.get("checks") or {}).get("assistantiness_ok"))) else 0.0,
                     "gate_identity_ok": 1.0 if bool(((gate.get("checks") or {}).get("identity_ok"))) else 0.0,
                     "gate_immersion_ok": 1.0 if bool(((gate.get("checks") or {}).get("immersion_ok"))) else 0.0,
-                    "judge_rel": round(float((layer2.get("rel") or {}).get("score", 0.0) or 0.0), 4),
-                    "judge_rel_closeness": round(_sub(rel_sub, "closeness"), 4),
-                    "judge_rel_trust": round(_sub(rel_sub, "trust"), 4),
-                    "judge_rel_liking": round(_sub(rel_sub, "liking"), 4),
-                    "judge_rel_respect": round(_sub(rel_sub, "respect"), 4),
-                    "judge_rel_attractiveness": round(_sub(rel_sub, "attractiveness"), 4),
-                    "judge_rel_power": round(_sub(rel_sub, "power"), 4),
-                    "judge_stage": round(float((layer2.get("stage") or {}).get("score", 0.0) or 0.0), 4),
-                    "judge_stage_stage_goal_alignment": round(_sub(stage_sub, "stage_goal_alignment"), 4),
-                    "judge_stage_pacing_notes_followed": round(_sub(stage_sub, "pacing_notes_followed"), 4),
-                    "judge_stage_allowed_acts_fit": round(_sub(stage_sub, "allowed_acts_fit"), 4),
-                    "judge_stage_forbidden_acts_avoided": round(_sub(stage_sub, "forbidden_acts_avoided"), 4),
-                    "judge_mood_busy": round(float((layer2.get("mood") or {}).get("score", 0.0) or 0.0), 4),
-                    "judge_mood_pleasure": round(_sub(mood_sub, "pleasure"), 4),
-                    "judge_mood_arousal": round(_sub(mood_sub, "arousal"), 4),
-                    "judge_mood_dominance": round(_sub(mood_sub, "dominance"), 4),
-                    "judge_mood_busyness": round(_sub(mood_sub, "busyness"), 4),
-                    "judge_task_completion": round(float((layer2.get("task") or {}).get("score", 0.0) or 0.0), 4),
-                    "judge_task_overall_completion": round(_sub(task_sub, "overall_completion"), 4),
-                    "judge_task_urgent_tasks_completed": round(_sub(task_sub, "urgent_tasks_completed"), 4),
-                    "judge_task_normal_tasks_completed": round(_sub(task_sub, "normal_tasks_completed"), 4),
-                    "judge_strategy": round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 4),
-                    "judge_strategy_fit": round(_sub(strategy_sub, "strategy_fit"), 4),
-                    "judge_repetition": round(float((layer2.get("repetition") or {}).get("score", 0.0) or 0.0), 4),
-                    "judge_repetition_no_repeat_user": round(_sub(repetition_sub, "no_repeat_user"), 4),
-                    "judge_repetition_no_repeat_self": round(_sub(repetition_sub, "no_repeat_self"), 4),
-                    "judge_repetition_information_increment": round(_sub(repetition_sub, "information_increment"), 4),
-                    "w_rel": round(w_rel, 4),
-                    "w_stage": round(w_stage, 4),
-                    "w_mood_busy": round(w_mood, 4),
-                    "w_task_completion": round(w_task, 4),
-                    "w_strategy": round(w_strategy, 4),
-                    "w_repetition": round(w_repetition, 4),
+                    **judge_bd,
                 },
                 "llm_status": "ok",
                 "llm_details": {
@@ -650,6 +696,11 @@ def lats_search_best_plan(
             "failed_checks": [{"id": "no_candidate_meets_threshold", "reason": f"best_final_score={best_score:.3f} < {final_threshold:.2f}"}],
             "score_breakdown": {"final_score": round(best_score, 4), "threshold": float(final_threshold)},
         }
+        layer2_ex = best_item.get("layer2") or {}
+        gate_ex = best_item.get("gate") or {}
+        rep_fail["score_breakdown"].update(
+            _build_judge_score_breakdown(layer2_ex, gate_ex, w_rel, w_stage, w_mood, w_task, w_strategy, w_repetition)
+        )
         tree["best_id"] = f"exhausted_idx{best_item.get('idx')}"
         return rp, proc, rep_fail, tree
 

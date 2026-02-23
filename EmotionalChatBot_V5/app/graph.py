@@ -81,8 +81,8 @@ def build_graph(
     """
     root = get_project_root()
     # Role-based LLM routing:
-    # - main: planner / generation
-    # - fast: detection / analyzer / memory write
+    # - main: planner / LATS generation / fast_reply（fast 路由时也用 main，即 gpt-4o）
+    # - fast: detection / analyzer / memory write / task_planner 等
     # - judge: LATS soft scorer
     llm = llm or get_llm(role="main")
     llm_fast = llm_fast or get_llm(role="fast")
@@ -182,7 +182,7 @@ def build_graph(
     style_node = create_style_node(None)  # 纯计算，不调用 LLM
     task_planner_node = create_task_planner_node(llm_fast)
     lats_node = create_lats_search_node(llm, llm_soft_scorer=llm_judge)
-    fast_reply_node = create_fast_reply_node(llm_fast)
+    fast_reply_node = create_fast_reply_node(llm)  # 使用 main 的 LLM（gpt-4o），与 LATS 同模型
     processor_node = create_processor_node(llm_processor)
     evolver_node = create_evolver_node(llm_fast)
     stage_manager_node = create_stage_manager_node()

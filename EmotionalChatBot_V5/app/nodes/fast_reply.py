@@ -1,7 +1,7 @@
 """
 Fast 节点：当策略 route_path 为 fast 时由 strategy_resolver 路由到此节点。
 使用与 reply_planner 相同的提示词构建（含必须遵守规则，优先级从高到低：当前策略 > 时间与会话上下文 > 阶段意图与行为准则 > 写作要求；冲突时靠前的优先），
-仅输出单条回复，使用 gpt4o-mini（llm_fast），不经过 LATS。
+仅输出单条回复，使用 main 的 LLM（gpt-4o），不经过 LATS。
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from utils.external_text import strip_candidate_prefix
 
 def create_fast_reply_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     """
-    Fast 回复节点：提示词与 reply_planner 一致（必须遵守顺序：当前策略 > 时间/意图 > 写作要求），单条输出，使用 llm_invoker（通常为 gpt4o-mini）。
+    Fast 回复节点：提示词与 reply_planner 一致（必须遵守顺序：当前策略 > 时间/意图 > 写作要求），单条输出，使用 llm_invoker（main 的 LLM，即 gpt-4o）。
     不经过 LATS 搜索与评分，直接生成一条回复；final_segments 由 processor 节点产出。
     """
 

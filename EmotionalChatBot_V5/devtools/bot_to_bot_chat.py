@@ -939,13 +939,37 @@ async def main() -> None:
                     log_line("4. [Evolver] relationship_state 本轮回写: " + ", ".join(parts))
                 else:
                     log_line("4. [Evolver] relationship_state: N/A")
-                log_line(f"5. Basic info 任务触发: {sum(triggered_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in triggered_this_round.items())})")
-                log_line(f"6. Basic info 任务执行: attempted={sum(executed_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in executed_this_round.items())}), completed={sum(completed_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in completed_this_round.items())})")
-                log_line(f"7. Basic info 写入 DB (流程写入): {written_this_round}")
+                # 5. [LATS 6-judge] 每轮各维度打分（重点监控）
+                sim_report = (result_state or {}).get("sim_report") or {}
+                score_bd = sim_report.get("score_breakdown") if isinstance(sim_report, dict) else {}
+                if isinstance(score_bd, dict) and score_bd:
+                    judge_rel = score_bd.get("judge_rel")
+                    judge_stage = score_bd.get("judge_stage")
+                    judge_mood = score_bd.get("judge_mood_busy")
+                    judge_task = score_bd.get("judge_task_completion")
+                    judge_strategy = score_bd.get("judge_strategy")
+                    judge_rep = score_bd.get("judge_repetition")
+                    final_sc = score_bd.get("final_score") or score_bd.get("eval_score")
+                    log_line("5. [LATS 6-judge] 本轮回放得分:")
+                    log_line(f"   rel={judge_rel} stage={judge_stage} mood={judge_mood} task={judge_task} strategy={judge_strategy} repetition={judge_rep} | final={final_sc}")
+                    if any(k.startswith("judge_rel_") for k in score_bd):
+                        rel_parts = [f"{k.replace('judge_rel_','')}={score_bd[k]}" for k in sorted(score_bd) if k.startswith("judge_rel_")]
+                        if rel_parts:
+                            log_line(f"   rel 子维: " + ", ".join(rel_parts))
+                    if any(k.startswith("judge_repetition_") for k in score_bd):
+                        rep_parts = [f"{k.replace('judge_repetition_','')}={score_bd[k]}" for k in sorted(score_bd) if k.startswith("judge_repetition_")]
+                        if rep_parts:
+                            log_line(f"   repetition 子维: " + ", ".join(rep_parts))
+                else:
+                    log_line("5. [LATS 6-judge]: N/A (未走 LATS 或无 score_breakdown)")
+                # 6. Basic info：触发=本轮 tasks_for_lats 中出现次数（仅参考）；完成=仅以「写入 DB」为准（attempted 已废弃）
+                log_line(f"6. Basic info 触发(tasks_for_lats 出现次数，仅参考): {sum(triggered_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in triggered_this_round.items())})")
+                log_line(f"7. Basic info 完成(仅写入 DB 为准，state.completed_task_ids): {sum(completed_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in completed_this_round.items())})")
+                log_line(f"8. Basic info 写入 DB (本轮回写): {written_this_round}")
                 # 8. inferred_profile 是否被 DB 写入（memory_writer 写 user.inferred_profile）
                 inf_keys = list(inferred_profile_after.keys()) if inferred_profile_after else []
-                log_line(f"8. inferred_profile 写入 DB: keys={inf_keys}" + (f" (内容摘要: {str(inferred_profile_after)[:200]}...)" if len(str(inferred_profile_after)) > 200 else f" (内容: {inferred_profile_after})"))
-                log_line(f"9. Punctuation removal:")
+                log_line(f"9. inferred_profile 写入 DB: keys={inf_keys}" + (f" (内容摘要: {str(inferred_profile_after)[:200]}...)" if len(str(inferred_profile_after)) > 200 else f" (内容: {inferred_profile_after})"))
+                log_line(f"10. Punctuation removal:")
                 log_line(f"   Original text: {punct_check.get('original_text', 'N/A')[:100]}{'...' if len(punct_check.get('original_text', '')) > 100 else ''}")
                 log_line(f"   Processed text: {punct_check.get('processed_text', 'N/A')[:100]}{'...' if len(punct_check.get('processed_text', '')) > 100 else ''}")
                 log_line(f"   Stats: original={punct_check['original_count']}, processed={punct_check['processed_count']}, removed={punct_check['removed']}, success_rate={punct_check['success_rate']:.2%}")
@@ -1117,31 +1141,21 @@ async def main() -> None:
     else:
         log_line(f"\n3. 冲量变化趋势: 无数据")
     
-    # 4. 基础信息任务触发总次数
-    log_line(f"\n4. 基础信息任务触发总次数（按类型）:")
+    # 4. 基础信息任务触发总次数（仅参考：= planner 放入 tasks_for_lats 的次数，不代表执行或完成）
+    log_line(f"\n4. Basic info 触发总次数（tasks_for_lats 出现次数，仅参考）:")
     for tid in basic_info_task_ids:
         count = basic_info_task_triggered.get(tid, 0)
         log_line(f"   {tid}: {count}次")
-    
-    # 5. 基础信息任务执行总次数
-    log_line(f"\n5. 基础信息任务执行总次数（按类型）:")
-    log_line(f"   尝试执行（attempted）:")
-    for tid in basic_info_task_ids:
-        count = basic_info_task_executed.get(tid, 0)
-        log_line(f"     {tid}: {count}次")
-    log_line(f"   完成（completed）:")
-    for tid in basic_info_task_ids:
-        count = basic_info_task_completed.get(tid, 0)
-        log_line(f"     {tid}: {count}次")
-    
-    # 6. 数据库写入总次数（流程 memory_manager + save_turn 实际写入）
-    log_line(f"\n6. 数据库写入总次数（按字段，流程真实写入）:")
+    log_line("   说明: 完成仅以「写入 DB」为准；attempted 已废弃，不再统计。")
+
+    # 5. 数据库写入总次数（流程 memory_manager + save_turn 实际写入，即真实「完成」）
+    log_line(f"\n5. 数据库写入总次数（按字段，= 真实完成）:")
     for key in ["name", "age", "gender", "occupation", "location"]:
         count = basic_info_written.get(key, 0)
         log_line(f"   {key}: {count}次")
     
-    # 7. 六维关系指标每轮监控（汇总表）
-    log_line(f"\n7. 六维关系指标每轮变化（closeness, trust, liking, respect, attractiveness, power）:")
+    # 6. 六维关系指标每轮监控（汇总表）
+    log_line(f"\n6. 六维关系指标每轮变化（closeness, trust, liking, respect, attractiveness, power）:")
     if conversation_log:
         log_line("   Round | closeness | trust | liking | respect | attractiveness | power | deltas(cl,tr,li,re,at,po)")
         for entry in conversation_log:
@@ -1154,7 +1168,7 @@ async def main() -> None:
     else:
         log_line("   无数据")
     
-    # 8. 标点符号去除成功率
+    # 7. 标点符号去除成功率
     if punctuation_removal_stats:
         total_original = sum(s['original_count'] for s in punctuation_removal_stats)
         total_processed = sum(s['processed_count'] for s in punctuation_removal_stats)
@@ -1195,7 +1209,7 @@ async def main() -> None:
                 by_node.setdefault(e["node"], []).append(e["dt_ms"])
                 by_model.setdefault(e["model"], []).append(e["dt_ms"])
             log_line("\n" + "=" * 80)
-            log_line("9. LLM 用时分析（LTSR_LLM_ELAPSED_LOG=1 时记录）")
+            log_line("8. LLM 用时分析（LTSR_LLM_ELAPSED_LOG=1 时记录）")
             log_line("=" * 80)
             log_line(f"   总 LLM 调用次数: {len(llm_elapsed_entries)}")
             log_line(f"   总耗时(ms): {total_ms:.1f}  总耗时(秒): {total_ms/1000:.2f}")

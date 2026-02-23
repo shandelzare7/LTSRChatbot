@@ -1152,21 +1152,26 @@ def judge_dimension_repetition_batch_via_llm(
     并行 Judge：对话质量评估专家。判断候选回复是否出现「复读」或「缺乏信息增量」。
     复读定义：1) 仅换说法重复用户刚刚说过的话（无新观点/动作/情感递进）；
     2) 重复机器人在历史对话中已表达过的观点或句式/词汇。
-    Returns: idx -> judge result dict (score 0~1：1=无复读且信息有增量，0=明显复读或缺乏增量)
+    信息增量定义（与策略层一致）：不扩展信息域，但允许表达域变化——见 system_prompt。
+    Returns: idx -> judge result dict (score 0~1：1=无复读且表达有增量，0=明显复读或严重缺乏增量)
     """
     if llm_invoker is None:
         return {int(c.get("idx", 0) or 0): {} for c in (candidates or []) if isinstance(c, dict)}
 
-    system_prompt = """你是一个对话质量评估专家。请判断候选回复是否出现了「复读」或「缺乏信息增量」的问题。
+    system_prompt = """你是一个对话质量评估专家。请判断候选回复是否出现了「复读」或「缺乏表达/信息增量」的问题。
 
 复读的定义：
 1. 仅仅换个说法重复用户刚刚说过的话（没有提供新的观点、动作或情感递进）。
 2. 重复机器人在历史对话中已经表达过的观点或使用过的特定句式/词汇。
 
-缺乏信息增量：回复没有在用户或机器人已有信息基础上增加新内容、新态度或新推进。
+「信息/表达增量」的可执行定义（与策略一致，避免误判为「任何新东西都不能出现」）：
+- 不新增外部事实：不引入新话题、新人物、新设定、新知识点、新经历（尤其是编造的）。出现则扣分。
+- 允许同话题内的表达增量：换角度、换说法、换句式、换情绪强度、换节奏——这些不算「无增量」，应给分。
+- 允许极小的观点增量：每轮最多 1 个轻量补充（如「我更偏向…/我会更在意…」这种立场，不是百科知识）——应给分。
+- 一句话：不扩展信息域，但允许表达域变化。纯复述（只换几个词、同一句式重复）才判为缺乏增量。
 
 你将一次性评估多个候选（按 idx）。
-要求：results 包含每个候选的 idx（一个不漏）；每个候选给出 score（0.0~1.0）：1.0=无复读且信息有增量，0.0=明显复读或严重缺乏增量；sub_scores 可含 no_repeat_user（未复读用户）、no_repeat_self（未复读己方历史）、information_increment（信息增量），范围 0.0~1.0。score 建议为 sub_scores 平均值。（输出格式由系统约束。）""".strip()
+要求：results 包含每个候选的 idx（一个不漏）；每个候选给出 score（0.0~1.0）：1.0=无复读且表达有增量（含同话题内换角度/换说法/换情绪等），0.0=明显复读或纯复述无表达变化；sub_scores 可含 no_repeat_user（未复读用户）、no_repeat_self（未复读己方历史）、information_increment（表达/信息增量，按上述可执行定义），范围 0.0~1.0。score 建议为 sub_scores 平均值。（输出格式由系统约束。）""".strip()
 
     body_messages = get_chat_buffer_body_messages(state, limit=200)
 
@@ -1187,7 +1192,7 @@ final messages: {safe_text((proc or {}).get("messages") or [])}
 """.strip()
         )
 
-    user_prompt = f"""候选列表（逐个评估是否复读/缺乏信息增量）：
+    user_prompt = f"""候选列表（逐个评估是否复读/缺乏表达增量，按上述可执行定义）：
 {safe_text(blocks)}
 """.strip()
 
