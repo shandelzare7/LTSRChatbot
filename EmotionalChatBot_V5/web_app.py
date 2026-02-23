@@ -1472,7 +1472,7 @@ def get_chat_html(bot_id: str) -> str:
 # 全局顶栏公告配置（id / message / cta / href / variant: glass | soft）
 _ANNOUNCE_CONFIG = {
     "id": "announce-bot-fix",
-    "message": "✨ 已修复 bot 无故不理人的问题",
+    "message": "已修复 bot 无故不理人的问题",
     "cta": "",
     "href": "#",
     "variant": "glass",

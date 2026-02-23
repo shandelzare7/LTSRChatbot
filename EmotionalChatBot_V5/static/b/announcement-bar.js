@@ -42,12 +42,15 @@
         bar.className = 'announcement-bar announcement-bar--' + variant;
         bar.setAttribute('role', 'banner');
 
+        var inner = document.createElement('div');
+        inner.className = 'announcement-bar__inner';
+
         var left = document.createElement('div');
         left.className = 'announcement-bar__left';
         var icon = document.createElement('span');
         icon.className = 'announcement-bar__icon';
         icon.setAttribute('aria-hidden', 'true');
-        icon.textContent = '✨';
+        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
         var msg = document.createElement('span');
         msg.className = 'announcement-bar__message';
         msg.textContent = message;
@@ -74,8 +77,9 @@
         });
         right.appendChild(closeBtn);
 
-        bar.appendChild(left);
-        bar.appendChild(right);
+        inner.appendChild(left);
+        inner.appendChild(right);
+        bar.appendChild(inner);
 
         var root = document.getElementById('announcement-bar-root');
         root.innerHTML = '';
