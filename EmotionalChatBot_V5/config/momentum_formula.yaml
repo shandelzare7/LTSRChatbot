@@ -9,9 +9,9 @@ ema_alpha: 0.15
 hostility_penalty_coef: 0.75
 
 # E_turn 三项权重：engagement_level（用户投入度）、topic_appeal（话题对 Bot 吸引力）、r_base（关系基值）
-# 大幅提高 engagement 与 topic_appeal 的权重，使「用户投入高、话题有意思」时动量明显抬升
-e_turn_e_user_weight: 0.55
-e_turn_t_bot_weight: 0.75
+# engagement / topic_appeal 奖励降为原来一半，减弱“投入高/话题好”对动量的抬升
+e_turn_e_user_weight: 0.275   # 原 0.55 的一半
+e_turn_t_bot_weight: 0.375   # 原 0.75 的一半
 e_turn_r_base_weight: 0.3
 
 # PAD Arousal 参与计算时的范围与乘数

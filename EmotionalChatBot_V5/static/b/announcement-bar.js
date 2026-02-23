@@ -36,26 +36,20 @@
         var message = config.message || '';
         var cta = config.cta || '';
         var href = config.href || '#';
-        var variant = (config.variant === 'soft') ? 'soft' : 'glass';
 
-        var bar = document.createElement('div');
-        bar.className = 'announcement-bar announcement-bar--' + variant;
-        bar.setAttribute('role', 'banner');
+        var root = document.getElementById('announcement-bar-root');
+        root.setAttribute('role', 'banner');
 
         var inner = document.createElement('div');
         inner.className = 'announcement-bar__inner';
 
-        var left = document.createElement('div');
-        left.className = 'announcement-bar__left';
-        var icon = document.createElement('span');
-        icon.className = 'announcement-bar__icon';
-        icon.setAttribute('aria-hidden', 'true');
-        icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>';
-        var msg = document.createElement('span');
+        var badge = document.createElement('span');
+        badge.className = 'announcement-bar__badge';
+        badge.textContent = '公告';
+
+        var msg = document.createElement('p');
         msg.className = 'announcement-bar__message';
         msg.textContent = message;
-        left.appendChild(icon);
-        left.appendChild(msg);
 
         var right = document.createElement('div');
         right.className = 'announcement-bar__right';
@@ -70,20 +64,18 @@
         closeBtn.type = 'button';
         closeBtn.className = 'announcement-bar__close';
         closeBtn.setAttribute('aria-label', '关闭公告');
-        closeBtn.textContent = '×';
+        closeBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.3 5.7a1 1 0 0 0-1.4 0L12 10.6 7.1 5.7A1 1 0 0 0 5.7 7.1l4.9 4.9-4.9 4.9a1 1 0 1 0 1.4 1.4l4.9-4.9 4.9 4.9a1 1 0 0 0 1.4-1.4l-4.9-4.9 4.9-4.9a1 1 0 0 0 0-1.4z"/></svg>';
         closeBtn.addEventListener('click', function () {
             setDismissed(id);
             root.style.display = 'none';
         });
         right.appendChild(closeBtn);
 
-        inner.appendChild(left);
+        inner.appendChild(badge);
+        inner.appendChild(msg);
         inner.appendChild(right);
-        bar.appendChild(inner);
-
-        var root = document.getElementById('announcement-bar-root');
         root.innerHTML = '';
-        root.appendChild(bar);
+        root.appendChild(inner);
     }
 
     function init() {
