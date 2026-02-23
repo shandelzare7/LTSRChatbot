@@ -38,33 +38,23 @@
 
 | 步骤 | 角色 | 调用次数 | 说明 |
 |------|------|----------|------|
-| 根计划 | main | **1** | `plan_reply_via_llm` |
-| 根评估 | judge | **1** | `evaluate_candidate` → `soft_score_via_llm` |
-| 若根早退 | - | 0 | 下面都不跑 |
-| **每个 rollout**（共 4 次） | | | |
-| └ 扩展变体 | main | **1** | `generate_variants_via_llm`（一次请求出 k 个候选） |
-| └ 精评 Top1 | judge | **1** | `evaluate_candidate`（soft scorer） |
-| 最终再评一次 best | judge | **1** | 对最终选中的 plan 再跑一次 `evaluate_candidate` |
-| （可选）strategy_tag 不足时补一次变体 | main | 0 或 1 | 二次 `generate_variants_via_llm` |
+| 27 候选生成 | main | **9** | `plan_reply_27_via_content_moves`（9 路并行，每路 3 条） |
+| 27 候选评估 | judge | **1** | `evaluate_27_candidates_single_llm`（一次选 best_id + accept） |
 
-- **不早退**（例如 bot-to-bot 默认关早退）：  
-  LATS = 1(根计划) + 1(根评) + 4×(1 变体 + 1 精评) + 1(最终评) = **11**  
-  若偶尔触发 strategy_tag 补齐，再 +1。
-- **早退**：只做根计划 + 根评 = **2**。
+- **LATS V3**：9（生成）+ 1（评估）= **10** 次 LLM（主路径）。Skip 路径（rollouts/expand_k=0 或低风险跳过）不再做规则检查，直接通过。
 
 ---
 
-## 3. 按角色汇总（不早退、processor 不调 LLM）
+## 3. 按角色汇总（LATS V3、processor 不调 LLM）
 
 | 角色 | 来源 | 次数 |
 |------|------|------|
-| **main** | inner_monologue, reasoner, LATS 根计划, LATS 每轮 1 次变体 | 1 + 1 + 1 + 4 = **7** |
-| **judge** | LATS 根评, 每轮 Top1 精评, 最终再评 | 1 + 4 + 1 = **6** |
+| **main** | inner_monologue, reasoner, LATS 27 候选生成（9 路） | 1 + 1 + 9 = **11** |
+| **judge** | LATS 27 候选评估（1 次） | **1** |
 | **fast** | detection, evolver, memory_manager | **3** |
-| **合计** | | **16** |
+| **合计** | | **15** |
 
-若 processor 再打 1 次 main：**17**。  
-若早退：LATS 只 2 次，总约 **10**。
+若 processor 再打 1 次 main：**16**。
 
 ---
 
@@ -102,7 +92,7 @@
 **已经实现的并行：**
 
 1. **根评估 + 首轮变体预取**：在根计划生成后，**根评估**和**第一轮 rollout 的变体生成**在 2 个线程里同时跑；首轮扩展 root 时直接复用预取变体，少一次 LLM 往返。
-2. **LLM 精评 Top N**：对每个 rollout 里排序后的 Top N 候选做 `evaluate_candidate(..., llm_soft_scorer=...)` 时，用 `ThreadPoolExecutor` 并行（默认 `lats_llm_soft_top_n=1`、`lats_llm_soft_max_concurrency=1`，所以多数情况下仍是 1 个；增大 top_n 和 max_concurrency 即可多路并行）。
+2. **LATS V3**：27 条候选由 **evaluate_27_candidates_single_llm** 一次评估；Gate1 / evaluate_candidate 已移除。
 3. **助手味检测**：对通过硬门槛的若干候选做 `check_assistant_like_via_llm` 时，多候选**并行**调用（线程池，最多 4 路）。
 
 **配置上如何更并行、更快：**

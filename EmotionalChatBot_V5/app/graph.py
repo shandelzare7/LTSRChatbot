@@ -5,7 +5,6 @@ import asyncio
 import inspect
 import os
 import time
-from pathlib import Path
 from typing import Any, Callable, List, Optional, Literal
 
 from langgraph.graph import END, StateGraph
@@ -13,16 +12,7 @@ from langgraph.graph import END, StateGraph
 from app.state import AgentState
 from app.nodes.loader import create_loader_node
 
-# 从 detection.py 文件直接导入（在 nodes/ 目录下，与 detection/ 文件夹同名）
-import importlib.util
-from pathlib import Path
-
-_detection_file = Path(__file__).parent / "nodes" / "detection.py"
-_spec = importlib.util.spec_from_file_location("detection_module", _detection_file)
-_detection_module = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_detection_module)
-
-create_detection_node = _detection_module.create_detection_node
+from app.nodes.detection import create_detection_node
 from app.nodes.inner_monologue import create_inner_monologue_node
 from app.nodes.style import create_style_node
 from app.nodes.task_planner import create_task_planner_node
@@ -41,7 +31,6 @@ from app.nodes.strategy_routers import (
 )
 from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node
 from app.services.memory import MockMemory
-from utils.yaml_loader import get_project_root
 
 
 def _no_reply_handler(state: dict) -> dict:
@@ -79,22 +68,19 @@ def build_graph(
     - llm / memory_service 为 None 时使用默认（MockMemory、get_llm()）。
     - Mode 行为策略（心理模式）已归档，图中不再加载 modes 或使用 PsychoEngine。
     """
-    root = get_project_root()
-    # Role-based LLM routing:
-    # - main: planner / LATS generation / fast_reply（fast 路由时也用 main，即 gpt-4o）
-    # - fast: detection / analyzer / memory write / task_planner 等
-    # - judge: LATS soft scorer
+    # LLM 分配：evolver、LATS 的 27 候选生成 用 fast；LATS 单模型评估用 main；fast_reply 用 main。
+    # 按节点设 temperature：detection 0.1、task_planner 0.15、fast_reply 0.55；
+    # processor 0.3、evolver 0.18、memory_manager 0.1、三 router 0.05；reply_planner 27 候选 0.7。
     llm = llm or get_llm(role="main")
     llm_fast = llm_fast or get_llm(role="fast")
-    llm_judge = llm_judge or get_llm(role="judge")
-    # Processor LLM (segmentation + delay). Default to gpt-4o-mini (priority tier on official OpenAI endpoint).
-    processor_role = (os.getenv("LTSR_PROCESSOR_LLM_ROLE") or "fast").strip().lower() or "fast"
-    processor_model = (os.getenv("LTSR_PROCESSOR_LLM_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
-    try:
-        processor_temp = float((os.getenv("LTSR_PROCESSOR_LLM_TEMPERATURE") or "0.2").strip() or "0.2")
-    except Exception:
-        processor_temp = 0.2
-    llm_processor = get_llm(role=processor_role, model=processor_model, temperature=processor_temp)
+    llm_detection = get_llm(role="fast", temperature=0.1)
+    llm_task_planner = get_llm(role="fast", temperature=0.15)
+    llm_fast_reply = get_llm(role="main", temperature=0.55)
+    llm_planner_27 = get_llm(role="fast", temperature=0.7)
+    llm_processor = get_llm(role="fast", temperature=0.3)
+    llm_evolver = get_llm(role="fast", temperature=0.18)
+    llm_memory_manager = get_llm(role="fast", temperature=0.1)
+    llm_routers = get_llm(role="fast", temperature=0.05)
     memory_service = memory_service or MockMemory()
 
     def _truthy(v: str | None) -> bool:
@@ -176,21 +162,25 @@ def build_graph(
         return _call_sync
 
     loader_node = create_loader_node(memory_service)
-    # detection / inner_monologue：gpt-4o-mini + priority（与 llm_fast 一致）
-    detection_node = create_detection_node(llm_fast)
+    detection_node = create_detection_node(llm_detection)   # fast, temperature=0.1
     inner_monologue_node = create_inner_monologue_node(llm_fast)
     style_node = create_style_node(None)  # 纯计算，不调用 LLM
-    task_planner_node = create_task_planner_node(llm_fast)
-    lats_node = create_lats_search_node(llm, llm_soft_scorer=llm_judge)
-    fast_reply_node = create_fast_reply_node(llm)  # 使用 main 的 LLM（gpt-4o），与 LATS 同模型
+    task_planner_node = create_task_planner_node(llm_task_planner)  # fast, temperature=0.15
+    lats_node = create_lats_search_node(
+        llm_fast,
+        llm_soft_scorer=llm_fast,
+        llm_gen=llm_planner_27,   # 27 候选生成（reply_planner）fast；实际 temperature 以 reply_planner 内 _planner_sampling_for_round + invoke 传入为准
+        llm_eval=llm,             # 单模型评估用 main
+    )
+    fast_reply_node = create_fast_reply_node(llm_fast_reply)  # main, temperature=0.55
     processor_node = create_processor_node(llm_processor)
-    evolver_node = create_evolver_node(llm_fast)
+    evolver_node = create_evolver_node(llm_evolver)
     stage_manager_node = create_stage_manager_node()
-    memory_manager_node = create_memory_manager_node(llm_fast)
+    memory_manager_node = create_memory_manager_node(llm_memory_manager)
     memory_writer_node = create_memory_writer_node(memory_service)
-    router_high_stakes_node = create_router_high_stakes_node(llm_fast)
-    router_emotional_game_node = create_router_emotional_game_node(llm_fast)
-    router_form_rhythm_node = create_router_form_rhythm_node(llm_fast)
+    router_high_stakes_node = create_router_high_stakes_node(llm_routers)
+    router_emotional_game_node = create_router_emotional_game_node(llm_routers)
+    router_form_rhythm_node = create_router_form_rhythm_node(llm_routers)
     strategy_resolver_node = create_strategy_resolver_node()
 
     workflow = StateGraph(AgentState)

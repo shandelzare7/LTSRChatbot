@@ -38,10 +38,10 @@ class CriticCriteria(BaseModel):
 
 
 class StyleBias(BaseModel):
-    """给 Style 节点的偏置（只给"旋钮方向"，不写台词）"""
-    verbal_length: Optional[float] = None
-    tone_temperature: Optional[float] = None
-    social_distance: Optional[float] = None
+    """给 Style 的偏置（兼容旧配置；表达层由 Style 节点 6 维旋钮决定：FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）"""
+    verbal_length: Optional[float] = None   # 弃用，兼容旧 YAML
+    tone_temperature: Optional[float] = None  # 弃用，兼容旧 YAML
+    social_distance: Optional[float] = None   # 弃用，兼容旧 YAML
     advice_style: Optional[float] = None
     wit_and_humor: Optional[float] = None
     emotional_display: Optional[float] = None
@@ -51,7 +51,7 @@ class PsychoMode(BaseModel):
     """
     心理模式的数据定义。
     所有的行为逻辑都不写死在代码里，而是由这个对象控制。
-    Mode 只控制"行为策略与预算"，不直接写语气台词；表达层仍由 Style 的 12 维旋钮决定。
+    Mode 只控制"行为策略与预算"，不直接写语气台词；表达层由 Style 节点的 6 维旋钮决定（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）。
     """
 
     id: str

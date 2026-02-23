@@ -31,10 +31,9 @@
 | **lats_budget.max_messages** | 覆盖 mode 的 max_messages | 配置小 | 配置大 |
 | **word_budget** | 总字数上限，影响 Planner 倾向写长/写短 | 很小（如 20）→ 易一条说完 | 大（如 80）→ 易多条 |
 | **ReplyPlanner 的 prompt** | 「多条消息」「先回应再补充」等 | 任务简单/用户只问一句 | 任务多、要分步回应/解释/反问 |
-| **style_targets（如 verbal_length）** | 风格目标进 requirements，影响 Planner 话多话少 | 偏简短 | 偏长/丰富 |
+| **style_targets（6 维：FORMALITY/POLITENESS/WARMTH/CERTAINTY/CHAT_MARKERS/EXPRESSION_MODE）** | 风格目标进 requirements，影响 Planner 话多话少 | 偏简短 | 偏长/丰富 |
 | **final_validator** | 首条过短会与第二条合并；条数 > max_messages 从尾部合并 | 首条 < min_first_len 或 条数 > max_messages | 首条 ≥ min_first_len 且 条数 ≤ max_messages |
 | **min_first_len**（requirements） | 首条低于此次数会触发合并 | 设大 → 更容易触发合并 → 少段 | 设小 → 少合并 → 多段 |
-| **evaluator hard_gate** | 候选若 messages 条数 > max_messages 直接淘汰 | 同上限 | 同上限 |
 
 小结：**路径 A 下要「分割多」**：max_messages 足够大、word_budget 足够、任务/风格偏「分步说」；**要「分割少」**：max_messages=1（如 cold_mode）或 word_budget 很小，或 final_validator 合并掉多余条。
 
@@ -87,7 +86,7 @@
 | | word_budget | 小 | 大 |
 | | min_first_len | 大（易触发合并） | 小 |
 | **LATS/Planner** | ReplyPlanner 行为 | 简单问句、单句可答 | 多任务、需分步/解释/反问 |
-| | style_targets（verbal_length 等） | 偏短 | 偏长/丰富 |
+| | style_targets（6 维） | 偏短 | 偏长/丰富 |
 | **Validator** | 首条长度 | < min_first_len → 与第二条合并 | ≥ min_first_len |
 | | 条数 | > max_messages → 尾部合并 | ≤ max_messages |
 | **规则分割（路径 B）** | fragmentation_tendency | 低 | 高 |

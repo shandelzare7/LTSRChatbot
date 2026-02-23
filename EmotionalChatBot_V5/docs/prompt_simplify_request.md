@@ -14,12 +14,12 @@
    - bot_basic_info, bot_persona, user_basic_info, user_profile（本轮选中）
    - 【memory】conversation_summary + retrieved_memories
    - 【state_snapshot】bot_name, stage, mood_state, relationship_state
-   - 【style_profile】12D 或 V5 自然语言 prompt 字符串
+   - 【style_profile】6 维参数列表或兼容自然语言字符串
    - 【requirements】脱敏后的整份（不含 tasks_for_lats 内部字段）
 
 4. **Hard Targets**
    - max_messages, plan_goals.must_cover_points, plan_goals.avoid_points
-   - style_targets(12D), stage_targets
+   - style_targets(6D), stage_targets
    - task_budget_max, word_budget
 
 5. **core_rules**
@@ -37,7 +37,7 @@
 - must_have, forbidden, safety_notes, first_message_rule
 - max_messages, min_first_len, max_message_len
 - stage_pacing_notes, plan_goals, latest_user_text, user_asks_advice
-- style_targets（12 维数值）, stage_targets（stage, pacing_notes, allowed_acts, forbidden_acts, violation_sensitivity）
+- style_targets（6 维：FORMALITY/POLITENESS/WARMTH/CERTAINTY/CHAT_MARKERS/EXPRESSION_MODE）, stage_targets（stage, pacing_notes, allowed_acts, forbidden_acts, violation_sensitivity）
 - tasks_for_lats, task_budget_max, word_budget
 
 ## 三、相关文件路径

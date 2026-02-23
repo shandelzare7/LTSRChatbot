@@ -1,12 +1,18 @@
 # 全参数动量公式常量（strategy_resolver 中 _compute_momentum_next 使用）
+# 每轮开始与写回时 conversation_momentum 的下限，不得低于此值
+momentum_floor: 0.4
+
 # EMA 融合：Score_raw 中本轮推力权重，上一回合惯性权重 = (1 - ema_alpha)
 ema_alpha: 0.15
 
-# 检测到的敌意 (hostility_level 0-10) 对冲量的惩罚系数，原 1.5，降低后敌意不会过度打压动量
+# 检测到的敌意 (hostility_level 0-10) 对冲量的惩罚系数
 hostility_penalty_coef: 0.75
 
-# E_turn 中 topic_appeal（话题对 Bot 吸引力/interesting）的权重，原 0.4，提高后「有意思」的话题更抬动量
-e_turn_t_bot_weight: 0.55
+# E_turn 三项权重：engagement_level（用户投入度）、topic_appeal（话题对 Bot 吸引力）、r_base（关系基值）
+# 大幅提高 engagement 与 topic_appeal 的权重，使「用户投入高、话题有意思」时动量明显抬升
+e_turn_e_user_weight: 0.55
+e_turn_t_bot_weight: 0.75
+e_turn_r_base_weight: 0.3
 
 # PAD Arousal 参与计算时的范围与乘数
 # _arousal_clamped 将 arousal 归一化到 [range_min, range_max]

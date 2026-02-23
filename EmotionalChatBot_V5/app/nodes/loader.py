@@ -13,6 +13,10 @@ from app.lats.prompt_utils import sanitize_memory_text, filter_retrieved_memorie
 from utils.external_text import sanitize_external_text, detect_internal_leak
 from utils.prompt_helpers import knapp_baseline_momentum
 from utils.busy_schedule import get_busy_fallback_from_schedule
+from utils.yaml_loader import load_momentum_formula_config
+
+# 每轮开始 conversation_momentum 的下限（与 config/momentum_formula.yaml 一致）
+MOMENTUM_FLOOR = float(load_momentum_formula_config().get("momentum_floor", 0.4))
 
 # 距上次消息超过此时长视为新 Session，按 Knapp 阶段重新初始化 conversation_momentum
 COLD_START_THRESHOLD_SEC = 4 * 3600  # 4 小时
@@ -83,7 +87,8 @@ def _resolve_conversation_momentum(
         or seconds_since_last >= COLD_START_THRESHOLD_SEC
     )
     if cold_start:
-        return knapp_baseline_momentum(current_stage)
+        m = knapp_baseline_momentum(current_stage)
+        return max(MOMENTUM_FLOOR, min(1.0, m))
     # 短期离线：物理时间衰减 M_init = M_last * e^(-λ * Δt)，Δt 单位小时
     try:
         m_last = float(stored_momentum)
@@ -92,11 +97,15 @@ def _resolve_conversation_momentum(
     m_last = max(0.0, min(1.0, m_last))
     delta_t_hours = (seconds_since_last or 0.0) / 3600.0
     m_init = m_last * math.exp(-MOMENTUM_DECAY_LAMBDA * delta_t_hours)
-    return max(0.0, min(1.0, m_init))
+    return max(MOMENTUM_FLOOR, min(1.0, m_init))
+
+
+# busy 上限：日程表算出后 clamp 到此值，避免过忙导致风格/动量过度抑制
+BUSYNESS_CAP = 0.3
 
 
 def _apply_busy_fallback_to_output(out: Dict[str, Any], state: Dict[str, Any]) -> None:
-    """每轮会话开始：按当前时间给 bot 的 busy 赋兜底值，写入 out['mood_state']['busyness']。"""
+    """每轮会话开始：按当前时间给 bot 的 busy 赋兜底值，写入 out['mood_state']['busyness']；上限为 BUSYNESS_CAP。"""
     dt = None
     ct = state.get("current_time")
     if isinstance(ct, str) and ct.strip():
@@ -110,6 +119,7 @@ def _apply_busy_fallback_to_output(out: Dict[str, Any], state: Dict[str, Any]) -
         except Exception:
             pass
     busy = get_busy_fallback_from_schedule(dt, use_utc=False)
+    busy = min(float(busy), BUSYNESS_CAP)
     mood = dict(out.get("mood_state") or {})
     mood["busyness"] = busy
     out["mood_state"] = mood
@@ -302,7 +312,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             out = {
                 "bot_id": str(bot_id),
                 "relationship_id": str(db_data.get("relationship_id") or ""),
-                "relationship_state": db_data.get("relationship_state") or {},
+                "relationship_state": db_data.get("relationship_state") or {},  # 6D: closeness/trust/liking/respect/attractiveness/power，Style 节点输入
                 "reply_duration_seconds_list": db_data.get("reply_duration_seconds_list") or [],
                 "mood_state": db_data.get("mood_state") or {},
                 "current_stage": current_stage,
@@ -383,7 +393,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
 
             out = {
                 "bot_id": str(bot_id),
-                "relationship_state": local_data.get("relationship_state") or {},
+                "relationship_state": local_data.get("relationship_state") or {},  # 6D，Style 节点输入；本地存盘需含 attractiveness 或 warmth/liking 回退
                 "reply_duration_seconds_list": local_data.get("reply_duration_seconds_list") or [],
                 "mood_state": local_data.get("mood_state") or {},
                 "current_stage": current_stage,

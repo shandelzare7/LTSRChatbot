@@ -127,7 +127,7 @@ class MoodState(TypedDict):
     dominance: float # D: 掌控感
     
     # 繁忙度/资源限制 - Range: [0.0, 1.0]
-    # > 0.8 时会强制缩短回复
+    # 下游用途：strategy_routers/resolver 用 >=0.6 判「忙碌」并参与 deferral；processor 用 >0.85 时可能加长延迟。无硬编码「强制缩短回复」逻辑。
     busyness: float
 
 
@@ -243,8 +243,8 @@ class ProcessorPlan(TypedDict, total=False):
 
 
 class RequirementsChecklist(TypedDict, total=False):
-    """LATS 需求清单：仅保留 style 自然语言、stage_targets、tasks_for_lats、task_budget_max。"""
-    style_instructions: str  # style 节点 llm_instructions 自然语言
+    """LATS 需求清单：仅保留 style 参数列表（6 维）、stage_targets、tasks_for_lats、task_budget_max。"""
+    style_instructions: str  # style 节点 llm_instructions（6 维参数列表字符串）
     stage_targets: Dict[str, Any]
     tasks_for_lats: List[Any]
     task_budget_max: int
@@ -304,14 +304,27 @@ class SPTInfo(TypedDict, total=False):
 
 class AgentState(TypedDict, total=False):
     """
-    Agent 主状态：支持高度拟人化的 AI 聊天机器人
-    
+    Agent 主状态：支持高度拟人化的 AI 聊天机器人（全部键可选，total=False）。
+
     架构说明：
     - Identity: BotBasicInfo, BigFive, BotPersona (我是谁)
     - Perception: UserInferredProfile (我看你是谁)
     - Physics: RelationshipState, MoodState (我们的关系和我的心情)
     - Memory: chat_buffer, conversation_summary, retrieved_memories
-    - Output: llm_instructions (12维输出驱动), final_response
+    - Output: llm_instructions（style 节点 6 维参数列表字符串）, final_response
+
+    关键字段写入者/时机（调用方勿假定键一定存在，建议 .get() 或入口校验）：
+    - loader: user_input, chat_buffer, bot_basic_info, mood_state, current_stage, relationship_state, bot_task_list, current_session_tasks, ...
+    - detection: detection
+    - inner_monologue: inner_monologue, selected_profile_keys, ...
+    - strategy_routers: router_high_stakes, router_emotional_game, router_form_rhythm
+    - strategy_resolver: current_strategy_id, current_strategy, skip_reply, force_fast_route, conversation_momentum
+    - style: style, llm_instructions
+    - task_planner: tasks_for_lats, task_budget_max, no_reply
+    - lats_search: reply_plan, requirements（由 style 等编译）, ...
+    - processor: humanized_output
+    - evolver: relationship_state, mood_state, attempted_task_ids, completed_task_ids, ...
+    - memory_manager: memory_context, retrieved_memories, ...
     """
 
     # --- Input Context ---
@@ -445,28 +458,16 @@ class AgentState(TypedDict, total=False):
     # 并行节点（如 detection + inner_monologue）会同时写入，用 reducer 合并 nodes 列表
     _profile: Annotated[Optional[Dict[str, Any]], _merge_profile]
     
-    # --- Output Drivers (The 12 Dimensions) ---
-    # 这里的 Key 对应 12 维输出定义
-    # Strategy 维度:
-    #   - self_disclosure: 自我暴露程度
-    #   - topic_adherence: 话题粘性
-    #   - initiative: 主动性
-    #   - advice_style: 建议风格
-    #   - subjectivity: 主观性
-    #   - memory_hook: 记忆钩子
-    # Style 维度:
-    #   - verbal_length: 语言长度
-    #   - social_distance: 社交距离
-    #   - tone_temperature: 语调温度
-    #   - emotional_display: 情绪表达
-    #   - wit_and_humor: 机智幽默
-    #   - non_verbal_cues: 非语言 cues
-    llm_instructions: Dict[str, Any]
+    # --- Output Drivers (Style 节点 6 维输出) ---
+    # style: 节点输出的 6 维 dict（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）
+    style: Optional[Dict[str, Any]]
+    # llm_instructions: 由 format_style_as_param_list 生成的参数字符串，供 reply_plan / fast_reply 注入 prompt
+    llm_instructions: Any  # 实际为 str（参数列表字符串）或兼容旧 Dict
 
     # --- LATS / Choreography Planning (NEW) ---
     # 从 reasoner/style/mode 编译出的硬约束/需求清单
     requirements: Optional[RequirementsChecklist]
-    # 作为风格/节奏画像的统一口径（默认可与 llm_instructions 同步）
+    # 作为风格/节奏画像的统一口径（6 维 style 或兼容旧结构；默认可与 llm_instructions 同步）
     style_profile: Optional[Dict[str, Any]]
 
     # 当前候选与其编排计划（用于搜索与调试）

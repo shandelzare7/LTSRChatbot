@@ -20,6 +20,9 @@ CREATE TABLE bots (
     urgent_tasks JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+-- big_five 与 mood_state 为 Style 节点输入（Big Five + PAD + busy）；Style 输出 6 维不落库
+COMMENT ON COLUMN bots.big_five IS 'Style 节点输入：大五人格 (openness, conscientiousness, extraversion, agreeableness, neuroticism)';
+COMMENT ON COLUMN bots.mood_state IS 'Style 节点输入：PAD 情绪 (pleasure, arousal, dominance) + busyness';
 
 -- 3. 用户表 (Users) - 挂在 bot 下，每个 user 绑定一个 bot（PAD(B) 已移至 bots 表）
 CREATE TABLE users (
@@ -39,6 +42,8 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(bot_id, external_id)
 );
+-- dimensions 为 6 维关系（closeness, trust, liking, respect, attractiveness, power），用于 Style 节点输入；若无 attractiveness 则用 warmth/liking 回退。Style 输出 6 维（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）为运行时计算，不落库
+COMMENT ON COLUMN users.dimensions IS 'Style 节点输入：6 维关系 (closeness, trust, liking, respect, attractiveness, power)；无 attractiveness 时用 warmth/liking 回退；Style 输出 6 维不落库';
 
 -- 4. 消息流水表 (Messages) - 挂在 user 下
 CREATE TABLE messages (

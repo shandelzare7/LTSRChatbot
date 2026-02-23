@@ -112,23 +112,14 @@ AI 分析出的用户隐性侧写（无固定字段，可扩展 JSON；整块注
 ### 6. Output Layer (输出层)
 
 #### llm_instructions
-12维输出驱动值，控制最终回复的风格和策略：
+Style 节点输出的 6 维参数列表字符串，控制最终回复的风格（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）：
 
-**Strategy 维度**：
-- `self_disclosure`: 自我暴露程度
-- `topic_adherence`: 话题粘性
-- `initiative`: 主动性
-- `advice_style`: 建议风格
-- `subjectivity`: 主观性
-- `memory_hook`: 记忆钩子
-
-**Style 维度**：
-- `verbal_length`: 语言长度
-- `social_distance`: 社交距离
-- `tone_temperature`: 语调温度
-- `emotional_display`: 情绪表达
-- `wit_and_humor`: 机智幽默
-- `non_verbal_cues`: 非语言 cues
+- **FORMALITY**: 正式程度
+- **POLITENESS**: 礼貌程度
+- **WARMTH**: 温暖度
+- **CERTAINTY**: 确定性
+- **CHAT_MARKERS**: 口语化标记（语气词、省略等）
+- **EXPRESSION_MODE**: 表达模式（LITERAL_DIRECT / LITERAL_INDIRECT / FIGURATIVE / IRONIC_LIGHT）
 
 ## 🔄 数据流转
 
@@ -141,7 +132,7 @@ AI 分析出的用户隐性侧写（无固定字段，可扩展 JSON；整块注
   ↓
 [Reasoner] 深度推理 → deep_reasoning_trace
   ↓
-[Styler] 计算 12 维输出值 → llm_instructions
+[Styler] 计算 6 维输出值 → style, llm_instructions
   ↓
 [Generator] 生成回复 → draft_response
   ↓

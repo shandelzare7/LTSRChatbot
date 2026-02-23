@@ -257,24 +257,26 @@ def stage_to_knapp_index(stage: Any) -> int:
     return 1
 
 
+# Knapp 阶段索引 1~10 对应的动量回归值（新 Session 冷启动时用）
+_KNAPP_BASELINE_MOMENTUM: dict[int, float] = {
+    1: 0.7,   # initiating
+    2: 0.8,   # experimenting
+    3: 0.9,   # intensifying
+    4: 1.0,   # integrating
+    5: 0.8,   # bonding
+    6: 0.6,   # differentiating
+    7: 0.5,   # circumscribing
+    8: 0.4,   # stagnating
+    9: 0.3,   # avoiding
+    10: 0.2,  # terminating
+}
+
+
 def knapp_baseline_momentum(stage: Any) -> float:
     """
     关系驱动的冷启动基线：根据 Knapp 阶段返回该阶段的默认初始冲量 (0.0~1.0)。
     用于新 Session（如距上次消息 ≥4h）时重新初始化 conversation_momentum。
-    - Stage 1-2 (初识期): 0.4
-    - Stage 3 (升温期): 0.6
-    - Stage 4-5 (亲密/融合期): 0.8
-    - Stage 6-7 (冷淡/分化期): 0.3
-    - Stage 8-9-10 (停滞/回避/终结期): 0.1
     """
     idx = stage_to_knapp_index(stage)
-    if idx <= 2:
-        return 0.4
-    if idx == 3:
-        return 0.6
-    if idx <= 5:
-        return 0.8
-    if idx <= 7:
-        return 0.3
-    return 0.1
+    return _KNAPP_BASELINE_MOMENTUM.get(idx, 0.5)
 

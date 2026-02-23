@@ -11,7 +11,7 @@
 |-----------|----------|---------------------------|
 | **main**  | detection、inner_monologue、style（入参未直接用）、reply_planner、PsychoEngine、LATS 主规划 | gpt-4o |
 | **fast**  | security_check、task_planner、evolver、memory_manager、security_response | gpt-4o-mini (priority) |
-| **judge** | LATS evaluator（soft scorer、Gate1、各 dimension judge） | gpt-4o-mini (priority) |
+| **judge** | LATS evaluator（evaluate_27_candidates_single_llm，27 条一次评估） | gpt-4o-mini (priority) |
 | **processor** | Processor 节点（拆句+延迟） | **gpt-4o-mini**（LTSR_PROCESSOR_LLM_MODEL，默认） |
 
 - 角色级覆盖：`LTSR_LLM_<ROLE>_MODEL` / `_API_KEY` / `_BASE_URL` / `_TEMPERATURE`。
@@ -202,56 +202,34 @@
 
 ---
 
-## 11. LATS Evaluator（evaluator.py，多类 LLM）
+## 11. LATS Evaluator（evaluator.py，judge 模型）
 
 - **文件**: `app/lats/evaluator.py`
 - **模型**: **judge**
 
-### 11.1 soft_score_via_llm / soft_score_batch_via_llm
+### 11.1 evaluate_27_candidates_single_llm（LATS V3 主评估）
 
 **人设**  
-- 「你是常识经验丰富的语言学专家，现在担任拟人节奏评审。」：看背景、对话、候选 messages[]，输出 score_breakdown（assistantiness、immersion_break、persona_consistency、relationship_fit、mode_behavior_fit 等）与 overall_score；assistantiness>0.5 或 immersion_break>0.2 则 overall 须 <0.3。
+- 「你是回复质量评估员。」：从 27 条候选回复中选出最优一条，并判断是否验收通过；评判时须特别注意三项：助理感、身份一致、沉浸不破。
 
 **输入**  
-- **System**: CHOREO_SCORER_SYSTEM / CHOREO_SCORER_BATCH_SYSTEM + bot_basic_info、user_basic_info。  
+- **System**: 背景 + 阶段 + requirements 摘要 + 风格要点 + 输出要求（best_id、accept、fail_type、repair_instructions、fallback）。  
 - **Body**: chat_buffer。  
-- **User**: 用户输入 + 最终 messages[]（或候选列表）。
+- **User**: 用户当前输入 + 27 条候选回复（每条约定 id + reply 文本）。
 
 **输出**  
-- 单候选：(overall_score, score_breakdown, notes, details)；批处理：idx -> { overall, breakdown, raw }。
+- best_id, accept, fail_type, repair_instructions, fallback（dict 或 LATSingleEvalResult）。
 
-### 11.2 gate1_check_batch_via_llm
+### 11.2 （已移除）gate1_check_batch_via_llm / evaluate_candidate
 
-**人设**  
-- 「你是常识经验丰富的语言学专家，现在担任 Gate1 审核员。」：只做 3 项布尔检查——assistantiness_ok、identity_ok、immersion_ok；输出 results[] 按 idx 对齐。
-
-**输入**  
-- **System**: GATE1_CHECK_BATCH_SYSTEM + bot/user basic_info。  
-- **Body**: chat_buffer。  
-- **User**: 用户输入 + 候选列表（每个候选的 messages[]）。
-
-**输出**  
-- idx -> { pass, checks, failed }。
-
-### 11.3 judge_dimension_*_via_llm（relationship / stage / mood_busy 等）
-
-**人设**  
-- 「你是常识经验丰富的语言学专家」：仅评估某一维度（关系 6 维/阶段符合度/情绪与忙碌符合度等），只输出严格 JSON（score、sub_scores 等）。
-
-**输入**  
-- **System**: 各维度评分规则 + Background。  
-- **Body**: chat_buffer。  
-- **User**: 用户输入 + 候选 messages 或列表。
-
-**输出**  
-- 各函数不同；多为 score、sub_scores 或 results[] 按 idx。
+Gate1 与 evaluate_candidate、hard_gate 已删除；主流程仅用 **evaluate_27_candidates_single_llm**（见 11.1）。skip 路径不再做规则检查，直接视为通过。
 
 ---
 
 ## 12. Style 节点
 
 - **文件**: `app/nodes/style.py`
-- **说明**: **纯计算，无 LLM**；根据关系、情绪、信号、阶段计算 12 维风格参数与门控变量。
+- **说明**: **纯计算，无 LLM**；根据关系、情绪、Big Five、PAD、busy 计算 6 维风格参数（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）与 llm_instructions 参数字符串。
 
 ---
 

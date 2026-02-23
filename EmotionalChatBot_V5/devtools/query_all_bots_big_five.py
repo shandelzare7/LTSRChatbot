@@ -1,5 +1,9 @@
 """
-查询 Render 数据库上所有 bot 的大五人格数据
+查询 Render（或 DATABASE_URL）上所有 bot 的大五人格 + PADB (mood_state)。
+
+用法:
+  RENDER_DATABASE_URL=postgresql+asyncpg://... python -m devtools.query_all_bots_big_five
+  或: DATABASE_URL=postgresql+asyncpg://... python -m devtools.query_all_bots_big_five
 """
 from __future__ import annotations
 
@@ -69,7 +73,18 @@ async def main() -> None:
             print(f"    完整 JSON: {json.dumps(big_five, ensure_ascii=False, indent=2)}")
         else:
             print(f"    ⚠️  大五人格数据为空")
-        
+
+        mood = bot.mood_state if isinstance(getattr(bot, "mood_state", None), dict) else {}
+        print(f"    PADB (mood_state):")
+        print(f"      - pleasure (愉悦):   {mood.get('pleasure', 'N/A'):>6}")
+        print(f"      - arousal (唤醒):    {mood.get('arousal', 'N/A'):>6}")
+        print(f"      - dominance (支配):  {mood.get('dominance', 'N/A'):>6}")
+        print(f"      - busyness (繁忙):   {mood.get('busyness', 'N/A'):>6}")
+        if mood:
+            print(f"    完整 JSON: {json.dumps(mood, ensure_ascii=False, indent=2)}")
+        else:
+            print(f"    ⚠️  PADB 数据为空")
+
         print("-" * 100)
 
     print(f"\n✅ 查询完成，共 {len(bots)} 个 bot")

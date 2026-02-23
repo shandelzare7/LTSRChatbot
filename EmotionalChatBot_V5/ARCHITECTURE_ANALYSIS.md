@@ -144,7 +144,7 @@ STAGE_PROFILE = {
 - ✅ 逻辑合理：早期阶段投资度低，中期高，后期下降
 - **建议**：保持当前设计
 
-### 4.2 12维风格参数
+### 4.2 6 维风格参数（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）
 
 **评估**：
 - ✅ 计算逻辑清晰，基于关系、情绪、阶段等多维度综合

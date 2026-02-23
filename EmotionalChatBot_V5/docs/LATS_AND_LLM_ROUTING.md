@@ -1,10 +1,10 @@
 # LATS 性能/拟人质量方案（现状 vs 最终）与多模型路由（OpenAI / DeepSeek）
 
 本文记录两件事：
-- **LATS（rollout 搜索 + soft scorer）**：当前实现的默认行为是什么、为什么会慢、最终采用的“平衡版”默认参数是什么。
+- **LATS（27 候选 + 单模型评估）**：当前实现的默认行为、以及“平衡版”默认参数。
 - **多模型路由（role routing）**：支持 `main / fast / judge` 三角色，并提供快速切换预设（OpenAI / DeepSeek 路线 A / DeepSeek 路线 B）。
 
-> 目标约束：**禁止关闭 soft scorer**。本方案只做“减少 soft scorer 调用次数/范围”，不做“禁用 soft scorer”。
+> 当前 LATS V3：27 条候选由 **evaluate_27_candidates_single_llm**（judge）一次评估选 best + accept；skip 路径不再做规则检查。Gate1 / evaluate_candidate / hard_gate 已移除。
 
 ---
 
@@ -13,8 +13,8 @@
 ### 1.1 LATS 主要调用路径
 
 入口节点：`app/nodes/lats_search.py`  
-核心搜索：`app/lats/search.py::lats_search_best_plan`  
-软评分：`app/lats/evaluator.py::soft_score_via_llm`（LLM 结构化 JSON 评分，prompt 很重）
+核心搜索：`app/lats/search.py::lats_search_best_plan`（LATS V3）  
+评估：`app/lats/evaluator.py::evaluate_27_candidates_single_llm`（27 条候选一次选 best + accept）
 
 ### 1.2 现状默认预算（高层）
 
@@ -28,9 +28,7 @@
 ### 1.3 现状问题（你遇到的慢）
 
 慢的根因不是单点，而是叠加：
-- rollout 数偏高（早期阶段 8 次）
-- expand 变体生成 + soft scorer 评分 prompt 都很重
-- soft scorer 输出要求包含 plan_alignment_details / style_dim_report / stage_act_report / memory_report，天然慢且耗 token
+- （历史）rollout 数偏高、expand + 多轮 judge 调用导致慢；当前 V3 已改为 27 候选 + 单次 judge 评估。
 
 ---
 
@@ -38,11 +36,8 @@
 
 ### 2.1 核心原则
 
-- **soft scorer 永远启用**：不允许“完全跳过”。但可以：
-  - 只对 Top1 做 soft scorer
-  - 降低 soft scorer 并发，换稳定性
-- **避免过早早退**：initiating/experimenting 至少跑 1 次 rollout，避免根计划（通用开场白）长期获胜。
-- **按阶段分配预算**：不同阶段用不同 rollouts/expand_k，避免“一刀切”。
+- **judge 评估**：LATS V3 主路径用 **evaluate_27_candidates_single_llm** 一次选 best + accept；skip 路径不再做规则检查。
+- **按阶段分配预算**：不同阶段用不同 rollouts/expand_k（若仍使用 rollout 扩展），避免“一刀切”。
 
 ### 2.2 最终默认预算（按阶段）
 
@@ -68,18 +63,10 @@
   - expand_k = **1**
   - min_rollouts_before_early_exit = **0**（若需要更保守可改为 1）
 
-### 2.3 soft scorer 调用范围（不禁用，但降成本）
+### 2.3 LATS V3 评估流程
 
-默认注入：
-- `lats_llm_soft_top_n = 1`（只精评 Top1）
-- `lats_llm_soft_max_concurrency = 1`（并发=1 更稳，减少限流/抖动）
-- `lats_assistant_check_top_n = 0`（额外的助手味检测属于额外 LLM 调用；soft scorer 已有 assistantiness 维度）
-
-### 2.4 关键“质量保险丝”：早退的 gate 必须走 LLM breakdown
-
-`app/lats/search.py` 中已实现：
-- 当 soft scorer 可用时，early-exit 以 `llm_plan_alignment / assistantiness / llm_mode_behavior_fit` 为准；
-- breakdown 缺字段时保守失败，从而阻止误早退。
+- 主路径：`plan_reply_27_via_content_moves` 生成 27 条候选 → **evaluate_27_candidates_single_llm** 一次选出 best_id 并给出 accept/fail_type/repair/fallback。
+- Skip 路径：不再做规则检查；Gate1 / evaluate_candidate / hard_gate 已移除。
 
 ---
 
@@ -87,7 +74,7 @@
 
 ### 3.1 为什么要拆角色
 
-- `judge`（soft scorer）需要最稳的结构化 JSON 输出（最怕格式漂移）。
+- `judge`（LATS 单模型评估）需要最稳的结构化 JSON 输出（最怕格式漂移）。
 - `fast`（Detection / Relationship Analyzer / Memory Manager）多为分类/抽取/摘要，更适合小模型降成本。
 - `main`（Reasoner / ReplyPlanner / Processor）决定“对话像不像这个人”，通常需要更强的模型。
 
@@ -118,7 +105,7 @@
 
 - LATS 节点默认策略：`app/nodes/lats_search.py`
 - LATS 搜索与 early-exit：`app/lats/search.py`
-- soft scorer：`app/lats/evaluator.py::soft_score_via_llm`
+- LATS 评估：`app/lats/evaluator.py::evaluate_27_candidates_single_llm`
 - 多模型路由：`app/services/llm.py::get_llm(role=...)`
 - Graph wiring：`app/graph.py`（detection/evolver/memory_manager 用 fast，lats_search 用 judge）
 

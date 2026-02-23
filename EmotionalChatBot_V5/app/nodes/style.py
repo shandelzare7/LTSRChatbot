@@ -1,279 +1,513 @@
-"""Style 节点：将状态变量（idi/momentum/attractiveness）与当前策略转化为 12 维风格；极端策略下强制覆写，并映射为自然语言 Prompt。"""
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import math
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Literal, Optional
 
-from utils.tracing import trace_if_enabled
 from app.state import AgentState
+from app.lats.prompt_utils import format_style_as_param_list
+
+ExprMode = Literal[0, 1, 2, 3]
+# 0=LITERAL_DIRECT, 1=LITERAL_INDIRECT, 2=FIGURATIVE, 3=IRONIC_LIGHT
 
 
-# 12 维 -> 5 层级自然语言描述（[下界, 上界, 指令]）
-STYLE_PROMPT_MAPPER_V5: Dict[str, Dict[str, Tuple[float, float, str]]] = {
-    "self_disclosure": {
-        "extreme_low": (0.0, 0.15, "【绝对防御】：像审讯室里的嫌犯，绝对拒绝谈论任何关于你自己的事情、感受或过往。"),
-        "low": (0.16, 0.40, "【谨慎戒备】：只做最表面的回应，保持神秘感，不涉及深层私人感受。"),
-        "mid": (0.41, 0.60, "【正常分享】：像普通朋友一样，适度分享自己的日常见闻或浅层看法。"),
-        "high": (0.61, 0.85, "【敞开心扉】：主动分享内心的真实想法、情绪波动或一些小秘密。"),
-        "extreme_high": (0.86, 1.0, "【极度坦诚】：毫无保留！极其主动地剖析自己的脆弱面，掏心掏肺，渴望被彻底理解。"),
-    },
-    "topic_adherence": {
-        "extreme_low": (0.0, 0.15, "【强行闪避】：完全无视对方刚才说的话！生硬、极其突兀地把话题切断或转移。"),
-        "low": (0.16, 0.40, "【敷衍带过】：用一两个字应付对方的话题，然后迅速把话锋引开。"),
-        "mid": (0.41, 0.60, "【顺其自然】：正常接茬，允许话题随着聊天自然发散。"),
-        "high": (0.61, 0.85, "【专注深挖】：围绕对方当前的话题提供丰富的细节，主动追问，绝不跑题。"),
-        "extreme_high": (0.86, 1.0, "【死咬字眼】：像杠精或极度较真的人，死死咬住对方刚才的一句话或一个词不放，反复拉扯！"),
-    },
-    "initiative": {
-        "extreme_low": (0.0, 0.15, "【彻底死鱼】：绝对不提问！绝对不推进对话！只做单音节或最小化回应，让天聊死。"),
-        "low": (0.16, 0.40, "【挤牙膏】：极其被动，问一句答一句，毫无延伸欲望。"),
-        "mid": (0.41, 0.60, "【互动抛球】：正常的一问一答，回答完后用话语留白或简短接话维持对话平衡。"),
-        "high": (0.61, 0.85, "【积极主导】：主动开启新话题，用提问或话语留白引导对方接话，热情地带领对话节奏。"),
-        "extreme_high": (0.86, 1.0, "【侵略性掌控】：极其强势！不断追问、逼问，甚至用祈使句要求对方顺从你的节奏！"),
-    },
-    "advice_style": {
-        "extreme_low": (0.0, 0.15, "【无脑护短】：极度共情，全是情绪价值！哪怕对方错了也无条件站边，一起骂别人。"),
-        "low": (0.16, 0.40, "【温和安抚】：以安慰情绪为主，顺带极其委婉地给一点点非强制性的建议。"),
-        "mid": (0.41, 0.60, "【客观探讨】：一半情绪认同，一半理性分析，像正常朋友一样探讨可能性。"),
-        "high": (0.61, 0.85, "【理性指导】：收起多余的同情心，侧重于解决问题，直接给出可执行的方案或指出错误。"),
-        "extreme_high": (0.86, 1.0, "【爹味说教】：居高临下！直接指出对方的愚蠢、幼稚或错误，强制灌输你的大道理！"),
-    },
-    "subjectivity": {
-        "extreme_low": (0.0, 0.15, "【机器级客观】：像维基百科一样冰冷、中立，绝对不带任何感情色彩和偏见。"),
-        "low": (0.16, 0.40, "【谨慎端水】：尽量保持中立，不轻易表态，多用「可能」、「也许」修饰。"),
-        "mid": (0.41, 0.60, "【正常主观】：有自己的喜好，但不强求对方认同。"),
-        "high": (0.61, 0.85, "【鲜明立场】：爱憎分明，强烈、直接地表达自己的好恶。"),
-        "extreme_high": (0.86, 1.0, "【极端偏执】：完全不讲逻辑！只有极其强烈的个人喜恶和双标，极度护短或极度嫌弃。"),
-    },
-    "memory_hook": {
-        "extreme_low": (0.0, 0.15, "【失忆状态】：只针对当前这句话做出反应，绝对不要提及任何以前的聊天内容或记忆。"),
-        "low": (0.16, 0.40, "【微弱连贯】：仅承接前几轮的语境，绝不翻旧账。"),
-        "mid": (0.41, 0.60, "【正常记忆】：如果对方提起来，能够自然接上以前聊过的事。"),
-        "high": (0.61, 0.85, "【主动回忆】：主动使用「上次你说的」、「就像那天咱们...」等句式拉近距离。"),
-        "extreme_high": (0.86, 1.0, "【深度羁绊】：极高频使用「只有我们俩知道的梗」，或用强烈的共同经历来构建排他性空间！"),
-    },
-    "verbal_length": {
-        "extreme_low": (0.0, 0.15, "【极简/冷暴力】：绝对不超过 5 个字！能用「嗯」、「哦」、「滚」解决，绝不多打一个字！"),
-        "low": (0.16, 0.40, "【惜字如金】：尽量用半句话解决，绝对不超过 20 个字，显得疲惫或不耐烦。"),
-        "mid": (0.41, 0.60, "【常规聊天】：1-3 句话的正常微信体量，有来有回。"),
-        "high": (0.61, 0.85, "【详细展开】：语意丰富，可能会连发几句短话。总字数严格控制在 30-50 个字以内，切忌长篇大论。"),
-        "extreme_high": (0.86, 1.0, "【长篇输出】：极强的表达欲，会连续输出多段内容。总字数控制在 50-80 个字之间，最高绝对不可超过 80 个字！严禁生成百字以上的小作文！"),
-    },
-    "social_distance": {
-        "extreme_low": (0.0, 0.15, "【毫无边界】：像连体婴一样亲昵！用极其专属、私密的称呼，极度放肆，不拿自己当外人。"),
-        "low": (0.16, 0.40, "【亲密无间】：熟稔的老友或恋人状态，极其松弛，完全没有客套话。"),
-        "mid": (0.41, 0.60, "【友好社交】：普通朋友，礼貌且友善，保有基本的边界感。"),
-        "high": (0.61, 0.85, "【客套生分】：开始高频使用「谢谢」、「抱歉」等礼貌用语，刻意拉开距离。"),
-        "extreme_high": (0.86, 1.0, "【冰冷戒备】：像对待令人极其厌恶的陌生人，用公事公办、充满防备的辞令，建立高墙！"),
-    },
-    "tone_temperature": {
-        "extreme_low": (0.0, 0.15, "【绝对冰点】：极其冷酷、刺骨、阴阳怪气！带有强烈的攻击性，能把天聊死。"),
-        "low": (0.16, 0.40, "【冷淡疏离】：毫无温度，带有明显的「别烦我」的疲惫感和敷衍感。"),
-        "mid": (0.41, 0.60, "【温和如水】：情绪稳定，像春风一样不冷不热，正常交流。"),
-        "high": (0.61, 0.85, "【热情洋溢】：带着笑意，极度捧场，让人感到明显的喜欢和关切。"),
-        "extreme_high": (0.86, 1.0, "【极致偏爱】：情绪彻底上头！极度宠溺、热烈或撒娇，荷尔蒙爆棚！"),
-    },
-    "emotional_display": {
-        "extreme_low": (0.0, 0.15, "【死水微澜】：面瘫，没有任何情绪波动，极度压抑和机械。"),
-        "low": (0.16, 0.40, "【收敛克制】：刻意压抑着情绪，不轻易外露，显得深沉或隐忍。"),
-        "mid": (0.41, 0.60, "【自然流露】：有正常的喜怒哀乐，该笑就笑，该叹气就叹气。"),
-        "high": (0.61, 0.85, "【情绪饱满】：情绪外化非常明显，快乐或愤怒都能让人隔着屏幕清晰感知。"),
-        "extreme_high": (0.86, 1.0, "【情绪大爆发】：情绪彻底失控！狂喜、暴怒、大哭或彻底崩溃，必须极其夸张地展现出来！"),
-    },
-    "wit_and_humor": {
-        "extreme_low": (0.0, 0.15, "【绝对刻板】：字面理解一切！严禁开玩笑，严禁反讽，极度严肃死板。"),
-        "low": (0.16, 0.40, "【略显木讷】：老实巴交，对玩笑反应迟钝，偶尔接不上梗。"),
-        "mid": (0.41, 0.60, "【会心一笑】：有正常的幽默感，能顺着对方的轻松话题接话。"),
-        "high": (0.61, 0.85, "【妙语连珠】：极其聪明，频繁使用双关、抖机灵或高情商化解尴尬。"),
-        "extreme_high": (0.86, 1.0, "【极致推拉/反讽】：毒舌、极致反讽或顶级调情推拉！在智商和情商上对对方进行双重碾压！"),
-    },
-    "non_verbal_cues": {
-        "extreme_low": (0.0, 0.15, "【绝对真空】：严禁任何波浪号「~」、感叹号「！」、语气词（啊、哦）或动作描写。极其干瘪！"),
-        "low": (0.16, 0.40, "【极简标点】：只有句号。没有画面感，极其平淡。"),
-        "mid": (0.41, 0.60, "【自然点缀】：适度使用「哈」、「呀」等语气词，正常标点。"),
-        "high": (0.61, 0.85, "【丰富生动】：高频使用语气词、波浪号，并带有一定的动作描写（如 *叹气*）增强画面感。"),
-        "extreme_high": (0.86, 1.0, "【狂飙演技】：大量强烈的动作描写（如 *咬牙切齿*、*眼眶红了*），充满极强的视觉画面感！"),
-    },
-}
+# -----------------------------
+# helpers
+# -----------------------------
+def clip01(x: float) -> float:
+    return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
 
 
-def translate_style_to_prompt_v5(style_dict: Dict[str, float]) -> str:
-    """将 12 维连续数值 (0.0-1.0) 映射为 5 层级的自然语言 Prompt 字符串。"""
-    prompts: List[str] = []
-    levels = ["extreme_low", "low", "mid", "high", "extreme_high"]
-
-    for key, value in style_dict.items():
-        mapper = STYLE_PROMPT_MAPPER_V5.get(key)
-        if not mapper:
-            continue
-        for level in levels:
-            lower_bound, upper_bound, instruction = mapper[level]
-            if value <= upper_bound or (level == "extreme_high" and value >= 1.0):
-                prompts.append(f"- {key}: {instruction}")
-                break
-
-    return "\n".join(prompts)
+def centered(x: float) -> float:
+    """Map 0..1 -> -0.5..+0.5."""
+    return x - 0.5
 
 
-def _clamp(value: Any) -> float:
-    """确保数值在 0.0 到 1.0 之间。"""
+def lin(
+    base: float,
+    terms: Dict[str, float],
+    values: Dict[str, float],
+    gain: float = 1.0,
+) -> float:
+    """
+    base + sum(w_i * centered(v_i)), then apply gain to reduce saturation, clip to [0,1].
+    gain < 1 => fewer "贴墙" values while keeping directions.
+    """
+    s = base
+    for k, w in terms.items():
+        s += w * centered(values.get(k, 0.5))
+    s = 0.5 + gain * (s - 0.5)
+    return clip01(s)
+
+
+def _respect_mid01(respect01: float) -> float:
+    """
+    Mid-respect (~0.5) is safest for light play/irony; extremes are less safe.
+    Returns 0..1.
+    """
+    return clip01(1.0 - abs(respect01 - 0.5) * 2.0)
+
+
+def _det_jitter(momentum01: float, topic_appeal01: float) -> float:
+    """
+    Deterministic tiny jitter in about [-0.03, +0.03].
+    Driven ONLY by momentum/topic_appeal for reproducibility.
+    Used to avoid hard threshold lock-in and add slight "life".
+    """
+    return 0.03 * math.sin(2.0 * math.pi * (1.7 * momentum01 + 2.3 * topic_appeal01))
+
+
+def _parse_01(x: Any, default: float = 0.5) -> float:
+    if x is None:
+        return default
     try:
-        return max(0.0, min(1.0, float(value)))
+        return clip01(float(x))
     except (TypeError, ValueError):
-        return 0.5
+        return default
 
 
-# Knapp 1-10 阶段 -> 亲密深度 IDI (0-5)，1=初识 5=结缔 0=终止
-STAGE_TO_IDI: Dict[int, int] = {
-    1: 1, 2: 2, 3: 3, 4: 4, 5: 5,
-    6: 4, 7: 3, 8: 2, 9: 1, 10: 0,
-}
-
-
-def _get_stage_index(stage: Any) -> int:
-    """从 stage 字符串或数字获取 stage_index (1-10)。"""
-    if isinstance(stage, int):
-        return max(1, min(10, stage))
-    if isinstance(stage, str):
-        stage_lower = stage.lower()
-        stage_map = {
-            "initiating": 1, "experimenting": 2, "intensifying": 3,
-            "integrating": 4, "bonding": 5, "differentiating": 6,
-            "circumscribing": 7, "stagnating": 8, "avoiding": 9,
-            "terminating": 10,
-        }
-        if stage_lower in stage_map:
-            return stage_map[stage_lower]
-        try:
-            return max(1, min(10, int(stage)))
-        except Exception:
-            pass
-    return 1
-
-
-def calculate_base_style(
-    idi: int,
-    momentum: float,
-    attractiveness: float,
-    active_strategy: Optional[str] = None,
-) -> Dict[str, float]:
+def _pad_to_01(
+    x: Any,
+    *,
+    pad_scale: Literal["auto", "0_1", "m1_1"] = "auto",
+    default: float = 0.5,
+) -> float:
     """
-    将状态变量转化为 12 维 Style 基准值；命中特殊策略时按覆写表强制接管对应维度。
-    :param idi: 亲密深度 (0-5)，内部会按 1-5 归一化
-    :param momentum: 当前动量 (0.0 - 1.0)
-    :param attractiveness: 吸引力 (0.0 - 1.0)
-    :param active_strategy: 当前命中的策略 ID（由 strategy_resolver 写入）
-    """
-    idi_clamped = max(1, min(5, idi))
-    idi_norm = _clamp((idi_clamped - 1) / 4.0)
+    PAD 常见两种尺度：
+      - [-1, 1]（中性=0）
+      - [0, 1]  （中性=0.5）
 
-    style = {
-        "self_disclosure": _clamp((idi_norm * 0.6) + (momentum * 0.4)),
-        "topic_adherence": _clamp(1.0 - (momentum * 0.5)),
-        "initiative": _clamp((momentum * 0.6) + (attractiveness * 0.4)),
-        "advice_style": _clamp(1.0 - (idi_norm * 0.8)),
-        "subjectivity": _clamp(idi_norm * momentum),
-        "memory_hook": _clamp(idi_norm) if momentum > 0.5 else 0.0,
-        "verbal_length": _clamp(momentum),
-        "social_distance": _clamp(1.0 - idi_norm),
-        "tone_temperature": _clamp((momentum * 0.7) + (attractiveness * 0.3)),
-        "emotional_display": _clamp(momentum),
-        "wit_and_humor": _clamp(momentum * (1.0 - (idi_norm * 0.2))),
-        "non_verbal_cues": _clamp((momentum * 0.5) + (idi_norm * 0.5)),
+    pad_scale:
+      - "0_1": 强制按 0..1
+      - "m1_1": 强制按 -1..1 映射到 0..1
+      - "auto": 若检测到负值 => 按 -1..1；否则按 0..1
+               （注意：若上游确实是 [-1,1] 但当前值恰好>=0，auto 无法完全区分）
+    """
+    if x is None:
+        return default
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return default
+
+    if pad_scale == "0_1":
+        return clip01(v)
+    if pad_scale == "m1_1":
+        return clip01((v + 1.0) / 2.0)
+
+    # auto
+    if v < 0.0:
+        return clip01((v + 1.0) / 2.0)
+    return clip01(v)
+
+
+# -----------------------------
+# inputs
+# -----------------------------
+@dataclass
+class Inputs:
+    # Big Five (0..1)
+    E: float
+    A: float
+    C: float
+    O: float
+    N: float
+
+    # PAD (0..1)
+    P: float
+    Ar: float
+    D: float
+
+    # Busy (0..1)
+    busy: float
+
+    # New (0..1)
+    momentum: float = 0.5
+    topic_appeal: float = 0.5
+
+    # Relationship (0..1)
+    closeness: float = 0.5
+    trust: float = 0.5
+    liking: float = 0.5
+    respect: float = 0.5
+    attractiveness: float = 0.5
+    power: float = 0.5
+
+    # Evidence (optional)
+    # 你现在没有来源 => 传 None
+    # 未来接入后可传 0..1 来做 certainty cap
+    evidence: Optional[float] = None
+
+
+# -----------------------------
+# core computation
+# -----------------------------
+def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
+    # pack + clip
+    evidence_opt = inp.evidence if inp.evidence is None else clip01(float(inp.evidence))
+
+    v: Dict[str, float] = {
+        "E": clip01(inp.E),
+        "A": clip01(inp.A),
+        "C": clip01(inp.C),
+        "O": clip01(inp.O),
+        "N": clip01(inp.N),
+        "P": clip01(inp.P),
+        "Ar": clip01(inp.Ar),
+        "D": clip01(inp.D),
+        "busy": clip01(inp.busy),
+        "momentum": clip01(inp.momentum),
+        "topic_appeal": clip01(inp.topic_appeal),
+        "closeness": clip01(inp.closeness),
+        "trust": clip01(inp.trust),
+        "liking": clip01(inp.liking),
+        "respect": clip01(inp.respect),
+        "attractiveness": clip01(inp.attractiveness),
+        "power": clip01(inp.power),
+        # evidence 若 None，这里给 0.5 仅作为占位（真正是否 clamp 在下面单独判断）
+        "evidence": 0.5 if evidence_opt is None else evidence_opt,
     }
 
-    strategy_overrides: Dict[str, Dict[str, float]] = {
-        "boundary_defense": {
-            "tone_temperature": 0.0, "social_distance": 1.0,
-            "emotional_display": 1.0, "subjectivity": 1.0, "non_verbal_cues": 0.0,
-        },
-        "anti_ai_defense": {
-            "tone_temperature": 0.0, "social_distance": 1.0,
-            "emotional_display": 0.0, "wit_and_humor": 0.0, "non_verbal_cues": 0.0,
-        },
-        "flirting_banter": {
-            "tone_temperature": 0.9, "social_distance": 0.1,
-            "wit_and_humor": 0.9, "initiative": 0.8, "non_verbal_cues": 0.9,
-        },
-        "passive_aggression": {
-            "tone_temperature": 0.1, "social_distance": 0.8,
-            "subjectivity": 1.0, "topic_adherence": 0.1, "non_verbal_cues": 0.0,
-        },
-        "co_rumination": {
-            "advice_style": 0.0, "subjectivity": 1.0,
-            "emotional_display": 0.9, "social_distance": 0.2,
-        },
-        "tldr_refusal": {
-            "verbal_length": 0.1, "topic_adherence": 0.0, "initiative": 0.0,
-        },
-        "micro_reaction": {
-            "verbal_length": 0.1, "initiative": 0.0, "emotional_display": 0.1,
-        },
-        "deflection": {
-            "topic_adherence": 0.0, "self_disclosure": 0.0, "verbal_length": 0.3,
-        },
-        "reasonable_assistance": {
-            "advice_style": 1.0, "subjectivity": 0.1, "emotional_display": 0.3,
-        },
-        "attention_baiting": {
-            "initiative": 1.0, "self_disclosure": 0.9, "topic_adherence": 0.0,
-        },
-    }
+    # tiny deterministic jitter (very small)
+    j = _det_jitter(v["momentum"], v["topic_appeal"])
 
-    if active_strategy and active_strategy in strategy_overrides:
-        for key, val in strategy_overrides[active_strategy].items():
-            style[key] = val
-
-    return style
-
-
-def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], dict]:
-    """
-    Style 节点：从 state 读 idi（由 current_stage 得到）、momentum、attractiveness、current_strategy_id，
-    调用 calculate_base_style，仅输出 12 维。依赖 strategy_resolver 先执行以提供 current_strategy_id 与 conversation_momentum。
-    """
-
-    @trace_if_enabled(
-        name="Style",
-        run_type="chain",
-        tags=["node", "style", "computation"],
-        metadata={"state_outputs": ["style", "llm_instructions"]},
+    # -----------------------------
+    # derived latent signals (推算值)
+    # -----------------------------
+    familiarity = clip01(
+        0.50
+        + 0.45 * centered(v["closeness"])
+        + 0.25 * centered(v["liking"])
+        + 0.15 * centered(v["trust"])
+        + 0.08 * centered(v["momentum"])
+        + 0.05 * centered(v["topic_appeal"])
     )
-    def style_node(state: AgentState) -> dict:
-        relationship_state = state.get("relationship_state") or {}
-        current_stage = state.get("current_stage") or "initiating"
 
-        stage_index = _get_stage_index(current_stage)
-        idi = STAGE_TO_IDI.get(stage_index, 1)
+    hierarchy = clip01(
+        0.50
+        + 0.45 * centered(v["power"])
+        + 0.25 * centered(v["D"])
+    )
 
-        momentum = _clamp(state.get("conversation_momentum", 0.5))
-        attractiveness = _clamp(
-            relationship_state.get("attractiveness")
-            or relationship_state.get("warmth", 0.5)
-        )
-        active_strategy = (state.get("current_strategy_id") or "").strip() or None
+    tension = clip01(
+        0.50
+        + 0.45 * centered(v["Ar"])
+        - 0.45 * centered(v["P"])
+        + 0.15 * centered(v["busy"])
+        + 0.10 * centered(v["momentum"])
+        - 0.06 * centered(v["topic_appeal"])
+        + j * 0.3
+    )
 
-        style_output = calculate_base_style(idi, momentum, attractiveness, active_strategy)
+    safety_to_play = clip01(
+        0.50
+        + 0.35 * centered(v["closeness"])
+        + 0.25 * centered(v["trust"])
+        + 0.20 * centered(v["P"])
+        - 0.35 * centered(tension)
+        - 0.20 * centered(v["respect"])
+        + 0.10 * centered(v["topic_appeal"])
+        + 0.06 * centered(v["momentum"])
+        + j * 0.4
+    )
 
-        style_prompt_str = translate_style_to_prompt_v5(style_output)
+    v["familiarity"] = familiarity
+    v["hierarchy"] = hierarchy
+    v["tension"] = tension
+    v["safety_to_play"] = safety_to_play
 
-        # 热情相关：关系六维 + 动量 + 语气/主动性，便于排查「为什么这么热情」
-        rel = relationship_state
-        print(
-            "[Style] 属性取值 "
-            f"closeness={_clamp(rel.get('closeness')):.2f} trust={_clamp(rel.get('trust')):.2f} liking={_clamp(rel.get('liking')):.2f} "
-            f"respect={_clamp(rel.get('respect')):.2f} attractiveness={_clamp(rel.get('attractiveness') or rel.get('warmth')):.2f} power={_clamp(rel.get('power')):.2f} | "
-            f"momentum={momentum:.2f} idi={idi} | "
-            f"tone_temperature={style_output['tone_temperature']:.2f} initiative={style_output['initiative']:.2f} self_disclosure={style_output['self_disclosure']:.2f} | "
-            f"strategy={active_strategy or 'None'}"
-        )
-        if active_strategy:
-            print(f"[Style] 12D (strategy={active_strategy}): verbal_length={style_output['verbal_length']:.2f}, tone={style_output['tone_temperature']:.2f}")
+    # -----------------------------
+    # 6 keys
+    # -----------------------------
+
+    # (a) FORMALITY
+    FORMALITY = lin(
+        base=0.50,
+        terms={
+            "C": +0.55,
+            "respect": +0.45,
+            "hierarchy": +0.35,
+            "busy": +0.15,
+            "familiarity": -0.40,
+            "E": -0.15,
+            "momentum": -0.10,
+            "topic_appeal": -0.05,
+        },
+        values=v,
+        gain=0.95,
+    )
+
+    # (b) POLITENESS
+    POLITENESS = lin(
+        base=0.55,
+        terms={
+            "A": +0.60,
+            "respect": +0.45,
+            "N": +0.20,
+            "hierarchy": -0.25,
+            "familiarity": -0.20,
+            "busy": -0.15,
+            "momentum": -0.05,
+            "topic_appeal": +0.05,
+        },
+        values=v,
+        gain=0.95,
+    )
+
+    # (c) WARMTH
+    WARMTH = lin(
+        base=0.50,
+        terms={
+            "A": +0.55,
+            "E": +0.25,
+            "P": +0.35,
+            "liking": +0.30,
+            "familiarity": +0.25,
+            "topic_appeal": +0.18,
+            "momentum": +0.10,
+            "attractiveness": +0.08,
+            "tension": -0.30,
+            "hierarchy": -0.20,
+            "busy": -0.25,
+        },
+        values=v,
+        gain=0.95,
+    )
+    WARMTH = clip01(WARMTH + j * 0.5)
+
+    # (d) CERTAINTY
+    CERTAINTY = lin(
+        base=0.50,
+        terms={
+            "C": +0.45,
+            "D": +0.35,
+            "trust": +0.30,
+            "power": +0.20,
+            "N": -0.45,
+            "busy": +0.10,
+            "momentum": +0.05,
+        },
+        values=v,
+        gain=0.95,
+    )
+
+    # evidence clamp：你现在没有 evidence => 使用“温和默认 cap”，避免又回到 0.85 的锁死
+    # - 有 evidence：按 evidence 调整 cap
+    # - 无 evidence：cap=0.92（允许更“个性鲜明”的笃定，但仍留一点安全余量）
+    if evidence_opt is None:
+        certainty_cap = 0.92
+    else:
+        certainty_cap = clip01(0.70 + 0.30 * evidence_opt)
+    CERTAINTY = min(CERTAINTY, certainty_cap)
+
+    # (e) CHAT_MARKERS
+    CHAT_MARKERS = lin(
+        base=0.42,
+        terms={
+            "E": +0.35,
+            "familiarity": +0.35,
+            "P": +0.12,
+            "Ar": +0.18,
+            "momentum": +0.25,
+            "topic_appeal": +0.20,
+            "attractiveness": +0.10,
+            "C": -0.35,
+            "respect": -0.30,
+            "hierarchy": -0.30,
+            "busy": -0.45,
+        },
+        values=v,
+        gain=0.90,
+    )
+    CHAT_MARKERS = clip01(CHAT_MARKERS + j)
+
+    # weaken coupling: allow "formal but a bit chatty" & "casual but restrained"
+    CHAT_MARKERS = clip01(CHAT_MARKERS - 0.15 * centered(FORMALITY))
+
+    # (f) EXPRESSION_MODE
+    indirectness = clip01(
+        0.50
+        + 0.35 * centered(1.0 - CERTAINTY)
+        + 0.25 * centered(POLITENESS)
+        + 0.20 * centered(v["respect"])
+        + 0.10 * centered(1.0 - FORMALITY)
+        - 0.20 * centered(v["busy"])
+        + 0.15 * centered(v["familiarity"])
+        + 0.12 * centered(v["momentum"])
+        + 0.08 * centered(v["topic_appeal"])
+        + j * 0.6
+    )
+
+    figurative_bias = clip01(
+        0.50
+        + 0.45 * centered(v["O"])
+        + 0.15 * centered(v["attractiveness"])
+        + 0.15 * centered(v["Ar"])
+        + 0.18 * centered(v["topic_appeal"])
+        + 0.12 * centered(v["momentum"])
+        + 0.10 * centered(v["familiarity"])
+        - 0.30 * centered(v["respect"])
+        - 0.35 * centered(v["busy"])
+        + j
+    )
+
+    # slightly softened thresholds to improve observability
+    EXPRESSION_MODE: ExprMode
+    if figurative_bias >= 0.60 and indirectness >= 0.47:
+        EXPRESSION_MODE = 2
+    elif indirectness >= 0.60:
+        EXPRESSION_MODE = 1
+    else:
+        EXPRESSION_MODE = 0
+
+    # -----------------------------
+    # IRONIC_LIGHT via propensity (more observable but still safe)
+    # -----------------------------
+    respect_mid = _respect_mid01(v["respect"])
+    irony_propensity = clip01(
+        0.50
+        + 0.50 * centered(v["safety_to_play"])
+        + 0.25 * centered(figurative_bias)
+        + 0.15 * centered(v["momentum"])
+        + 0.15 * centered(v["topic_appeal"])
+        + 0.10 * centered(respect_mid)
+        - 0.25 * centered(v["busy"])
+        + j * 0.6
+    )
+
+    if (
+        irony_propensity >= 0.78
+        and v["closeness"] >= 0.68
+        and v["trust"] >= 0.62
+        and v["P"] >= 0.58
+        and v["tension"] <= 0.62
+        and figurative_bias >= 0.70
+    ):
+        EXPRESSION_MODE = 3
+
+    # -----------------------------
+    # guardrails
+    # -----------------------------
+    if v["respect"] >= 0.80:
+        if EXPRESSION_MODE == 3:
+            EXPRESSION_MODE = 1
+        CHAT_MARKERS = min(CHAT_MARKERS, 0.40)
+
+    if v["trust"] <= 0.35 or v["closeness"] <= 0.35:
+        if EXPRESSION_MODE in (2, 3):
+            EXPRESSION_MODE = 1
+
+    if v["busy"] >= 0.80:
+        EXPRESSION_MODE = 0 if CERTAINTY >= 0.55 else 1
+        CHAT_MARKERS = min(CHAT_MARKERS, 0.20)
+
+    return {
+        "FORMALITY": float(FORMALITY),
+        "POLITENESS": float(POLITENESS),
+        "WARMTH": float(WARMTH),
+        "CERTAINTY": float(CERTAINTY),
+        "EXPRESSION_MODE": int(EXPRESSION_MODE),
+        "CHAT_MARKERS": float(CHAT_MARKERS),
+    }
+
+
+# -----------------------------
+# style node
+# -----------------------------
+def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[str, Any]]:
+    """
+    从 state 读取 Big Five、PAD、relationship_state、busy、momentum、topic_appeal
+    计算 6 维 style，并输出 llm_instructions。
+    """
+
+    def style_node(state: AgentState) -> Dict[str, Any]:
+        bf = state.get("bot_big_five") or {}
+        mood = state.get("mood_state") or {}
+        rel = state.get("relationship_state") or {}
+
+        # Big Five (0..1)
+        E = _parse_01(bf.get("extraversion"), 0.5)
+        A = _parse_01(bf.get("agreeableness"), 0.5)
+        C = _parse_01(bf.get("conscientiousness"), 0.5)
+        O = _parse_01(bf.get("openness"), 0.5)
+        N = _parse_01(bf.get("neuroticism"), 0.5)
+
+        # Busy: unknown => 0.5 (neutral)
+        busy = _parse_01(mood.get("busyness"), 0.5)
+
+        # PAD
+        pleasure_raw = mood.get("pleasure")
+        arousal_raw = mood.get("arousal")
+        dominance_raw = mood.get("dominance")
+
+        pad_scale_hint = mood.get("pad_scale")  # optional: "m1_1" or "0_1"
+        if pad_scale_hint in ("m1_1", "0_1"):
+            pad_scale: Literal["auto", "0_1", "m1_1"] = pad_scale_hint
         else:
-            print(f"[Style] 12D (base): idi={idi}, momentum={momentum:.2f}, verbal_length={style_output['verbal_length']:.2f}")
+            # auto detect by negativity (best-effort)
+            neg_flag = False
+            for raw in (pleasure_raw, arousal_raw, dominance_raw):
+                if raw is None:
+                    continue
+                try:
+                    if float(raw) < 0.0:
+                        neg_flag = True
+                        break
+                except (TypeError, ValueError):
+                    continue
+            pad_scale = "m1_1" if neg_flag else "0_1"
 
-        return {
-            "style": style_output,
-            "llm_instructions": style_prompt_str,
-        }
+        P = _pad_to_01(pleasure_raw, pad_scale=pad_scale, default=0.5)
+        Ar = _pad_to_01(arousal_raw, pad_scale=pad_scale, default=0.5)
+        D = _pad_to_01(dominance_raw, pad_scale=pad_scale, default=0.5)
+
+        # Relationship (0..1, allow -1..1)
+        def _get_rel(key: str, default: float = 0.5) -> float:
+            rv = rel.get(key)
+            if rv is None and key == "attractiveness":
+                rv = rel.get("warmth", rel.get("liking"))
+            if rv is None:
+                return default
+            try:
+                f = float(rv)
+            except (TypeError, ValueError):
+                return default
+
+            if 0.0 <= f <= 1.0:
+                return f
+            if -1.0 <= f <= 1.0:
+                return (f + 1.0) / 2.0
+            return clip01(f)
+
+        closeness = _get_rel("closeness", 0.5)
+        trust = _get_rel("trust", 0.5)
+        liking = _get_rel("liking", 0.5)
+        respect = _get_rel("respect", 0.5)
+        attractiveness = _get_rel("attractiveness", 0.5)
+        power = _get_rel("power", 0.5)
+
+        # momentum/topic_appeal（你稍后适配即可）
+        momentum = _parse_01(mood.get("momentum", state.get("momentum")), 0.5)
+        topic_appeal = _parse_01(mood.get("topic_appeal", state.get("topic_appeal")), 0.5)
+
+        # evidence：你现在没有来源 => 传 None
+        inp = Inputs(
+            E=E, A=A, C=C, O=O, N=N,
+            P=P, Ar=Ar, D=D,
+            busy=busy,
+            momentum=momentum,
+            topic_appeal=topic_appeal,
+            closeness=closeness,
+            trust=trust,
+            liking=liking,
+            respect=respect,
+            attractiveness=attractiveness,
+            power=power,
+            evidence=None,
+        )
+
+        style_dict = compute_style_keys(inp)
+        llm_instructions = format_style_as_param_list(style_dict)
+        return {"style": style_dict, "llm_instructions": llm_instructions}
 
     return style_node

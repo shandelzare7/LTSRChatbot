@@ -26,7 +26,7 @@
 | 环节 | 问题 | 处理 |
 |------|------|------|
 | **reasoner** | LLM 返回内容非纯 JSON（如带 markdown、前后文字），`json.loads` 报错 `Expecting value: line 1 column 2 (char 1)`，导致未写入 `inner_monologue` / `response_strategy`。 | 使用 `utils/llm_json.parse_json_from_llm()` 做稳健解析（支持直接 JSON、markdown 代码块、首尾 `{}` 截取）；解析失败时使用默认 fallback，保证写入 `inner_monologue` 与 `response_strategy`。 |
-| **style** | 同上，`json.loads(response.content)` 在 LLM 返回非纯 JSON 时报错。 | 同样改为 `parse_json_from_llm()`，解析失败时使用 12 维默认指令。 |
+| **style** | 同上，`json.loads(response.content)` 在 LLM 返回非纯 JSON 时报错。 | 同样改为 `parse_json_from_llm()`，解析失败时使用 6 维默认指令。 |
 | **state 合并** | reasoner 写入了 `inner_monologue`、`response_strategy`，但最终 state 中看不到，导致下游 generator 可能拿不到策略。 | 在 `AgentState`（state.py）中显式声明 `inner_monologue`、`response_strategy`；LangGraph 只保留 TypedDict 中声明的键，未声明的会被丢弃。 |
 
 ### 运行结果摘要（修复后复跑）
@@ -34,7 +34,7 @@
 - **loader**：从 DB 正确注入 bot/user/relationship/chat_buffer 等。
 - **detection**：输出 `detection_category`（如 NORMAL）及 `intuition_thought`。
 - **reasoner**：输出 `inner_monologue`、`response_strategy`、`user_intent`、`mood_state` 更新（解析失败时走 fallback）。
-- **style**：输出 `llm_instructions`、`style_analysis`（解析失败时走默认 12 维）。
+- **style**：输出 `style`（6 维）、`llm_instructions`（6 维参数列表字符串）、`style_analysis`（解析失败时走默认 6 维）。
 - **generator**：输出 `draft_response` / `final_response`。
 - **critic**：决定 pass/retry，pass 后进入 processor。
 - **processor**：输出 `humanized_output`、`final_segments`。

@@ -3,7 +3,7 @@
 
 说明：
 - 这个脚本不依赖 LangGraph 的 graph 编排，方便你在“节点还没完全接回图”时单独验证数据流。
-- 会打印每轮的 category/intuition、reasoner 的 strategy、styler 的 12 维、generator 的 final_response。
+- 会打印每轮的 category/intuition、reasoner 的 strategy、style 节点 6 维、generator 的 final_response。
 
 用法：
   cd EmotionalChatBot_V5
@@ -36,7 +36,7 @@ assert _spec and _spec.loader
 _spec.loader.exec_module(_detection_module)
 create_detection_node = _detection_module.create_detection_node
 from app.nodes.reasoner import reasoner_node  # noqa: E402
-from app.nodes.style import styler_node  # noqa: E402
+from app.nodes.style import create_style_node  # noqa: E402
 from app.nodes.generator import generator_node  # noqa: E402
 from app.services.llm import get_llm  # noqa: E402
 from app.state import AgentState, KnappStage  # noqa: E402
@@ -226,10 +226,15 @@ def main():
         state.update(reasoner_node(state, cfg))
         print("strategy:", str(state.get("response_strategy", ""))[:140])
 
-        # 4) styler 取
-        state.update(styler_node(state, cfg))
-        instr = state.get("llm_instructions", {}) or {}
-        print("style keys:", list(instr.keys())[:6], "...")
+        # 4) style 节点（纯计算，无 LLM）
+        style_node = create_style_node(None)
+        state.update(style_node(state))
+        style_dict = state.get("style") or {}
+        instr = state.get("llm_instructions")
+        if isinstance(instr, str):
+            print("style 6D:", style_dict if style_dict else instr[:200])
+        else:
+            print("style keys:", list(style_dict.keys()) if style_dict else list((instr or {}).keys())[:6], "...")
 
         # 5) generator 取
         state.update(generator_node(state, cfg))

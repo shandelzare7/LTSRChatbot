@@ -597,6 +597,10 @@ def _build_httpx_client_for_trace() -> Any:
     return httpx.Client(event_hooks={"request": [on_request], "response": [on_response]})
 
 
+_LLM_CACHE: dict[tuple[Any, ...], BaseChatModel] = {}
+"""按 (role, model_name, base_url, temperature) 缓存 LLM 实例，避免同一配置重复创建。"""
+
+
 def get_llm(
     role: Optional[str] = None,
     model: Optional[str] = None,
@@ -605,6 +609,7 @@ def get_llm(
 ) -> BaseChatModel:
     """
     获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。
+    相同 (role, model_name, base_url, temperature) 会复用缓存实例。
 
     支持按角色路由多模型（role: main/fast/judge），并支持预设：
     - LTSR_LLM_PRESET=openai
@@ -672,6 +677,10 @@ def get_llm(
     elif preset_temp is not None:
         temperature = float(preset_temp)
 
+    cache_key: tuple[Any, ...] = (r, model_name, base_url or "", temperature)
+    if cache_key in _LLM_CACHE:
+        return _LLM_CACHE[cache_key]
+
     if key:
         kwargs: dict[str, Any] = {
             "model": model_name,
@@ -722,6 +731,7 @@ def get_llm(
             wrapped = InstrumentedLLM(wrapped, role=r, base_url=base_url or "", model=model_name)
         if _truthy(os.getenv("LTSR_LLM_PERF")):
             wrapped = TimedLLM(wrapped)
+        _LLM_CACHE[cache_key] = wrapped
         return wrapped
     llm = MockLLM(model=model_name, temperature=temperature)
     wrapped2: Any = ServiceTierLLM(llm, base_url=base_url or "", model=model_name)
@@ -729,6 +739,7 @@ def get_llm(
         wrapped2 = InstrumentedLLM(wrapped2, role=r, base_url=base_url or "", model=model_name)
     if _truthy(os.getenv("LTSR_LLM_PERF")):
         wrapped2 = TimedLLM(wrapped2)
+    _LLM_CACHE[cache_key] = wrapped2
     return wrapped2
 
 

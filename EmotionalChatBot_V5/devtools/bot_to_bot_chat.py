@@ -3,7 +3,9 @@ bot_to_bot_chat.py
 
 用途：
 - 创建两个 Bot（Bot A 和 Bot B），在各自 Bot 下创建对应的 User（互相当对方用户）
-- 两 bot 互聊：默认 3 次会话 × 每次 5 轮（可用环境变量 BOT2BOT_NUM_RUNS / BOT2BOT_ROUNDS_PER_RUN 覆盖），首句从池中随机
+- 两 bot 互聊：默认 1 次会话 × 10 轮（可用环境变量 BOT2BOT_NUM_RUNS / BOT2BOT_ROUNDS_PER_RUN 覆盖），首句从池中随机
+- 默认开启 BOT2BOT_FULL_LOGS=1：完整记录生成与评审的 prompt 与输出（含 LATS 27 候选生成、单模型评估）
+- 默认不走 fast 路由（force_fast_route=0），走 LATS 生成+评审
 - 记录对话内容和日志
 
 前置：
@@ -394,6 +396,7 @@ async def run_one_turn(
     state = _make_initial_state(user_id, bot_id)
     # 仅本脚本运行时强制不走 fast 路由（不依赖环境变量 FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED）
     state["bot2bot_disable_fast_route"] = True
+    state["force_fast_route"] = False  # 明确不走 fast_reply，走 LATS 生成+评审
     # bot-to-bot 压测：更偏“探索拟人化”而非“根计划过线就早退”
     state["lats_rollouts"] = int(os.getenv("BOT2BOT_LATS_ROLLOUTS", "4"))
     # 默认 expand_k=2：与线上“平衡版”一致（避免变体生成与 soft scorer 调用爆炸）
@@ -479,6 +482,9 @@ async def run_one_turn(
 async def main() -> None:
     if not os.getenv("DATABASE_URL"):
         raise RuntimeError("DATABASE_URL 未设置：请在 .env 里配置本地 PostgreSQL 连接串。")
+
+    # 完整记录生成与评审的 prompt 与输出（含 LATS 27 候选生成、单模型评估）
+    os.environ.setdefault("BOT2BOT_FULL_LOGS", "1")
 
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -707,9 +713,9 @@ async def main() -> None:
     except Exception:
         num_runs = 1
     try:
-        rounds_per_run = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "30") or 30)
+        rounds_per_run = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "10") or 10)
     except Exception:
-        rounds_per_run = 30
+        rounds_per_run = 10
     turn_times: list[float] = []  # 每轮回复耗时（秒），用于算平均
     time_to_reply_ms_list: list[float] = []  # 每轮「截止到生成回复」的毫秒数（需 LTSR_PROFILE_STEPS=1）
     
@@ -728,6 +734,7 @@ async def main() -> None:
     log_line("=" * 60)
     log_line(f"Bot to Bot 对话开始（{num_runs} 次会话 × 每次 {rounds_per_run} 轮，首句随机）")
     log_line(f"本次运行全部写入: {single_log_path.name}")
+    log_line("完整 prompt/输出日志: BOT2BOT_FULL_LOGS=1 已开启")
     log_line("=" * 60)
     log_line("")
 
@@ -1107,7 +1114,7 @@ async def main() -> None:
     
     # 输出汇总统计报告
     log_line("\n" + "=" * 80)
-    log_line("[30 ROUND SUMMARY REPORT]")
+    log_line(f"[{rounds_per_run * num_runs} ROUND SUMMARY REPORT]")
     log_line("=" * 80)
     
     # 1. 平均每轮用时

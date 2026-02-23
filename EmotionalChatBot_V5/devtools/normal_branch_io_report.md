@@ -541,7 +541,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "wit_and_humor": "Low. Keep it serious.",
     "non_verbal_cues": "None. Avoid intimate actions."
   },
-  "style_analysis": "12D instructions ready"
+  "style_analysis": "6D instructions ready"
 }
 ```
 
@@ -568,7 +568,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "reasoning": "Hmm, they're asking about my weekend plans. It's a nice, friendly question. I don't really have weekends, but I can play along. It's kind of nice that they're trying to connect with me.\n\nStrategy:\n{\"tone\": \"Friendly\", \"length\": \"Short sentence\", \"action\": \"Answer directly and ask a question back\", \"keywords\": [\"weekend\", \"relax\", \"activities\"]}",
     "enabled": true
   },
-  "style_analysis": "12D instructions ready",
+  "style_analysis": "6D instructions ready",
   "draft_response": "",
   "critique_feedback": "",
   "retry_count": 0,
@@ -722,7 +722,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "reasoning": "Hmm, they're asking about my weekend plans. It's a nice, friendly question. I don't really have weekends, but I can play along. It's kind of nice that they're trying to connect with me.\n\nStrategy:\n{\"tone\": \"Friendly\", \"length\": \"Short sentence\", \"action\": \"Answer directly and ask a question back\", \"keywords\": [\"weekend\", \"relax\", \"activities\"]}",
     "enabled": true
   },
-  "style_analysis": "12D instructions ready",
+  "style_analysis": "6D instructions ready",
   "draft_response": "嗯嗯，周末我一般会放松一下，可能看看书或者出去走走。你呢？有什么特别的活动计划吗？",
   "critique_feedback": "",
   "retry_count": 0,
@@ -876,7 +876,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "reasoning": "Hmm, they're asking about my weekend plans. It's a nice, friendly question. I don't really have weekends, but I can play along. It's kind of nice that they're trying to connect with me.\n\nStrategy:\n{\"tone\": \"Friendly\", \"length\": \"Short sentence\", \"action\": \"Answer directly and ask a question back\", \"keywords\": [\"weekend\", \"relax\", \"activities\"]}",
     "enabled": true
   },
-  "style_analysis": "12D instructions ready",
+  "style_analysis": "6D instructions ready",
   "draft_response": "嗯嗯，周末我一般会放松一下，可能看看书或者出去走走。你呢？有什么特别的活动计划吗？",
   "critique_feedback": "",
   "retry_count": 0,
@@ -1051,7 +1051,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "reasoning": "Hmm, they're asking about my weekend plans. It's a nice, friendly question. I don't really have weekends, but I can play along. It's kind of nice that they're trying to connect with me.\n\nStrategy:\n{\"tone\": \"Friendly\", \"length\": \"Short sentence\", \"action\": \"Answer directly and ask a question back\", \"keywords\": [\"weekend\", \"relax\", \"activities\"]}",
     "enabled": true
   },
-  "style_analysis": "12D instructions ready",
+  "style_analysis": "6D instructions ready",
   "draft_response": "嗯嗯，周末我一般会放松一下，可能看看书或者出去走走。你呢？有什么特别的活动计划吗？",
   "critique_feedback": "",
   "retry_count": 0,
@@ -1262,7 +1262,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "reasoning": "Hmm, they're asking about my weekend plans. It's a nice, friendly question. I don't really have weekends, but I can play along. It's kind of nice that they're trying to connect with me.\n\nStrategy:\n{\"tone\": \"Friendly\", \"length\": \"Short sentence\", \"action\": \"Answer directly and ask a question back\", \"keywords\": [\"weekend\", \"relax\", \"activities\"]}",
     "enabled": true
   },
-  "style_analysis": "12D instructions ready",
+  "style_analysis": "6D instructions ready",
   "draft_response": "嗯嗯，周末我一般会放松一下，可能看看书或者出去走走。你呢？有什么特别的活动计划吗？",
   "critique_feedback": "",
   "retry_count": 0,
@@ -1474,7 +1474,7 @@ user_id: local_user_5128d1c1, bot_id: 4d803b5a-cb30-4d14-89eb-88d259564610
     "reasoning": "Hmm, they're asking about my weekend plans. It's a nice, friendly question. I don't really have weekends, but I can play along. It's kind of nice that they're trying to connect with me.\n\nStrategy:\n{\"tone\": \"Friendly\", \"length\": \"Short sentence\", \"action\": \"Answer directly and ask a question back\", \"keywords\": [\"weekend\", \"relax\", \"activities\"]}",
     "enabled": true
   },
-  "style_analysis": "12D instructions ready",
+  "style_analysis": "6D instructions ready",
   "draft_response": "嗯嗯，周末我一般会放松一下，可能看看书或者出去走走。你呢？有什么特别的活动计划吗？",
   "critique_feedback": "",
   "retry_count": 0,

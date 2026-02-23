@@ -3,7 +3,10 @@
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -19,8 +22,9 @@ from utils.yaml_loader import load_strategies
 RECENT_DIALOGUE_LAST_N = 30
 RECENT_MSG_CONTENT_MAX = 500
 LATEST_USER_TEXT_MAX = 800
+RECENT_DIALOGUE_CHARS = 2500  # 截断时保留「最近」的字符数（保留结尾、不保留开头）
 
-# 各节点策略 id 集合
+# 各节点策略 id 集合（HighStakes 共 5 个）
 HIGH_STAKES_IDS = {"anti_ai_defense", "boundary_defense", "yielding_apology", "reasonable_assistance", "physical_limitation_refusal"}
 EMOTIONAL_GAME_IDS = {"shit_test_counter", "co_rumination", "passive_aggression", "deflection", "flirting_banter"}
 FORM_RHYTHM_IDS = {"tldr_refusal", "micro_reaction", "clarification", "detail_nitpicking"}
@@ -35,17 +39,21 @@ def _is_user_message(m: Any) -> bool:
 
 def _gather_router_context(state: Dict[str, Any]) -> Dict[str, Any]:
     """从 state 抽取：当轮用户消息、历史对话、关系/阶段描述、PAD、Bot 状态与文本长度（供节点 C）。"""
-    chat_buffer = list(state.get("chat_buffer") or state.get("messages", [])[-RECENT_DIALOGUE_LAST_N:])
+    raw_buffer = state.get("chat_buffer") or state.get("messages") or []
+    chat_buffer = list(raw_buffer)[-RECENT_DIALOGUE_LAST_N:]
+
     stage_id = str(state.get("current_stage") or "initiating")
     relationship_state = state.get("relationship_state") or {}
     mood_state = state.get("mood_state") or {}
 
     latest_user_text_raw = (state.get("user_input") or "").strip()
     if not latest_user_text_raw and chat_buffer:
-        last_msg = chat_buffer[-1]
-        latest_user_text_raw = (getattr(last_msg, "content", "") or str(last_msg)).strip()
-        if not _is_user_message(last_msg):
-            latest_user_text_raw = latest_user_text_raw or "（无用户新句）"
+        for m in reversed(chat_buffer):
+            if _is_user_message(m):
+                latest_user_text_raw = (getattr(m, "content", "") or str(m)).strip()
+                break
+        if not latest_user_text_raw:
+            latest_user_text_raw = "（无用户新句）"
     latest_user_text = (latest_user_text_raw or "（无用户消息）")[:LATEST_USER_TEXT_MAX]
     text_len = len(latest_user_text_raw or "")
 
@@ -146,7 +154,7 @@ def _invoke_router(
         if hit and hit in allowed_ids:
             return hit
     except Exception as e:
-        print(f"[StrategyRouter] LLM 解析异常: {e}")
+        logger.warning("[StrategyRouter] LLM 解析异常: %s", e)
     return None
 
 
@@ -173,7 +181,7 @@ def _create_router_node(
         filtered = _filter_strategies_for_stage(strategies, strategy_ids, stage_index)
 
         if not filtered:
-            print(f"[{router_name}] 当前阶段 stage_index={stage_index} 无可用策略，输出 None")
+            logger.info("[%s] 当前阶段 stage_index=%s 无可用策略，输出 None", router_name, stage_index)
             return {state_key: None}
 
         ctx = _gather_router_context(state)
@@ -188,12 +196,15 @@ def _create_router_node(
             "",
             rule_line,
             "",
+            "**硬性规则：宁可漏报，不可误报。仅当非常确定命中时才输出 id，否则输出 null。不要因为列表里有策略就必须选一个。**",
+            "",
             "（输出格式由系统约束：hit 为命中的策略 id 或 null。）",
         ]
         if extra_system_fn:
             system_parts.insert(2, extra_system_fn(ctx))
         system_prompt = "\n".join(system_parts)
 
+        # 背景/关系/阶段/Bot/用户为摘要字段，取前 N 字（与「聊天记录保留结尾」约定区分）
         user_content = f"""## 背景信息
 - 关系状态：{ctx['rel_desc'][:600]}
 - 阶段：{ctx['stage_desc'][:400]}
@@ -203,8 +214,8 @@ def _create_router_node(
 ## 当前情绪 PAD
 {ctx['pad_str']}
 
-## 聊天记录（最近 {RECENT_DIALOGUE_LAST_N} 条）
-{ctx['recent_dialogue'][:2500]}
+## 聊天记录（最近 {RECENT_DIALOGUE_LAST_N} 条，保留结尾）
+{(ctx['recent_dialogue'] or '')[-RECENT_DIALOGUE_CHARS:]}
 
 ## 本轮用户消息
 {ctx['latest_user_text']}
@@ -213,16 +224,16 @@ def _create_router_node(
 
         hit = _invoke_router(llm_invoker, system_prompt, user_content, strategy_ids)
         if hit:
-            print(f"[{router_name}] 命中: {hit}")
+            logger.info("[%s] 命中: %s", router_name, hit)
         else:
-            print(f"[{router_name}] 未命中 (hit=None)")
+            logger.info("[%s] 未命中 (hit=None)", router_name)
         return {state_key: hit}
 
     return node
 
 
 def create_router_high_stakes_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
-    """节点 A：高危与核心诉求。策略：anti_ai_defense, boundary_defense, yielding_apology, reasonable_assistance。"""
+    """节点 A：高危与核心诉求。策略：anti_ai_defense, boundary_defense, yielding_apology, reasonable_assistance, physical_limitation_refusal（共 5 个）。"""
     return _create_router_node(
         router_name="Router/HighStakes",
         state_key="router_high_stakes",

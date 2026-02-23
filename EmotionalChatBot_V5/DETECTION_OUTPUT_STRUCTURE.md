@@ -298,7 +298,7 @@ Detection 节点返回一个字典，包含以下字段：
 
 ### 3. Style 节点
 - 使用：`detection_signals.composite`, `detection_signals.stage_ctx`
-- 用途：计算 12 维风格参数
+- 用途：计算 6 维风格参数（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）
 
 ### 4. Task Planner 节点
 - 使用：`detection_immediate_tasks`

@@ -153,6 +153,23 @@ class ReplyPlannerCandidates(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# LATS V3 single evaluator
+# ---------------------------------------------------------------------------
+
+
+class LATSingleEvalResult(BaseModel):
+    model_config = _pydantic_extra_forbid
+
+    """LATS V3：单次 gpt-4o 对 27 候选的评估结果。"""
+
+    best_id: int = Field(..., ge=0, le=26, description="最优候选 id 0..26")
+    accept: bool = Field(..., description="是否验收通过")
+    fail_type: Optional[str] = Field(None, description="不通过时填，如 immersion_break / repetition / stage_mismatch")
+    repair_instructions: Optional[str] = Field(None, description="可执行的补丁式改写指令，供轻模型一次修复")
+    fallback: Optional[str] = Field(None, description="兜底回复正文或类型标记，如 clarification / refuse")
+
+
+# ---------------------------------------------------------------------------
 # Strategy Router
 # ---------------------------------------------------------------------------
 
@@ -240,74 +257,5 @@ class MemoryManagerOutput(BaseModel):
 # ---------------------------------------------------------------------------
 # Evaluator
 # ---------------------------------------------------------------------------
-
-
-class DimensionScore(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    """单维度得分，符合 OpenAI 严格 schema（无 Dict）。"""
-
-    dimension: str = Field(..., description="维度名")
-    score: float = Field(0.0, ge=0, le=1)
-
-
-class EvaluatorSoftScore(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    """Soft scorer 单条：overall_score + score_breakdown。"""
-
-    overall_score: float = Field(0.0, ge=0, le=1)
-    score_breakdown: List[DimensionScore] = Field(default_factory=list, description="各维度得分")
-
-
-class EvaluatorSoftScoreItem(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    idx: int = Field(...)
-    overall_score: float = Field(0.0, ge=0, le=1)
-    score_breakdown: List[DimensionScore] = Field(default_factory=list)
-
-
-class EvaluatorSoftScoreBatch(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    results: List[EvaluatorSoftScoreItem] = Field(default_factory=list)
-
-
-class Gate1ResultItem(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    idx: int = Field(...)
-    assistantiness_ok: bool = Field(...)
-    identity_ok: bool = Field(...)
-    immersion_ok: bool = Field(...)
-
-
-class EvaluatorGate1Batch(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    results: List[Gate1ResultItem] = Field(default_factory=list)
-
-
-class EvaluatorJudgeResult(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    """单条 judge：score + sub_scores（维度名不固定）。"""
-
-    score: float = Field(0.0, ge=0, le=1)
-    sub_scores: List[DimensionScore] = Field(default_factory=list)
-
-
-class EvaluatorJudgeBatchItem(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    idx: int = Field(...)
-    score: float = Field(0.0, ge=0, le=1)
-    sub_scores: List[DimensionScore] = Field(default_factory=list)
-
-
-class EvaluatorJudgeBatch(BaseModel):
-    model_config = _pydantic_extra_forbid
-
-    results: List[EvaluatorJudgeBatchItem] = Field(default_factory=list)
+# (Gate1 / evaluate_candidate 已移除，主流程使用 evaluate_27_candidates_single_llm)
 

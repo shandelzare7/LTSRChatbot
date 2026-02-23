@@ -1,0 +1,34 @@
+# LATS V3: 8 个 content_move 标签，用于 9 路并行生成（8 路按标签各 3 档 + 1 路自由）
+# 每路生成 3 条回复：轻度、中度、强烈程度
+content_moves:
+  - tag: SPECIFY
+    zh: 向下细化
+    brief: 放大一个关键变量/细节，让讨论更具体
+
+  - tag: GENERALIZE
+    zh: 向上归纳
+    brief: 从具体 case 抽到更一般的模式/类别，并回扣当前情境
+
+  - tag: STRUCTURAL_ANALOGY
+    zh: 横向同构
+    brief: 找一个不同领域但结构相同的例子做结构映射
+
+  - tag: STATUS_CHECK
+    zh: 内部审计
+    brief: 用高层次一句话说明当前处理/计划，然后继续推进内容
+
+  - tag: MECHANISM
+    zh: 机制溯源
+    brief: 给出一个可能的运转机制/因果假设（不是拍板结论）
+
+  - tag: COUNTERFACTUAL
+    zh: 反事实推演
+    brief: 改一个关键变量做 if-then 推演，并给出现实启发
+
+  - tag: META_STATE
+    zh: 元层评价
+    brief: 点出对话/文本处于什么状态（目标不清/信息不足/冲突点），并提示下一步
+
+  - tag: COMMON_GROUND
+    zh: 对齐共识
+    brief: 对齐「我们在讨论什么/词语指代是什么/焦点是什么」，消除歧义

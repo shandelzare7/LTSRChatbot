@@ -1,5 +1,5 @@
 """
-LATS 用「需求清单」：只保留 style（自然语言）、stage_targets、tasks_for_lats、task_budget_max。
+LATS 用「需求清单」：只保留 style（参数列表 6 维）、stage_targets、tasks_for_lats、task_budget_max。
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ def _build_stage_targets(state: Dict[str, Any], stage: str) -> Dict[str, Any]:
 
 
 def compile_requirements(state: Dict[str, Any]) -> RequirementsChecklist:
-    """只产出：style_instructions（style 节点自然语言）、stage_targets、tasks_for_lats、task_budget_max。"""
+    """只产出：style_instructions（style 节点参数列表 6 维）、stage_targets、tasks_for_lats、task_budget_max。"""
     stage = _norm_str(state.get("current_stage") or "experimenting")
     style_instructions = state.get("llm_instructions")
     if style_instructions is None:

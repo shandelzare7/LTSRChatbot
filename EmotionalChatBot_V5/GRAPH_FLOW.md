@@ -18,7 +18,7 @@ flowchart TD
 
     reasoner[reasoner<br/>深层思考/策略]
     reasoner --> style
-    style[style<br/>12维风格指令]
+    style[style<br/>6维风格指令]
     style --> generator
     generator[generator<br/>生成回复]
     generator --> critic
@@ -72,7 +72,7 @@ flowchart LR
 | **loader** | `nodes/loader.py` | 从 Memory/DB 加载会话状态、历史、关系数据（Load Early） |
 | **detection** | `nodes/detection.py` | 感知与直觉：CoT 分类 NORMAL / CREEPY / KY·BORING / CRAZY |
 | **reasoner** | `nodes/reasoner.py` | 深层思考：内心独白 + 回复策略 |
-| **style** | `nodes/style.py` | 12 维风格指令，供 Generator 使用 |
+| **style** | `nodes/style.py` | 6 维风格指令（FORMALITY/POLITENESS/WARMTH/CERTAINTY/CHAT_MARKERS/EXPRESSION_MODE），供 Generator 使用 |
 | **generator** | `nodes/generator.py` | 根据策略与风格生成最终回复文本 |
 | **critic** | `nodes/critic.py` | 质量检查：pass 走 processor，retry 走 refiner |
 | **refiner** | 同 generator | 精修后再次进入 critic |

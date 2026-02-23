@@ -37,7 +37,7 @@
 | **plan_goals** | `{ must_cover_points: [], avoid_points: [] }` |
 | **latest_user_text** | 本轮用户输入原文 |
 | **user_asks_advice** | 是否在“要建议” |
-| **style_targets** | 从 state["style"] 抽的 12 维（verbal_length, tone_temperature 等） |
+| **style_targets** | 从 state["style"] 抽的 6 维（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE） |
 | **stage_targets** | stage、pacing_notes、allowed_acts、forbidden_acts、violation_sensitivity 等 |
 | **tasks_for_lats** | 脱敏后这里是占位字符串，不是原始列表 |
 | **task_budget_max** | 本轮最多完成几个任务 |
@@ -52,12 +52,12 @@
 | 文件 | 用法 | 是否把 requirements 整份当“提示词”发给 LLM |
 |------|------|---------------------------------------------|
 | **app/lats/reply_planner.py** | ① background 里 `safe_text(requirements_for_prompt)` 整段；② Hard Targets 里摘出的 max_messages / plan_goals / style_targets / stage_targets / task_budget_max / word_budget；③ core_rules 里的 required_tasks（来自 requirements.tasks_for_lats） | **是**：唯一把「整份 requirements（脱敏）当一段提示词」塞进 LLM 的地方 |
-| **app/lats/evaluator.py** | **hard_gate**：只读 requirements 的 allow_empty_reply、allow_short_reply、max_messages、max_message_len、min_first_len、forbidden，做规则判断，**不调 LLM**。**soft_score_via_llm / soft_score_batch_via_llm**：参数里有 requirements，但拼 system_prompt 时**没有**把 requirements 写进提示词，只用 bot_basic_info、user_basic_info、对话与候选。**judge_dimension_relationship/stage/mood_busy_batch**：从 requirements 里取 **stage_targets["stage"]** 拼进 prompt（stage_id）。**judge_dimension_task_completion_batch**：从 requirements 里取 **tasks_for_lats**，格式化成「本轮任务列表」字符串拼进 system_prompt。 | **否**：evaluator 里没有任何一处把整份 requirements 当提示词；只用了 **stage_targets.stage** 和 **tasks_for_lats** 这两部分来拼 LLM 的 prompt。 |
-| **app/lats/search.py** | 从 state 取 requirements，传给 evaluator 的各 judge（同上）。 | **否**：不直接拼 prompt，只是传参。 |
-| **app/nodes/lats_search.py** | 调用 `compile_requirements(state)` 得到 requirements 写入 state；**hard_gate(proc, requirements)** 只做规则检查，不调 LLM。 | **否**：不把 requirements 当 LLM 提示词。 |
+| **app/lats/evaluator.py** | **evaluate_27_candidates_single_llm**：不读 requirements，只用 bot/user basic_info、大五、关系、策略、stage judge 等做 27 条一次评估。 | **否**：evaluator 不把 requirements 写进 LLM prompt。 |
+| **app/lats/search.py** | 从 state 取 requirements，传给 **evaluate_27_candidates_single_llm**。 | **否**：不直接拼 prompt，只是传参。 |
+| **app/nodes/lats_search.py** | 调用 `compile_requirements(state)` 得到 requirements 写入 state。 | **否**：不把 requirements 当 LLM 提示词。 |
 | **app/nodes/final_validator.py** | 读 requirements 的 max_messages、min_first_len、max_message_len 做长度/条数修补，不调 LLM。 | **否**。 |
 
-结论：**真正“把 requirements 当作一整段提示词”用到的 LLM，只有 reply_planner 的 system（background 那一块）**；evaluator/search 里只是用 requirements 的**个别字段**（stage、tasks_for_lats）去拼各自的 prompt，没有整份塞进去。
+结论：**真正“把 requirements 当作一整段提示词”用到的 LLM，只有 reply_planner 的 system（background 那一块）**；evaluator 不把 requirements 写进 prompt。
 
 ---
 
@@ -68,9 +68,9 @@
 ### 1. reply_planner 内部：background vs Hard Targets vs core_rules
 
 - **style**  
-  - **background** 里已有 **【style_profile（12D）】**：来自 `build_style_profile(state)`，现在是 **V5 自然语言** 那一大段。  
-  - **Hard Targets** 里又列了 **style_targets(12D)**：来自 `requirements["style_targets"]`，即从 **state["style"]** 抽的 12 维数字。  
-  → 同一轮里，**风格既用自然语言描述了一遍，又用 12 维数字列了一遍**，两处都来自同一份 state["style"]，只是形态不同，属于**重复约束**。
+  - **background** 里已有 **【style_profile（6 维参数列表）】**：来自 `build_style_profile(state)`，即 style 节点产出的 6 维参数列表字符串。  
+  - **Hard Targets** 里又列了 **style_targets(6D)**：来自 `requirements["style_targets"]`，即从 **state["style"]** 抽的 6 维。  
+  → 同一轮里，**风格既用参数列表描述了一遍，又用 6 维列了一遍**，两处都来自同一份 state["style"]，只是形态不同，属于**重复约束**。
 
 - **stage**  
   - **state_snapshot**（在 background 里）里包含 stage、mood、relationship。  
@@ -92,9 +92,9 @@
 ### 2. 与其它模块的“重合”
 
 - **style_profile**  
-  - reply_planner 的 **style_profile** = `build_style_profile(state)`，优先用 `state["style_profile"]`，否则用 **state["llm_instructions"]**（即 style 节点产出的 V5 自然语言）。  
-  - **requirements["style_targets"]** = 从 **state["style"]** 抽的 12 维。  
-  → **state["style"]** 和 **state["llm_instructions"]** 同源（style 节点同时写这两个），所以在 reply_planner 里等于**同一套风格信息**：一次以自然语言（style_profile），一次以 12 维数字（requirements.style_targets），**两处重合**。
+  - reply_planner 的 **style_profile** = `build_style_profile(state)`，优先用 `state["style_profile"]`，否则用 **state["llm_instructions"]**（即 style 节点产出的 6 维参数列表字符串）。  
+  - **requirements["style_targets"]** = 从 **state["style"]** 抽的 6 维。  
+  → **state["style"]** 和 **state["llm_instructions"]** 同源（style 节点同时写这两个），所以在 reply_planner 里等于**同一套风格信息**：一次以参数列表字符串（style_profile），一次以 6 维（requirements.style_targets），**两处重合**。
 
 - **stage / relationship / mood**  
   - **state_snapshot** 里已有 stage、mood_state、relationship_state 的摘要。  
@@ -107,7 +107,7 @@
 
 ## 四、为什么显得乱 + 简化建议
 
-**乱的原因**：同一轮里既有「整份 requirements dict 全文 dump」，又有从里摘出来的 Hard Targets，还有 core_rules 里的复述；风格既用自然语言又用 12 维数字；stage/字数/条数在多处重复。结果是 token 浪费、重点不清晰、模型可能不知道以哪处为准。
+**乱的原因**：同一轮里既有「整份 requirements dict 全文 dump」，又有从里摘出来的 Hard Targets，还有 core_rules 里的复述；风格既用参数列表又用 6 维；stage/字数/条数在多处重复。结果是 token 浪费、重点不清晰、模型可能不知道以哪处为准。
 
 **简化方向（可任选或组合）：**
 
@@ -115,7 +115,7 @@
    只保留 Hard Targets + core_rules（含「本轮必须完成」）。生成约束以 Hard Targets 为唯一清单，background 里不再出现 `【requirements（原文保留…）】` 整段。若仍需要少量「原文」给模型参考，可只贴 1～2 条关键字段（如 `plan_goals`、`forbidden` 的简短列表），而不是整 dict。
 
 2. **风格只保留一种形态**  
-   要么只用 **style_profile（自然语言）**，Hard Targets 里不再列 style_targets(12D)；要么只用 12D，不再在 background 里贴 style_profile。推荐保留自然语言、删 12D，可读性更好。
+   要么只用 **style_profile（参数列表字符串）**，Hard Targets 里不再列 style_targets(6D)；要么只用 6D，不再在 background 里贴 style_profile。推荐保留参数列表字符串、删 6D，可读性更好。
 
 3. **stage 只出现一次**  
    state_snapshot 里已有 stage 摘要时，Hard Targets 里的 stage_targets 可改为一句引用（如「遵守当前 stage 与节奏，见 state_snapshot」），不再把整份 stage_targets 再列一遍。

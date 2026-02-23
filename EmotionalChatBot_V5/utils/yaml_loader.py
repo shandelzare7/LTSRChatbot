@@ -85,7 +85,12 @@ def get_project_root() -> Path:
 def load_momentum_formula_config(config_path: Union[str, Path, None] = None) -> Dict[str, Any]:
     """加载动量公式常量（config/momentum_formula.yaml），缺失时返回默认值。"""
     defaults = {
+        "momentum_floor": 0.4,
         "ema_alpha": 0.3,
+        "hostility_penalty_coef": 0.75,
+        "e_turn_e_user_weight": 0.3,
+        "e_turn_t_bot_weight": 0.4,
+        "e_turn_r_base_weight": 0.3,
         "arousal": {
             "range_min": -1.0,
             "range_max": 1.0,
@@ -104,7 +109,14 @@ def load_momentum_formula_config(config_path: Union[str, Path, None] = None) -> 
         if not isinstance(data, dict):
             return defaults
         ema = data.get("ema_alpha")
-        out = {"ema_alpha": float(ema) if ema is not None else defaults["ema_alpha"]}
+        mf = data.get("momentum_floor")
+        out = {
+            "ema_alpha": float(ema) if ema is not None else defaults["ema_alpha"],
+            "momentum_floor": float(mf) if mf is not None else defaults["momentum_floor"],
+        }
+        for key in ("hostility_penalty_coef", "e_turn_e_user_weight", "e_turn_t_bot_weight", "e_turn_r_base_weight"):
+            v = data.get(key)
+            out[key] = float(v) if v is not None else defaults[key]
         ar = data.get("arousal")
         if isinstance(ar, dict):
             out["arousal"] = {
@@ -141,3 +153,23 @@ def get_strategy_by_id(strategy_id: str, strategies: Optional[List[Dict[str, Any
         if isinstance(s, dict) and s.get("id") == strategy_id:
             return s
     return {}
+
+
+def load_content_moves(config_path: Union[str, Path, None] = None) -> List[Dict[str, Any]]:
+    """加载 LATS V3 content_move 列表（config/content_moves.yaml），返回 8 条 tag/zh/brief。"""
+    if config_path is None:
+        root = get_project_root()
+        config_path = root / "config" / "content_moves.yaml"
+    else:
+        config_path = Path(config_path)
+    if not config_path.exists():
+        return []
+    try:
+        data = load_yaml(config_path)
+        moves = data.get("content_moves") if isinstance(data, dict) else None
+        if not isinstance(moves, list):
+            return []
+        return [m for m in moves if isinstance(m, dict) and m.get("tag")]
+    except Exception:
+        return []
+
