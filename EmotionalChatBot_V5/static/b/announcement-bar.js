@@ -43,9 +43,10 @@
         var inner = document.createElement('div');
         inner.className = 'announcement-bar__inner';
 
-        var badge = document.createElement('span');
-        badge.className = 'announcement-bar__badge';
-        badge.textContent = '公告';
+        var emoji = document.createElement('span');
+        emoji.className = 'announcement-bar__emoji';
+        emoji.setAttribute('aria-hidden', 'true');
+        emoji.textContent = '✨ 💬 🎉 ';
 
         var msg = document.createElement('p');
         msg.className = 'announcement-bar__message';
@@ -71,7 +72,7 @@
         });
         right.appendChild(closeBtn);
 
-        inner.appendChild(badge);
+        inner.appendChild(emoji);
         inner.appendChild(msg);
         inner.appendChild(right);
         root.innerHTML = '';

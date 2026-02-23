@@ -99,15 +99,10 @@ body::after {
     padding-top: 12px;
     padding-bottom: 12px;
 }
-.announcement-bar__badge {
+.announcement-bar__emoji {
     flex-shrink: 0;
-    border-radius: 9999px;
-    background: rgba(124, 58, 237, 0.1);
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #5b21b6;
-    line-height: 1.25;
+    font-size: 18px;
+    line-height: 26px;
 }
 .announcement-bar__message {
     flex: 1;

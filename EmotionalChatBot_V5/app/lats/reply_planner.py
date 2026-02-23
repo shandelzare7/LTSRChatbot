@@ -40,6 +40,11 @@ def _reply_plan_max_tokens() -> int:
     return 8192
 
 
+# ReplyPlanner 全局采样参数：全部统一，不再按 gen_round 阶梯
+PLANNER_TEMPERATURE = 0.2
+PLANNER_TOP_P = 0.9
+
+
 from utils.time_context import build_time_context_block, TIME_SLICE_BEHAVIOR_RULES
 
 try:
@@ -406,10 +411,8 @@ def _build_system_prompt_b(
 
 
 def _planner_sampling_for_round(gen_round: int) -> tuple[float, float]:
-    """第 1 次 temperature=0.7, top_p=0.95；不合格则每次重试 +0.15 temp、-0.05 top_p。"""
-    temperature = min(0.7 + gen_round * 0.15, 1.2)
-    top_p = max(0.95 - gen_round * 0.05, 0.5)
-    return (temperature, top_p)
+    """统一返回全局 temperature/top_p，不再设阶梯。"""
+    return (PLANNER_TEMPERATURE, PLANNER_TOP_P)
 
 
 def _parse_planner_response(data: Dict[str, Any], k: int) -> List[ReplyPlan]:
