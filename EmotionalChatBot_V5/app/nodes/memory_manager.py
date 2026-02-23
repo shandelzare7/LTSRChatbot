@@ -509,11 +509,13 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             s = str(v).strip()
             return bool(s)
 
+        # 任务完成仅以「已写入/将写入 DB 的 basic_info」为准，由 memory_manager 统一维护
         completed_from_basic = {
             tid for field, tid in _BASIC_FIELD_TO_TASK_ID if _has_val(updated_basic.get(field))
         }
         existing_completed = set(state.get("completed_task_ids") or [])
         out["completed_task_ids"] = list(existing_completed | completed_from_basic)
+        out["attempted_task_ids"] = []  # 不再使用 attempted 判定，仅保留「写入 DB」为完成
 
         return out
 

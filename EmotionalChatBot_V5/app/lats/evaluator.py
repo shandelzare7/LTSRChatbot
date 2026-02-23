@@ -1142,6 +1142,66 @@ user_basic_info: {safe_text(user_basic_info)}
     return _parse_batch_judge_results(data, expected_idxs)
 
 
+def judge_dimension_repetition_batch_via_llm(
+    state: Dict[str, Any],
+    llm_invoker: Any,
+    candidates: List[Dict[str, Any]],
+    requirements: Dict[str, Any],
+) -> Dict[int, Dict[str, Any]]:
+    """
+    并行 Judge：对话质量评估专家。判断候选回复是否出现「复读」或「缺乏信息增量」。
+    复读定义：1) 仅换说法重复用户刚刚说过的话（无新观点/动作/情感递进）；
+    2) 重复机器人在历史对话中已表达过的观点或句式/词汇。
+    Returns: idx -> judge result dict (score 0~1：1=无复读且信息有增量，0=明显复读或缺乏增量)
+    """
+    if llm_invoker is None:
+        return {int(c.get("idx", 0) or 0): {} for c in (candidates or []) if isinstance(c, dict)}
+
+    system_prompt = """你是一个对话质量评估专家。请判断候选回复是否出现了「复读」或「缺乏信息增量」的问题。
+
+复读的定义：
+1. 仅仅换个说法重复用户刚刚说过的话（没有提供新的观点、动作或情感递进）。
+2. 重复机器人在历史对话中已经表达过的观点或使用过的特定句式/词汇。
+
+缺乏信息增量：回复没有在用户或机器人已有信息基础上增加新内容、新态度或新推进。
+
+你将一次性评估多个候选（按 idx）。
+要求：results 包含每个候选的 idx（一个不漏）；每个候选给出 score（0.0~1.0）：1.0=无复读且信息有增量，0.0=明显复读或严重缺乏增量；sub_scores 可含 no_repeat_user（未复读用户）、no_repeat_self（未复读己方历史）、information_increment（信息增量），范围 0.0~1.0。score 建议为 sub_scores 平均值。（输出格式由系统约束。）""".strip()
+
+    body_messages = get_chat_buffer_body_messages(state, limit=200)
+
+    blocks: List[str] = []
+    expected_idxs: List[int] = []
+    for c in candidates or []:
+        if not isinstance(c, dict):
+            continue
+        try:
+            idx = int(c.get("idx"))
+        except Exception:
+            continue
+        expected_idxs.append(idx)
+        proc = c.get("processor_plan") or {}
+        blocks.append(
+            f"""[Candidate idx={idx}]
+final messages: {safe_text((proc or {}).get("messages") or [])}
+""".strip()
+        )
+
+    user_prompt = f"""候选列表（逐个评估是否复读/缺乏信息增量）：
+{safe_text(blocks)}
+""".strip()
+
+    data = _simple_json_judge(
+        label="RepetitionJudgeBatch",
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        llm_invoker=llm_invoker,
+        body_messages=body_messages,
+        response_schema=EvaluatorJudgeBatch,
+    )
+    return _parse_batch_judge_results(data, expected_idxs)
+
+
 def evaluate_candidate(
     state: Dict[str, Any],
     reply_plan: ReplyPlan,

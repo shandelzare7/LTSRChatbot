@@ -392,6 +392,8 @@ async def run_one_turn(
     from utils.external_text import sanitize_external_text
 
     state = _make_initial_state(user_id, bot_id)
+    # 仅本脚本运行时强制不走 fast 路由（不依赖环境变量 FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED）
+    state["bot2bot_disable_fast_route"] = True
     # bot-to-bot 压测：更偏“探索拟人化”而非“根计划过线就早退”
     state["lats_rollouts"] = int(os.getenv("BOT2BOT_LATS_ROLLOUTS", "4"))
     # 默认 expand_k=2：与线上“平衡版”一致（避免变体生成与 soft scorer 调用爆炸）

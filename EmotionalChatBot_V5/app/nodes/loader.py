@@ -37,11 +37,32 @@ def _parse_timestamp_to_seconds(ts_str: Optional[str]) -> Optional[float]:
         return None
 
 
-def _seconds_since_last_message(buf: List[BaseMessage]) -> Optional[float]:
-    """从消息列表最后一条的 timestamp 计算距现在的秒数；无缓冲或无有效时间戳返回 None。"""
+def _is_human_message(m: BaseMessage) -> bool:
+    t = getattr(m, "type", "") or ""
+    return "human" in t.lower() or "user" in t.lower()
+
+
+def _seconds_since_last_message(
+    buf: List[BaseMessage],
+    current_user_input: Optional[str] = None,
+) -> Optional[float]:
+    """
+    从「上一轮最后一条消息」的 timestamp 计算距现在的秒数，用于冷启动/冲量重置。
+    若 buffer 最后一条是当前用户刚发的消息（与 current_user_input 一致），则用倒数第二条的时间，
+    否则用最后一条的时间，避免“当前句”导致间隔≈0、冲量从不重置。
+    """
     if not buf:
         return None
+    # 最后一条是当前用户消息时，用倒数第二条的时间算间隔
     last = buf[-1]
+    if current_user_input is not None and _is_human_message(last):
+        last_content = (getattr(last, "content", "") or "").strip()
+        if last_content and last_content == (current_user_input or "").strip():
+            if len(buf) >= 2:
+                last = buf[-2]
+            # 若只有一条（就是当前句），无“上一轮”，视为冷启动
+            else:
+                return None
     kwargs = getattr(last, "additional_kwargs", None) or {}
     return _parse_timestamp_to_seconds(kwargs.get("timestamp"))
 
@@ -267,7 +288,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             summary_clean = sanitize_memory_text(summary)
             retrieved_clean = filter_retrieved_memories(retrieved)
 
-            seconds_since_last = _seconds_since_last_message(merged_buffer)
+            seconds_since_last = _seconds_since_last_message(merged_buffer, user_input)
             current_stage = db_data.get("current_stage") or state.get("current_stage") or "initiating"
             conversation_momentum = _resolve_conversation_momentum(
                 seconds_since_last,
@@ -349,7 +370,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             summary_clean = sanitize_memory_text(summary)
             retrieved_clean = filter_retrieved_memories(retrieved)
 
-            seconds_since_last = _seconds_since_last_message(merged_buffer)
+            seconds_since_last = _seconds_since_last_message(merged_buffer, user_input)
             current_stage = local_data.get("current_stage") or state.get("current_stage") or "initiating"
             conversation_momentum = _resolve_conversation_momentum(
                 seconds_since_last,
@@ -395,7 +416,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
         profile = memory_service.get_profile(user_id)
         memories = memory_service.get_memories(user_id, limit=10)
         memory_context = _build_memory_context("", [], chat_buffer)
-        seconds_since_last = _seconds_since_last_message(chat_buffer)
+        seconds_since_last = _seconds_since_last_message(chat_buffer, user_input)
         current_stage = state.get("current_stage") or "initiating"
         conversation_momentum = _resolve_conversation_momentum(
             seconds_since_last,

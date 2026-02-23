@@ -8,6 +8,7 @@ from app.lats.evaluator import (
     gate1_check_batch_via_llm,
     judge_dimension_mood_busy_batch_via_llm,
     judge_dimension_relationship_batch_via_llm,
+    judge_dimension_repetition_batch_via_llm,
     judge_dimension_stage_batch_via_llm,
     judge_dimension_strategy_batch_via_llm,
     judge_dimension_task_completion_batch_via_llm,
@@ -134,15 +135,16 @@ def lats_search_best_plan(
     except Exception:
         final_threshold = 0.6
 
-    # weights for 5 judges (rel, stage, mood, task, strategy)
+    # weights for 6 judges (rel, stage, mood, task, strategy, repetition)
     try:
         w_rel = float(state.get("lats_dim_w_relationship", 0.20) or 0.20)
         w_stage = float(state.get("lats_dim_w_stage", 0.20) or 0.20)
         w_mood = float(state.get("lats_dim_w_mood_busy", 0.20) or 0.20)
         w_task = float(state.get("lats_dim_w_task_completion", 0.20) or 0.20)
         w_strategy = float(state.get("lats_dim_w_strategy", 0.20) or 0.20)
+        w_repetition = float(state.get("lats_dim_w_repetition", 0.15) or 0.15)
     except Exception:
-        w_rel, w_stage, w_mood, w_task, w_strategy = 0.20, 0.20, 0.20, 0.20, 0.20
+        w_rel, w_stage, w_mood, w_task, w_strategy, w_repetition = 0.20, 0.20, 0.20, 0.20, 0.20, 0.15
 
     tasks_for_lats = requirements.get("tasks_for_lats") or []
     has_urgent = False
@@ -156,8 +158,10 @@ def lats_search_best_plan(
         w_task = w_task + urgent_task_weight_boost
         print(f"[LATS_V2] Urgent tasks detected, boosting task_completion weight: {w_task:.2f}")
 
-    s = max(1e-6, w_rel + w_stage + w_mood + w_task + w_strategy)
-    w_rel, w_stage, w_mood, w_task, w_strategy = w_rel / s, w_stage / s, w_mood / s, w_task / s, w_strategy / s
+    s = max(1e-6, w_rel + w_stage + w_mood + w_task + w_strategy + w_repetition)
+    w_rel, w_stage, w_mood, w_task, w_strategy, w_repetition = (
+        w_rel / s, w_stage / s, w_mood / s, w_task / s, w_strategy / s, w_repetition / s
+    )
 
     print(f"\n[LATS_V2] k={k}, max_regens={max_regens}, pass_rate_min={pass_rate_min:.2f}, threshold={final_threshold:.2f}")
 
@@ -170,6 +174,7 @@ def lats_search_best_plan(
     mood_cache: Dict[str, Dict[str, Any]] = {}
     task_cache: Dict[str, Dict[str, Any]] = {}
     strategy_cache: Dict[str, Dict[str, Any]] = {}
+    repetition_cache: Dict[str, Dict[str, Any]] = {}
 
     def _regen_hints_from_gate(gates: List[Dict[str, Any]], *, limit: int = 4) -> str:
         """
@@ -483,13 +488,35 @@ def lats_search_best_plan(
                         strategy_cache[k2] = r2
             return out
 
-        with ThreadPoolExecutor(max_workers=5) as ex:
+        def _run_repetition_batch() -> Dict[int, Dict[str, Any]]:
+            need = []
+            out: Dict[int, Dict[str, Any]] = {}
+            for it in batch:
+                k2 = it.get("key") or ""
+                idx2 = int(it.get("idx") or 0)
+                if k2 and k2 in repetition_cache:
+                    out[idx2] = repetition_cache[k2]
+                else:
+                    need.append(it)
+            if need and llm_soft_scorer:
+                got = judge_dimension_repetition_batch_via_llm(state, llm_soft_scorer, need, requirements)
+                for it2 in need:
+                    idx2 = int(it2.get("idx") or 0)
+                    k2 = it2.get("key") or ""
+                    r2 = got.get(idx2) or {}
+                    out[idx2] = r2
+                    if k2:
+                        repetition_cache[k2] = r2
+            return out
+
+        with ThreadPoolExecutor(max_workers=6) as ex:
             futs = {
                 ex.submit(contextvars.copy_context().run, _run_rel_batch): "rel",
                 ex.submit(contextvars.copy_context().run, _run_stage_batch): "stage",
                 ex.submit(contextvars.copy_context().run, _run_mood_batch): "mood",
                 ex.submit(contextvars.copy_context().run, _run_task_batch): "task",
                 ex.submit(contextvars.copy_context().run, _run_strategy_batch): "strategy",
+                ex.submit(contextvars.copy_context().run, _run_repetition_batch): "repetition",
             }
             batch_res: Dict[str, Dict[int, Dict[str, Any]]] = {}
             for fut in as_completed(futs):
@@ -503,14 +530,16 @@ def lats_search_best_plan(
                 "mood": (batch_res.get("mood") or {}).get(idx) or {},
                 "task": (batch_res.get("task") or {}).get(idx) or {},
                 "strategy": (batch_res.get("strategy") or {}).get(idx) or {},
+                "repetition": (batch_res.get("repetition") or {}).get(idx) or {},
             }
             s_rel = _score_field(res.get("rel") or {})
             s_stage = _score_field(res.get("stage") or {})
             s_mood = _score_field(res.get("mood") or {})
             s_task = _score_field(res.get("task") or {})
             s_strategy = _score_field(res.get("strategy") or {})
+            s_repetition = _score_field(res.get("repetition") or {})
             final_score = _clamp01(
-                w_rel * s_rel + w_stage * s_stage + w_mood * s_mood + w_task * s_task + w_strategy * s_strategy
+                w_rel * s_rel + w_stage * s_stage + w_mood * s_mood + w_task * s_task + w_strategy * s_strategy + w_repetition * s_repetition
             )
 
             item["layer2"] = res
@@ -533,6 +562,7 @@ def lats_search_best_plan(
             mood_sub = ((layer2.get("mood") or {}).get("sub_scores") or {}) if isinstance(layer2.get("mood"), dict) else {}
             task_sub = ((layer2.get("task") or {}).get("sub_scores") or {}) if isinstance(layer2.get("task"), dict) else {}
             strategy_sub = ((layer2.get("strategy") or {}).get("sub_scores") or {}) if isinstance(layer2.get("strategy"), dict) else {}
+            repetition_sub = ((layer2.get("repetition") or {}).get("sub_scores") or {}) if isinstance(layer2.get("repetition"), dict) else {}
 
             def _sub(d: Any, k2: str) -> float:
                 try:
@@ -547,7 +577,8 @@ def lats_search_best_plan(
             s_mood_b = round(float((layer2.get("mood") or {}).get("score", 0.0) or 0.0), 3)
             s_task_b = round(float((layer2.get("task") or {}).get("score", 0.0) or 0.0), 3)
             s_strategy_b = round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 3)
-            print(f"[LATS 5-judge] best rel={s_rel_b} stage={s_stage_b} mood={s_mood_b} task={s_task_b} strategy={s_strategy_b} weighted_final={best_score:.3f}")
+            s_repetition_b = round(float((layer2.get("repetition") or {}).get("score", 0.0) or 0.0), 3)
+            print(f"[LATS 6-judge] best rel={s_rel_b} stage={s_stage_b} mood={s_mood_b} task={s_task_b} strategy={s_strategy_b} repetition={s_repetition_b} weighted_final={best_score:.3f}")
 
             rep_ok: Dict[str, Any] = {
                 "found_solution": True,
@@ -582,11 +613,16 @@ def lats_search_best_plan(
                     "judge_task_normal_tasks_completed": round(_sub(task_sub, "normal_tasks_completed"), 4),
                     "judge_strategy": round(float((layer2.get("strategy") or {}).get("score", 0.0) or 0.0), 4),
                     "judge_strategy_fit": round(_sub(strategy_sub, "strategy_fit"), 4),
+                    "judge_repetition": round(float((layer2.get("repetition") or {}).get("score", 0.0) or 0.0), 4),
+                    "judge_repetition_no_repeat_user": round(_sub(repetition_sub, "no_repeat_user"), 4),
+                    "judge_repetition_no_repeat_self": round(_sub(repetition_sub, "no_repeat_self"), 4),
+                    "judge_repetition_information_increment": round(_sub(repetition_sub, "information_increment"), 4),
                     "w_rel": round(w_rel, 4),
                     "w_stage": round(w_stage, 4),
                     "w_mood_busy": round(w_mood, 4),
                     "w_task_completion": round(w_task, 4),
                     "w_strategy": round(w_strategy, 4),
+                    "w_repetition": round(w_repetition, 4),
                 },
                 "llm_status": "ok",
                 "llm_details": {

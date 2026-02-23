@@ -46,8 +46,8 @@ MOMENTUM_IDS = [
     "momentum_lead_2",
 ]
 
-# 当轮动量低于此值时：不输出任何回复，直接跳过到输出回复后的节点（evolver 等）
-SKIP_REPLY_MOMENTUM_THRESHOLD = 0.1
+# 仅当冲量 < 0 时不回复（冲量公式结果 clamp 在 [0,1]，故通常不会触发）
+SKIP_REPLY_MOMENTUM_THRESHOLD = 0.0
 
 # 驼峰拍扁：Knapp 1-10 阶段 -> 0-5 绝对亲密深度 (IDI)
 # 深度5=极度亲密, 4=高度亲密, 3=中度亲密, 2=低度亲密, 1=零度/外壳, 0=切断
@@ -325,24 +325,28 @@ def create_strategy_resolver_node() -> Callable[[AgentState], dict]:
         # 1）前置计算当轮动量：M_prev 为当前状态，M_next 为公式结果（用于常态与 skip 判断）
         m_prev = _float_01(state.get("conversation_momentum"), 0.5)
         m_next = _compute_momentum_next(state_dict)
-        skip_reply = m_next <= SKIP_REPLY_MOMENTUM_THRESHOLD
+        skip_reply = m_next < SKIP_REPLY_MOMENTUM_THRESHOLD  # 仅冲量 < 0 时不回复
         if skip_reply:
-            print(f"[StrategyResolver] 当轮动量 M_next={m_next:.3f} <= {SKIP_REPLY_MOMENTUM_THRESHOLD}，跳过回复 (skip_reply=True)")
+            print(f"[StrategyResolver] 当轮动量 M_next={m_next:.3f} < {SKIP_REPLY_MOMENTUM_THRESHOLD}，跳过回复 (skip_reply=True)")
 
         # 可选：前两条回复总用时 < 阈值则走 fast（全局开关 FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED 控制）
+        # bot-to-bot 脚本注入 bot2bot_disable_fast_route=True 时，仅该次运行强制不走 fast，不读环境变量
         force_fast_route = False
-        fast_quick_reply_enabled = str(os.getenv("FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED", "0")).lower() in ("1", "true", "yes", "on")
-        if fast_quick_reply_enabled:
-            try:
-                threshold_sec = float(os.getenv("FAST_ROUTE_QUICK_REPLY_THRESHOLD_SEC", "60"))
-            except (TypeError, ValueError):
-                threshold_sec = 60.0
-            dur_list = state.get("reply_duration_seconds_list") or []
-            if isinstance(dur_list, list) and len(dur_list) >= 2:
-                first_two = [float(x) for x in dur_list[:2] if isinstance(x, (int, float))]
-                if len(first_two) >= 2 and sum(first_two) < threshold_sec:
-                    force_fast_route = True
-                    print(f"[StrategyResolver] 前两条回复总用时 {sum(first_two):.1f}s < {threshold_sec}s，force_fast_route=True")
+        if state.get("bot2bot_disable_fast_route"):
+            pass  # 保持 False
+        else:
+            fast_quick_reply_enabled = str(os.getenv("FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED", "0")).lower() in ("1", "true", "yes", "on")
+            if fast_quick_reply_enabled:
+                try:
+                    threshold_sec = float(os.getenv("FAST_ROUTE_QUICK_REPLY_THRESHOLD_SEC", "60"))
+                except (TypeError, ValueError):
+                    threshold_sec = 60.0
+                dur_list = state.get("reply_duration_seconds_list") or []
+                if isinstance(dur_list, list) and len(dur_list) >= 2:
+                    first_two = [float(x) for x in dur_list[:2] if isinstance(x, (int, float))]
+                    if len(first_two) >= 2 and sum(first_two) < threshold_sec:
+                        force_fast_route = True
+                        print(f"[StrategyResolver] 前两条回复总用时 {sum(first_two):.1f}s < {threshold_sec}s，force_fast_route=True")
 
         hid = (state.get("router_high_stakes") or "").strip() or None
         eid = (state.get("router_emotional_game") or "").strip() or None
