@@ -322,7 +322,7 @@ def _build_processor_system_prompt(state: Dict[str, Any], dyn: Dict[str, float])
 {system_memory}
 
 # Current State
-- Bot: {bot.get('name', 'Bot')}，当前情绪 PAD: {mood}
+- Bot: {bot.get('name', 'Bot')}，当前情绪 PAD（[-1,1]，0 为中性；busyness [0,1]）: {mood}
 - 关系阶段: {stage}，亲密/信任等: {rel}
 - 当前时间: {current_time or '未提供'}
 - {schedule}

@@ -165,7 +165,7 @@ Detection 输出含义：
 
 关系/情绪：
 relationship_state={rel}
-mood_state={mood}
+mood_state={mood}（PAD 为 [-1,1]，0 为中性；busyness 为 [0,1]。）
 
 阶段信息：
 stage_id={stage_id}

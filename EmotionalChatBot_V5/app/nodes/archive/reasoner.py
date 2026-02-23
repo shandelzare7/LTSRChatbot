@@ -218,8 +218,8 @@ def reasoner_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, An
     arousal = mood_state.get("arousal", 0.0)
     dominance = mood_state.get("dominance", 0.0)
     busyness = mood_state.get("busyness", 0.0)
-    # PAD 如果是 -1..1 范围，显示时标注
-    emotion_state = f"P(愉悦): {pleasure:.2f}, A(唤醒): {arousal:.2f}, D(支配): {dominance:.2f}, Busy(繁忙): {busyness:.2f}"
+    # PAD 为 [-1,1]，0 为中性；Busy 为 [0,1]
+    emotion_state = f"P(愉悦): {pleasure:.2f}, A(唤醒): {arousal:.2f}, D(支配): {dominance:.2f}, Busy(繁忙): {busyness:.2f}（PAD 为 [-1,1]，0 为中性；Busy 为 [0,1]）"
     
     # inner_monologue
     inner_monologue = state.get("inner_monologue") or "（无内心独白）"

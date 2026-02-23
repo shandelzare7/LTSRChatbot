@@ -211,7 +211,7 @@ def _create_router_node(
 - Bot 信息：{safe_text(ctx['bot_basic_info'])[:300]}
 - 用户信息：{safe_text(ctx['user_basic_info'])[:300]}
 
-## 当前情绪 PAD
+## 当前情绪 PAD（pleasure/arousal/dominance 为 [-1,1]，0 为中性；busyness 为 [0,1]）
 {ctx['pad_str']}
 
 ## 聊天记录（最近 {RECENT_DIALOGUE_LAST_N} 条，保留结尾）

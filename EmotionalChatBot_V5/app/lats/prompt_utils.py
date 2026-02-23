@@ -206,7 +206,7 @@ def summarize_state_for_planner(state: Dict[str, Any]) -> str:
         [
             f"- bot_name: {safe_text(bot.get('name') or 'Bot')}",
             f"- stage: {stage_desc}",
-            f"- mood_state: {safe_text(mood)}",
+            f"- mood_state（PAD 为 [-1,1]，0 为中性；busyness 为 [0,1]）: {safe_text(mood)}",
             f"- relationship_state: {safe_text(rel)}",
         ]
     )

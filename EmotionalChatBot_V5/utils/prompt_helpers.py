@@ -159,7 +159,7 @@ def get_mood_instruction(mood_state: Dict[str, Any]) -> str:
     p = mood_state.get("pleasure", 0.0)
     a = mood_state.get("arousal", 0.0)
     d = mood_state.get("dominance", 0.0)
-    return f"PAD={{P:{p:.2f}, A:{a:.2f}, D:{d:.2f}}}（数值越高代表越愉悦/越激动/越强势）"
+    return f"PAD={{P:{p:.2f}, A:{a:.2f}, D:{d:.2f}}}（PAD 为 [-1,1]，0 为中性；数值越正越愉悦/越激动/越强势）"
 
 
 def format_stage_act_for_llm(stage_id: str) -> str:

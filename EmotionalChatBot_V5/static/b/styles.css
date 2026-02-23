@@ -69,16 +69,86 @@ body::after {
     backdrop-filter: blur(16px);
 }
 
-/* 公告栏（选 Bot 页与对话页顶部统一） */
-.b-announce-bar {
-    text-align: center;
-    padding: 10px 16px;
-    margin-bottom: 20px;
-    background: linear-gradient(135deg, rgba(122, 92, 232, 0.12), rgba(107, 114, 211, 0.08));
-    border: 1px solid rgba(122, 92, 232, 0.2);
-    border-radius: var(--r-md);
-    font-size: 14px;
+/* 全局顶栏公告（system-wide banner，在 app-shell 外） */
+#announcement-bar-root {
+    position: relative;
+    z-index: 100;
+    margin: -20px -20px 0 -20px;
+    padding: 0 20px;
+}
+.announcement-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    min-height: 36px;
+    padding: 6px 16px 6px 14px;
+    font-size: 13px;
+    line-height: 1.4;
     color: var(--text);
+    border-bottom: 1px solid var(--border);
+}
+.announcement-bar--glass {
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+.announcement-bar--soft {
+    background: linear-gradient(135deg, rgba(122, 92, 232, 0.08), rgba(107, 114, 211, 0.06));
+    border-bottom-color: rgba(122, 92, 232, 0.15);
+}
+.announcement-bar__left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+}
+.announcement-bar__icon {
+    flex-shrink: 0;
+    font-size: 16px;
+    line-height: 1;
+}
+.announcement-bar__message {
+    color: var(--text);
+}
+.announcement-bar__right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+.announcement-bar__cta {
+    color: var(--primary2);
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.announcement-bar__cta:hover {
+    text-decoration: underline;
+}
+.announcement-bar__close {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    border-radius: 6px;
+    font-size: 18px;
+    line-height: 1;
+    transition: color 0.15s, background 0.15s;
+}
+.announcement-bar__close:hover {
+    color: var(--text);
+    background: rgba(17, 24, 39, 0.06);
+}
+.announcement-bar__close:focus {
+    outline: none;
 }
 
 /* 标题层级 */

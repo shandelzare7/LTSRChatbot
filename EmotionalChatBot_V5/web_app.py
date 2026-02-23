@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 import time
 import asyncio
 import io
+import json
+import html
 import zipfile
 from typing import Optional
 import uuid
@@ -1467,7 +1469,20 @@ def get_chat_html(bot_id: str) -> str:
 
 # ---------- B 版界面（紫色玻璃风，带头像与 chip） ----------
 
-_ANNOUNCE_BAR_HTML = """<div class="b-announce-bar">✨ 已修复 bot 不理人的问题</div>"""
+# 全局顶栏公告配置（id / message / cta / href / variant: glass | soft）
+_ANNOUNCE_CONFIG = {
+    "id": "announce-bot-fix",
+    "message": "✨ 已修复 bot 无故不理人的问题",
+    "cta": "",
+    "href": "#",
+    "variant": "glass",
+}
+
+
+def _announcement_bar_root_html() -> str:
+    """渲染顶栏挂载点（data-config 供 announcement-bar.js 读取）"""
+    cfg = json.dumps(_ANNOUNCE_CONFIG, ensure_ascii=False)
+    return f'<div id="announcement-bar-root" data-config="{html.escape(cfg, quote=True)}"></div>'
 
 
 def get_bot_selection_html_b() -> str:
@@ -1481,8 +1496,8 @@ def get_bot_selection_html_b() -> str:
     <link rel="stylesheet" href="/static/b/styles.css">
 </head>
 <body>
+    """ + _announcement_bar_root_html() + """
     <div class="app-shell">
-        """ + _ANNOUNCE_BAR_HTML + """
         <h1 class="h1" style="text-align:center; margin-bottom:24px;">选择一个 Chatbot 开始对话</h1>
         <div class="b-resume">
             <h3>通过会话ID 恢复之前的会话</h3>
@@ -1495,6 +1510,7 @@ def get_bot_selection_html_b() -> str:
             <div class="loading">加载中...</div>
         </div>
     </div>
+    <script src="/static/b/announcement-bar.js"></script>
     <script src="/static/b/chat.js"></script>
     <script>loadBots();</script>
 </body>
@@ -1512,8 +1528,8 @@ def get_chat_html_b(bot_id: str) -> str:
     <link rel="stylesheet" href="/static/b/styles.css">
 </head>
 <body>
+    """ + _announcement_bar_root_html() + """
     <div class="app-shell">
-        {_ANNOUNCE_BAR_HTML}
         <div class="b-chat-header">
             <div class="b-chat-header-left">
                 <div id="chat-header-avatar" class="avatar">?</div>
@@ -1532,6 +1548,7 @@ def get_chat_html_b(bot_id: str) -> str:
             </div>
         </div>
     </div>
+    <script src="/static/b/announcement-bar.js"></script>
     <script src="/static/b/chat.js"></script>
     <script>initChat();</script>
 </body>

@@ -160,7 +160,7 @@ bot_basic_info: {safe_text(bot_basic_info)}
 user_basic_info: {safe_text(user_basic_info)}
 bot 大五人格: {safe_text(bot_big_five)}
 当前关系（bot 视角）: {safe_text(relationship_state)}
-bot 情绪 PADB: {safe_text(padb)}
+bot 情绪 PADB（PAD 为 [-1,1]，0 为中性；busyness 为 [0,1]）: {safe_text(padb)}
 当前策略 current_strategy: {safe_text(current_strategy)}
 knapp 本阶段 judge（可为空）：
 {stage_judge or "（无）"}
