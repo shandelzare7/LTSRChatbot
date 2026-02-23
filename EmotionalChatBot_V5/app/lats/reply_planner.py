@@ -15,7 +15,9 @@ from utils.detailed_logging import log_prompt_and_params, log_llm_response
 
 def _full_logs() -> bool:
     import os
-    return str(os.getenv("LTSR_FULL_PROMPT_LOG") or os.getenv("BOT2BOT_FULL_LOGS") or "").strip() in ("1", "true", "yes", "on")
+    return str(os.getenv("LTSR_FULL_PROMPT_LOG") or os.getenv("BOT2BOT_FULL_LOGS") or "").strip() in (
+        "1", "true", "yes", "on"
+    )
 
 
 from app.lats.prompt_utils import (
@@ -183,17 +185,14 @@ def _task_to_user_instruction(task: Any) -> str:
         "ask_user_occupation": "回复中必须明确询问对方的职业/身份",
         "ask_user_location": "回复中必须明确询问对方所在城市/地区",
     }
-    # 性别无单独任务，由 memory_manager 根据对话推断
     if action_l in mapping:
         return mapping[action_l]
 
     # 3) 尝试用字段拼一个简短可读描述
-    #    尽量避免把整坨 dict 打出来（太工程/太长）
     bits: List[str] = []
     for k in ("id", "name", "field", "target_field", "question", "prompt"):
         v = task.get(k)
         if isinstance(v, str) and v.strip():
-            # question/prompt 往往就是“要问的话”
             if k in ("question", "prompt"):
                 return v.strip()
             bits.append(v.strip())
@@ -201,7 +200,6 @@ def _task_to_user_instruction(task: Any) -> str:
     if bits:
         return " / ".join(bits[:3])
 
-    # 4) 兜底
     return "完成系统指定任务"
 
 
@@ -222,7 +220,6 @@ def _extract_required_tasks(requirements: Any) -> List[str]:
             if is_urgent:
                 required.append(_task_to_user_instruction(t))
         else:
-            # 非 dict 的任务结构：无法判断 urgent 时不强行列为必做
             continue
 
     # 去重保序
@@ -237,24 +234,43 @@ def _extract_required_tasks(requirements: Any) -> List[str]:
     return out
 
 
-def _lookup_content_move_zh(tag: str) -> str:
+# ✅ 默认动作映射（即使 yaml 没配 action，也有兜底）
+DEFAULT_CONTENT_MOVE_ACTION: Dict[str, str] = {
+    "SPECIFY": "ASK_FOR_DETAILS",
+    "GENERALIZE": "GENERALIZE_PATTERN",
+    "STRUCTURAL_ANALOGY": "MAP_ANALOGY",
+    "STATUS_CHECK": "STATUS_SUMMARY",
+    "MECHANISM": "PROPOSE_MECHANISM",
+    "COUNTERFACTUAL": "COUNTERFACTUAL_IF_THEN",
+    "META_STATE": "META_DIAGNOSE",
+    "COMMON_GROUND": "ALIGN_TERMS",
+}
+
+
+def _lookup_content_move_action(tag: str) -> str:
     """
-    从 content_moves 配置里查指定 tag 的 zh。
-    注意：绝不使用 brief（避免污染提示词）。
+    从 content_moves 配置里查指定 tag 的 action（推荐英文，短、明确）。
+    不存在则回退 DEFAULT_CONTENT_MOVE_ACTION。
     """
-    if not tag or load_content_moves is None:
+    t = (tag or "").strip().upper()
+    if not t:
         return ""
-    try:
-        moves = load_content_moves() or []
-        t = str(tag).strip().upper()
-        for m in moves:
-            mt = str((m or {}).get("tag") or "").strip().upper()
-            if mt and mt == t:
-                zh = str((m or {}).get("zh") or "").strip()
-                return zh
-    except Exception:
-        pass
-    return ""
+    if t == "FREE":
+        return "FREEFORM"
+
+    if load_content_moves is not None:
+        try:
+            moves = load_content_moves() or []
+            for m in moves:
+                mt = str((m or {}).get("tag") or "").strip().upper()
+                if mt == t:
+                    act = str((m or {}).get("action") or (m or {}).get("action_en") or "").strip()
+                    if act:
+                        return act
+        except Exception:
+            pass
+
+    return DEFAULT_CONTENT_MOVE_ACTION.get(t, "")
 
 
 # 强调句：system 开头与 user 结尾各用一次，提醒严格遵守当前策略
@@ -341,8 +357,6 @@ def _build_system_prompt_b(
         if lines:
             required_tasks_block = "【必须完成任务列表】\n" + "\n".join(lines)
 
-    # 写作要求：约束最终发给用户的自然语言回复
-    # 说明：content_move/content_op 是“内容推进方向偏置”，不是风格，不是模板；风格由 style 6维决定
     writing_rules = f"""【写作要求（生成给用户看的自然回复）】
 - 回复要自然、连贯、像真人说话；不要自称 AI/助手/模型/机器人。
 - 避免客服模板句式或“出戏说明”（例如“作为一个模型/根据设定/我可以为你提供…”）。
@@ -356,8 +370,9 @@ def _build_system_prompt_b(
 {TIME_SLICE_BEHAVIOR_RULES}
 
 【内容推进标签说明】
-- 若最后一条用户消息包含 CONTENT_OP / content_move tag：它仅表示“内容推进方向”，不是语气风格，也不是固定模板；语气与措辞必须严格服从上面的 style_profile。
-- 不要在最终回复中提及 CONTENT_OP/tag/degree/light/medium/strong 等元标签。
+- 若最后一条用户消息包含 CONTENT_OP：它仅表示“内容推进方向”，不是语气风格，也不是固定模板；语气与措辞必须严格服从 style_profile。
+- 若最后一条用户消息包含 CONTENT_OP_ACTION：它是“必须执行的动作指令”（短动词），必须按其做内容推进（但不要在最终回复中提及它）。
+- 不要在最终回复中提及 CONTENT_OP / CONTENT_OP_ACTION / degree / light / medium / strong 等元标签。
 
 【事实性与编造限制】
 - 不要编造可被当作客观事实的现实环境细节（光线/温度/声音/地点/具体经历等），除非这些信息已在上下文明确给出。
@@ -391,8 +406,7 @@ def _build_system_prompt_b(
 
 
 def _planner_sampling_for_round(gen_round: int) -> tuple[float, float]:
-    """第 1 次 temperature=0.7, top_p=0.95；不合格则每次重试 +0.15 temp、-0.05 top_p。
-    实际调用时 invoke(..., temperature=..., top_p=...) 会覆盖 LLM 实例默认；graph 传入的 llm 的 temperature 仅作默认，以本函数返回值（invoke 传入）为准。"""
+    """第 1 次 temperature=0.7, top_p=0.95；不合格则每次重试 +0.15 temp、-0.05 top_p。"""
     temperature = min(0.7 + gen_round * 0.15, 1.2)
     top_p = max(0.95 - gen_round * 0.05, 0.5)
     return (temperature, top_p)
@@ -445,7 +459,7 @@ def _invoke_planner_llm(
     k: int = 1,
     content_move_text: Optional[str] = None,
     content_move_tag: Optional[str] = None,
-    content_move_zh: Optional[str] = None,  # ✅ 新增：本轮 tag 的中文释义（仅用于提示词理解，不输出）
+    content_move_action: Optional[str] = None,  # ✅ 新增：动作指令（短英文动词/短语）
     global_guidelines: Optional[str] = None,
     gen_round: int = 0,
     user_message_only: bool = False,
@@ -498,22 +512,23 @@ def _invoke_planner_llm(
         else ""
     )
 
-    # ✅ 本轮 content_move 的中文释义（只在使用 content_move_tag 时注入，避免污染普通路径）
+    # ✅ 本轮 content_move 的 action（只在使用 content_move_tag 时注入，避免污染普通路径）
     content_op_hint_block = ""
     if content_move_tag and str(content_move_tag).strip():
         t = str(content_move_tag).strip()
-        zh = (content_move_zh or "").strip()
-        if not zh and t.upper() != "FREE":
-            zh = _lookup_content_move_zh(t)
+        action = (content_move_action or "").strip()
+        if not action:
+            action = _lookup_content_move_action(t)
         if t.upper() == "FREE":
-            content_op_hint_block = "【本轮 CONTENT_OP】FREE：自由发挥"
-        elif zh:
-            content_op_hint_block = f"【本轮 CONTENT_OP 标签中文释义】\n- {t}: {zh}"
+            content_op_hint_block = "【本轮 CONTENT_OP】FREE（自由发挥）"
+        elif action:
+            content_op_hint_block = (
+                "【本轮 CONTENT_OP 行动指令（只用于理解，不要输出给用户）】\n"
+                f"- CONTENT_OP={t}\n"
+                f"- CONTENT_OP_ACTION={action}"
+            )
 
-    # 顺序（强化注意力聚焦）：
-    # 1) 强调句 2) 身份句 3) 注意力协议 4) 规则优先级 5) 策略/必做任务 6) content_op(如有)
-    # 7) 时间/阶段目的 8) 风格 9) 内心动机(可选) 10) memory 11) 背景信息(参考)
-    # 12) 全局指导(可选) 13) 写作要求 14) schema
+    # 顺序（强化注意力聚焦）
     system_blocks: List[str] = []
     system_blocks.append(STRICT_STRATEGY_REMINDER)
     system_blocks.append(parts["header"])
@@ -553,37 +568,34 @@ def _invoke_planner_llm(
         f"required_tasks={len(required_tasks)} k={int(k)}"
     )
 
-    # user 消息：
-    # - user_message_only=True：仅用户输入（供 fast 节点）
-    # - content_move_tag：仅传 CONTENT_OP=<tag>，并要求候选按 light→medium→strong “应用强度递增”排列（不写模板细则、不规定篇幅）
-    # - ✅ 同时带上 CONTENT_OP_ZH（中文释义），但不带 brief
+    # user 消息：content_move_tag 分支会注入 CONTENT_OP_ACTION（短动词），不带 zh/brief
     if user_message_only:
         last_user_content = user_input
     elif content_move_tag and str(content_move_tag).strip():
         tag = str(content_move_tag).strip()
-        zh = (content_move_zh or "").strip()
-        if not zh and tag.upper() != "FREE":
-            zh = _lookup_content_move_zh(tag)
+        action = (content_move_action or "").strip()
+        if not action:
+            action = _lookup_content_move_action(tag)
 
         diversity_rule = "候选之间必须明显不同（内容角度/推进方式不同），不能只是同义改写。\n"
 
         if tag.upper() == "FREE":
             last_user_content = (
                 "CONTENT_OP=FREE\n"
-                "CONTENT_OP_ZH=自由发挥\n"
+                "CONTENT_OP_ACTION=FREEFORM\n"
                 "请基于对方消息生成 3 条候选回复。\n"
                 + diversity_rule
                 + "不要在正文里写任何标签或编号。\n"
                 f"对方消息：{user_input}"
             )
         else:
-            zh_line = f"CONTENT_OP_ZH={zh}\n" if zh else ""
+            action_line = f"CONTENT_OP_ACTION={action}\n" if action else ""
             last_user_content = (
                 f"CONTENT_OP={tag}\n"
-                + zh_line +
+                + action_line +
                 "请基于对方消息生成 3 条候选回复，并按 light → medium → strong 的顺序排列。\n"
                 + diversity_rule
-                + "light/medium/strong 仅表示对 CONTENT_OP 的应用强度由弱到强（内容推进更浅/更深），不要求固定篇幅。\n"
+                + "light/medium/strong 仅表示对 CONTENT_OP / CONTENT_OP_ACTION 的应用强度由弱到强（内容推进更浅/更深），不要求固定篇幅。\n"
                 "不要在正文里写任何标签或编号。\n"
                 f"对方消息：{user_input}"
             )
@@ -595,7 +607,7 @@ def _invoke_planner_llm(
         user_parts.append(user_input)
         last_user_content = "\n\n".join(p for p in user_parts if p.strip())
 
-    # user 结尾：强调严格遵守 strategy（reply_planner / fast_reply 共用）
+    # user 结尾：强调严格遵守 strategy
     last_user_content = (last_user_content or "").strip() + "\n\n" + STRICT_STRATEGY_REMINDER
     body_messages = get_chat_buffer_body_messages_with_time_slices(state, limit=20)
 
@@ -614,7 +626,7 @@ def _invoke_planner_llm(
             "has_global_guidelines": bool(global_guidelines),
             "required_tasks": required_tasks,
             "content_move_tag": content_move_tag,
-            "content_move_zh": (content_move_zh or "").strip(),
+            "content_move_action": (content_move_action or "").strip(),
         },
     )
 
@@ -710,7 +722,7 @@ def plan_reply_via_llm(
     gen_round: int = 0,
     user_message_only: bool = False,
 ) -> Optional[ReplyPlan]:
-    """生成单条回复计划。与多候选共用同一套 prompt 与调用逻辑，仅 k=1。user_message_only=True 时最后一条 user 消息仅含用户输入（供 fast 节点）。"""
+    """生成单条回复计划。与多候选共用同一套 prompt 与调用逻辑，仅 k=1。"""
     plans = _invoke_planner_llm(
         state, llm_invoker, k=1,
         global_guidelines=global_guidelines,
@@ -747,15 +759,15 @@ def _one_content_move_gen(
     llm_invoker: Any,
     slot_index: int,
     tag: str,
-    zh: str = "",  # ✅ 新增：中文释义
+    action: str = "",  # ✅ 新增：动作指令
 ) -> List[Dict[str, Any]]:
-    """单路生成：仅用 content_move 的 tag（并带上 zh 释义），调用 _invoke_planner_llm(k=3)，返回 3 条带 id/tag/degree/reply 的 dict。"""
+    """单路生成：仅用 content_move 的 tag（并带上 action），调用 _invoke_planner_llm(k=3)，返回 3 条带 id/tag/degree/reply 的 dict。"""
     plans = _invoke_planner_llm(
         state,
         llm_invoker,
         k=3,
         content_move_tag=tag,
-        content_move_zh=zh,
+        content_move_action=action,
         gen_round=0,
     )
     base_id = slot_index * 3
@@ -795,28 +807,30 @@ def plan_reply_27_via_content_moves(
             if (p or {}).get("reply")
         ]
 
-    # 8 路 content_move（仅用 tag + zh）+ 1 路自由
+    # 8 路 content_move（tag + action）+ 1 路自由
     tasks: List[Tuple[int, str, str]] = []
     for idx, m in enumerate(moves[:8]):
         tag = str((m or {}).get("tag") or "UNKNOWN").strip()
-        zh = str((m or {}).get("zh") or "").strip()  # ✅ 只取 zh，不取 brief
-        tasks.append((idx, tag, zh))
-    tasks.append((8, "FREE", "自由发挥"))
+        action = str((m or {}).get("action") or "").strip()
+        if not action:
+            action = _lookup_content_move_action(tag)
+        tasks.append((idx, tag, action))
+    tasks.append((8, "FREE", "FREEFORM"))
 
     results: List[Dict[str, Any]] = []
     max_workers = min(9, 16)
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futs = {
-            ex.submit(_one_content_move_gen, state, llm_invoker, slot_index, tag, zh): (slot_index, tag, zh)
-            for slot_index, tag, zh in tasks
+            ex.submit(_one_content_move_gen, state, llm_invoker, slot_index, tag, action): (slot_index, tag, action)
+            for slot_index, tag, action in tasks
         }
         for fut in as_completed(futs):
             try:
                 chunk = fut.result()
                 results.extend(chunk)
             except Exception as e:
-                slot_index, tag, zh = futs[fut]
-                print(f"  [ReplyPlanner] content_move slot={slot_index} tag={tag} zh={zh} 异常: {e}", flush=True)
+                slot_index, tag, action = futs[fut]
+                print(f"  [ReplyPlanner] content_move slot={slot_index} tag={tag} action={action} 异常: {e}", flush=True)
 
     # 按 id 排序，保证 0..26 顺序
     results.sort(key=lambda x: int(x.get("id", 0)))

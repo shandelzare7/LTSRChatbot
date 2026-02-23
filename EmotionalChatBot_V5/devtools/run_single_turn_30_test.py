@@ -5,8 +5,7 @@ run_single_turn_30_test.py
   1. 5 路并行信号检测（detection / inner_monologue / 3 个 router）是否正常、返回值与冲量是否合理
   2. 不知道姓名时紧急任务「姓名」是否正常触发并进入 reply_planner
   3. 新 reply_planner 提示词输出是否合理
-  4. 5 并行 judge（rel/stage/mood/task/strategy）是否合理工作
-  5. 评估系统（LATS 加权与选回复）是否合理
+  4. 评估系统（LATS 选回复）是否合理
 
 前置：DATABASE_URL、.env；可选 BOT_ID 使用已有 Bot，否则创建新 Bot。
 运行：
@@ -140,7 +139,6 @@ def _parse_log_for_report(log_path: Path) -> Dict[str, Any]:
     strategy_resolver_lines: List[str] = []
     reply_planner_lines: List[str] = []
     task_planner_lines: List[str] = []
-    lats_judge_lines: List[str] = []
     lats_v2_lines: List[str] = []
 
     llm_elapsed_lines: List[Dict[str, Any]] = []
@@ -159,8 +157,6 @@ def _parse_log_for_report(log_path: Path) -> Dict[str, Any]:
             reply_planner_lines.append(line.strip())
         if "[TaskPlanner]" in line:
             task_planner_lines.append(line.strip())
-        if "[LATS 5-judge]" in line:
-            lats_judge_lines.append(line.strip())
         if "[LATS_V2]" in line:
             lats_v2_lines.append(line.strip())
         mo = llm_elapsed_re.search(line)
@@ -174,7 +170,6 @@ def _parse_log_for_report(log_path: Path) -> Dict[str, Any]:
         "strategy_resolver": strategy_resolver_lines,
         "reply_planner": reply_planner_lines,
         "task_planner": task_planner_lines,
-        "lats_5_judge": lats_judge_lines,
         "lats_v2": lats_v2_lines,
         "llm_elapsed": llm_elapsed_lines,
         "total_turns": max(
@@ -193,7 +188,6 @@ def _write_evaluation_report(report_dir: Path, log_path: Path, parsed: Dict[str,
     strategy = parsed["strategy_resolver"]
     reply_planner = parsed["reply_planner"]
     task_planner = parsed["task_planner"]
-    lats_judge = parsed["lats_5_judge"]
     lats_v2 = parsed["lats_v2"]
 
     with open(report_path, "w", encoding="utf-8") as f:
@@ -255,26 +249,13 @@ def _write_evaluation_report(report_dir: Path, log_path: Path, parsed: Dict[str,
                 f.write(line + "\n")
             f.write("```\n\n")
 
-        # 5. 5 并行 Judge
-        f.write("## 5. 五并行 Judge\n\n")
-        f.write(f"- LATS 5-judge 行数: {len(lats_judge)}\n")
-        f.write(f"- LATS_V2 round 行数: {len(lats_v2)}\n")
-        if lats_judge:
-            f.write("**5-judge 示例:**\n```\n")
-            for line in lats_judge[:10]:
-                f.write(line + "\n")
-            f.write("```\n\n")
+        # 5. 评估系统
+        f.write("## 5. 评估系统\n\n")
+        f.write(f"- LATS_V2 round 行数: {len(lats_v2)}\n\n")
 
-        # 6. 评估系统
-        f.write("## 6. 评估系统\n\n")
-        f.write("LATS 使用 5 维 judge（rel/stage/mood/task/strategy）加权得到 final_score，用于选回复。\n")
-        if lats_judge:
-            f.write("上述 5-judge 行即每轮最佳候选的五维得分与加权总分。\n")
-        f.write("\n")
-
-        # 7. LLM 用时分析（需开启 LTSR_LLM_ELAPSED_LOG=1）
+        # 6. LLM 用时分析（需开启 LTSR_LLM_ELAPSED_LOG=1）
         llm_elapsed = parsed.get("llm_elapsed") or []
-        f.write("## 7. LLM 用时分析\n\n")
+        f.write("## 6. LLM 用时分析\n\n")
         if llm_elapsed:
             total_ms = sum(e["dt_ms"] for e in llm_elapsed)
             f.write(f"- 总 LLM 调用次数: {len(llm_elapsed)}\n")
@@ -301,8 +282,8 @@ def _write_evaluation_report(report_dir: Path, log_path: Path, parsed: Dict[str,
         else:
             f.write("未解析到 `[LLM_ELAPSED]` 记录。运行前请设置 `LTSR_LLM_ELAPSED_LOG=1`。\n\n")
 
-        # 8. 本轮运行摘要
-        f.write("## 8. 运行摘要\n\n")
+        # 7. 本轮运行摘要
+        f.write("## 7. 运行摘要\n\n")
         success = sum(1 for r in run_results if (r.get("reply") or "").strip() and r.get("reply") != "（无回复）")
         f.write(f"- 总轮数: {len(run_results)}\n")
         f.write(f"- 有有效回复的轮数: {success}\n")

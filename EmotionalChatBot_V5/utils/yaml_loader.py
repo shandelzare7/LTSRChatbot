@@ -156,7 +156,7 @@ def get_strategy_by_id(strategy_id: str, strategies: Optional[List[Dict[str, Any
 
 
 def load_content_moves(config_path: Union[str, Path, None] = None) -> List[Dict[str, Any]]:
-    """加载 LATS V3 content_move 列表（config/content_moves.yaml），返回 8 条 tag/zh/brief。"""
+    """加载 LATS V3 content_move 列表（config/content_moves.yaml），返回至少 8 条，每条约定含 tag、action。"""
     if config_path is None:
         root = get_project_root()
         config_path = root / "config" / "content_moves.yaml"

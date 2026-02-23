@@ -69,6 +69,18 @@ body::after {
     backdrop-filter: blur(16px);
 }
 
+/* 公告栏（选 Bot 页与对话页顶部统一） */
+.b-announce-bar {
+    text-align: center;
+    padding: 10px 16px;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, rgba(122, 92, 232, 0.12), rgba(107, 114, 211, 0.08));
+    border: 1px solid rgba(122, 92, 232, 0.2);
+    border-radius: var(--r-md);
+    font-size: 14px;
+    color: var(--text);
+}
+
 /* 标题层级 */
 .h1 {
     font-size: 22px;

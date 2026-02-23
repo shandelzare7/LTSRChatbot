@@ -1467,6 +1467,9 @@ def get_chat_html(bot_id: str) -> str:
 
 # ---------- B 版界面（紫色玻璃风，带头像与 chip） ----------
 
+_ANNOUNCE_BAR_HTML = """<div class="b-announce-bar">✨ 已修复 bot 不理人的问题</div>"""
+
+
 def get_bot_selection_html_b() -> str:
     """B 版：选 Bot 页 HTML"""
     return """<!DOCTYPE html>
@@ -1479,6 +1482,7 @@ def get_bot_selection_html_b() -> str:
 </head>
 <body>
     <div class="app-shell">
+        """ + _ANNOUNCE_BAR_HTML + """
         <h1 class="h1" style="text-align:center; margin-bottom:24px;">选择一个 Chatbot 开始对话</h1>
         <div class="b-resume">
             <h3>通过会话ID 恢复之前的会话</h3>
@@ -1509,6 +1513,7 @@ def get_chat_html_b(bot_id: str) -> str:
 </head>
 <body>
     <div class="app-shell">
+        {_ANNOUNCE_BAR_HTML}
         <div class="b-chat-header">
             <div class="b-chat-header-left">
                 <div id="chat-header-avatar" class="avatar">?</div>
