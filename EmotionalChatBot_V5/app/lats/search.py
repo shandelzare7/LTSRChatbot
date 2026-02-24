@@ -106,13 +106,9 @@ def _lats_search_v3(
         }
         return reply_plan, proc, sim_report, tree
 
+    # 关闭 repair：未通过时直接用 fallback，不再多一次 LLM 调用
     final_reply: Optional[str] = None
-    if (repair_instructions or "").strip() and original_reply:
-        repaired = _repair_reply_via_llm(state, original_reply, repair_instructions or "", llm_gen)
-        if repaired and repaired.strip():
-            final_reply = repaired.strip()
-            tree["repaired"] = True
-    if final_reply is None and (fallback or "").strip():
+    if (fallback or "").strip():
         final_reply = (fallback or "").strip()
         tree["used_fallback"] = True
     if final_reply is None:

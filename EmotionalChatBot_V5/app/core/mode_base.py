@@ -40,7 +40,6 @@ class CriticCriteria(BaseModel):
 class StyleBias(BaseModel):
     """给 Style 的偏置（兼容旧配置；表达层由 Style 节点 6 维旋钮决定：FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）"""
     verbal_length: Optional[float] = None   # 弃用，兼容旧 YAML
-    tone_temperature: Optional[float] = None  # 弃用，兼容旧 YAML
     social_distance: Optional[float] = None   # 弃用，兼容旧 YAML
     advice_style: Optional[float] = None
     wit_and_humor: Optional[float] = None

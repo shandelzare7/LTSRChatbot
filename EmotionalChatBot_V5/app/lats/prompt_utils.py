@@ -117,7 +117,7 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
     ORDER_LEGACY = (
         "self_disclosure", "topic_adherence", "initiative", "advice_style",
         "subjectivity", "memory_hook", "verbal_length", "social_distance",
-        "tone_temperature", "emotional_display", "wit_and_humor", "non_verbal_cues",
+        "emotional_display", "wit_and_humor", "non_verbal_cues",
     )
     parts = []
     for key in ORDER_LEGACY:

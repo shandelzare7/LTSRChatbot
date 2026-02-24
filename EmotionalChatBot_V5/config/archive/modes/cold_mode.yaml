@@ -50,7 +50,6 @@ critic_criteria:
 
 style_bias:
   verbal_length: 0.15
-  tone_temperature: 0.25
   social_distance: 0.70
   advice_style: 0.10
   wit_and_humor: 0.20

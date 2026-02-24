@@ -47,7 +47,6 @@ critic_criteria:
 
 style_bias:
   verbal_length: 0.0
-  tone_temperature: 0.0
   social_distance: 1.0
   advice_style: 0.0
   wit_and_humor: 0.0

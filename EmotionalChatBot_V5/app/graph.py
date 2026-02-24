@@ -70,13 +70,16 @@ def build_graph(
     """
     # LLM 分配：evolver、LATS 的 27 候选生成 用 fast；LATS 单模型评估用 main；fast_reply 用 main。
     # 按节点设 temperature：detection 0.1、task_planner 0.15、fast_reply 0.55；
-    # processor 0.3、evolver 0.18、memory_manager 0.1、三 router 0.05；reply_planner 27 候选 0.7。
+    # processor 0.3、evolver 0.18、memory_manager 0.1、三 router 0.05；reply_planner 27 候选见下。
+    from app.core import graph_llm_config as _glc
+    _glc.PLANNER_TEMPERATURE = 0.8
+    _glc.PLANNER_TOP_P = 0.9
     llm = llm or get_llm(role="main")
     llm_fast = llm_fast or get_llm(role="fast")
     llm_detection = get_llm(role="fast", temperature=0.1)
     llm_task_planner = get_llm(role="fast", temperature=0.15)
     llm_fast_reply = get_llm(role="main", temperature=0.55)
-    llm_planner_27 = get_llm(role="fast", temperature=0.7)
+    llm_planner_27 = get_llm(role="fast", temperature=_glc.PLANNER_TEMPERATURE)
     llm_processor = get_llm(role="fast", temperature=0.3)
     llm_evolver = get_llm(role="fast", temperature=0.18)
     llm_memory_manager = get_llm(role="fast", temperature=0.1)

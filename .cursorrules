@@ -1,5 +1,11 @@
 # Cursor Rules for LTSRChatbot Project
 
+## LLM / Graph 配置（禁止两处改）
+
+- **所有 LLM 相关参数**（如 `temperature`、`top_p`、`model`、`role`、各节点用哪类 LLM）**仅在 `app/graph.py` 中配置与修改**。
+- **禁止**在节点或子模块（如 `reply_planner`、`evaluator`、各 node 内部）中**重复定义或硬编码**上述参数。
+- 需要被节点使用的数值（如 ReplyPlanner 的 temperature/top_p）由 graph 在构建时写入 `app/core/graph_llm_config`，节点只读该模块，不得自行定义常量覆盖。
+
 ## Project Information
 
 **GitHub Repository**: https://github.com/shandelzare7/LTSRChatbot
