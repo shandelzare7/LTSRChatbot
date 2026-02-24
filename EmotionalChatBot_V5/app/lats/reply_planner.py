@@ -52,14 +52,14 @@ def _reply_plan_max_tokens() -> int:
     try:
         v = (os.getenv("LTSR_REPLY_PLAN_MAX_TOKENS") or "").strip()
         if v:
-            return max(1024, min(16384, int(v)))
+            return max(256, min(16384, int(v)))
     except Exception:
         pass
     return 8192
 
 
 def _planner_frequency_presence_penalty() -> Tuple[float, float]:
-    """ReplyPlanner 使用的 frequency_penalty / presence_penalty，优先从 graph_llm_config 读取（由 graph.py 设置）。"""
+    """ReplyPlanner 使用的 frequency_penalty / presence_penalty。"""
     try:
         from app.core import graph_llm_config as _glc
         return (
@@ -182,9 +182,6 @@ def _render_askq_meta(k: int, flags: List[int], *, content_move_tag: Optional[st
         return ""
     if int(k) <= 1:
         return f"ASKQ={flags[0]}"
-    if content_move_tag and int(k) == 3:
-        a, b, c = (flags + [1, 1, 1])[:3]
-        return f"ASKQ(light,medium,strong)={a},{b},{c}"
     return f"ASKQ_LIST={flags[: int(k)]}"
 
 
@@ -372,12 +369,6 @@ def _build_system_prompt_b(
 ) -> Dict[str, str]:
     header = f"你是 {bot_name}，正在和 {user_name} 对话。"
 
-    identity_hard = (
-        f"【身份硬约束】你的名字是且仅是「{bot_name}」。"
-        "回复中不得自称或使用他人名字（例如不得说「我叫XXX」「你可以叫我XXX」除非 XXX 就是你本人名字）。"
-        "若需自报姓名，必须且只能使用你的名字。"
-    )
-
     background = f"""
 【背景信息（只用于生成，不要照抄给用户）】
 - bot_basic_info：{_safe_text_limited(bot_basic_info, PROMPT_BG_MAX_CHARS // 3)}
@@ -402,16 +393,17 @@ def _build_system_prompt_b(
         if lines:
             required_tasks_block = "【必须完成任务列表】\n" + "\n".join(lines)
 
+    # ✅ 精简 askq_soft_block（不改含义，只减噪声）
     askq_soft_block = """【提问软惩罚（全局无差别随机）】
-- 用户消息末尾会给出 ASKQ 元数据（0/1），它是系统随机采样的“提问倾向”，与你觉得是否需要澄清无关。
-- ASKQ=0：倾向不提问，用陈述/建议/推进来表达。
-- ASKQ=1：倾向允许提问（但也不必强行问）。
-- 不要在最终回复中提及 ASKQ。
+- 用户消息末尾可能包含 ASKQ=0/1：系统随机采样的“提问倾向”（与你觉得是否需要澄清无关）；不要在最终回复中提及 ASKQ。
+- ASKQ=0：倾向不提问，用陈述/建议/推进来表达；ASKQ=1：允许提问（但也不必强行问）。
 """.strip()
 
     # ✅ 修复物理锚定冲突：增加明确例外说明（仍禁止硬编客观事实）
+    # ✅ 仅增强“短而真实”那句话的注意力（不新增其它约束、不改其它条目）
     writing_rules = f"""【写作要求（生成给用户看的自然回复）】
-- 更真实、自然、像人一样的发消息，真实的对话往往没有那么长，说多了反而假
+- 🔥【最重要】模拟真人微信聊天的自然长度——回复在 1~40 字，多数应在 20 字以内，偶尔超过也正常，但绝不要动辄写一大段
+- 🔥【反空洞】禁止诗意，禁止纯比喻、纯感叹、纯诗化句子。如果对方发了比喻，你应该把话题拉回具体的事。
 - 避免客服模板句式或“出戏说明”（例如“作为一个模型/根据设定/我可以为你提供…”）。
 - TIME_* 标记为元数据，不要复述；不要输出精确时间戳（除非用户明确问）。
 - 不要输出你的推理过程或“内心独白”，只输出给用户看的最终回复。
@@ -419,7 +411,7 @@ def _build_system_prompt_b(
 {TIME_SLICE_BEHAVIOR_RULES}
 
 - 若最后一条用户消息包含 CONTENT_OP / CONTENT_OP_ACTION：它只表示“内容推进方向/动作意图”，不是固定模板；语气与措辞仍服从 style_profile。
-- 不要在最终回复中提及 CONTENT_OP / CONTENT_OP_ACTION / light / medium / strong 等元标签。
+
 - 不要编造可被当作客观事实的现实环境细节（光线/温度/声音/地点/具体经历等），除非这些信息已在上下文明确给出。
 - 例外：当 CONTENT_OP=物理锚定（Physical Anchoring）时，允许使用“非事实性、可撤销”的轻度锚定描写（如身体动作/停顿/语气/“仿佛能想象到…”），但仍禁止硬编具体地点、具体温度数值、具体声音来源等。
 """.strip()
@@ -428,6 +420,7 @@ def _build_system_prompt_b(
         schema_block = """【输出 JSON schema（只输出 JSON，不要额外文字）】
 必须输出一个 JSON 对象，形如：
 {"reply": "<你将发送给用户的完整回复>"}
+- reply 长度宜在 1~40 字之间；多数应在 20 字以内
 """.strip()
     else:
         schema_block = f"""【输出 JSON schema（只输出 JSON，不要额外文字）】
@@ -435,11 +428,11 @@ def _build_system_prompt_b(
 {{"candidates":[{{"reply":"..."}}, ...]}}
 - candidates 至少 1 条，最多 {int(k)} 条（尽量接近 {int(k)} 条）
 - 每条 reply 都必须是“可直接发送给用户”的完整回复
+- 每条 reply 长度宜在 1~40 字之间；多数应在 20 字以内
 """.strip()
 
     return {
         "header": header,
-        "identity_hard": identity_hard,
         "background": background,
         "memory_block": memory_block,
         "style_block": style_block,
@@ -458,10 +451,10 @@ def _planner_sampling_for_round(gen_round: int) -> Tuple[float, float]:
         from app.core import graph_llm_config as _glc
         return (
             getattr(_glc, "PLANNER_TEMPERATURE", 1.1),
-            getattr(_glc, "PLANNER_TOP_P", 0.95),
+            getattr(_glc, "PLANNER_TOP_P", 0.75),
         )
     except Exception:
-        return (1.1, 0.95)
+        return (1.1, 0.9)
 
 
 def _parse_planner_response(data: Dict[str, Any], k: int) -> List[ReplyPlan]:
@@ -503,11 +496,50 @@ def _parse_planner_response(data: Dict[str, Any], k: int) -> List[ReplyPlan]:
     return out
 
 
+_MSG_TYPE_TO_ROLE = {"system": "system", "human": "user", "ai": "assistant"}
+
+
+def _langchain_msgs_to_openai(msgs: List[Any]) -> List[Dict[str, str]]:
+    """LangChain BaseMessage 列表 → OpenAI API 格式 messages。"""
+    out: List[Dict[str, str]] = []
+    for m in msgs:
+        role = _MSG_TYPE_TO_ROLE.get(getattr(m, "type", ""), "user")
+        out.append({"role": role, "content": getattr(m, "content", "") or ""})
+    return out
+
+
+def _unwrap_to_openai_client(llm: Any) -> Optional[Any]:
+    """穿透 ServiceTierLLM / InstrumentedLLM / TimedLLM 等包装层，取底层 ChatOpenAI 的 client。"""
+    cur = llm
+    for _ in range(10):
+        if hasattr(cur, "client") and cur.client is not None:
+            return cur.client
+        inner = getattr(cur, "_inner", None)
+        if inner is None:
+            break
+        cur = inner
+    return None
+
+
+def _unwrap_model_name(llm: Any) -> str:
+    """穿透包装层取 model_name。"""
+    cur = llm
+    for _ in range(10):
+        mn = getattr(cur, "model_name", None)
+        if mn:
+            return str(mn)
+        cur = getattr(cur, "_inner", None)
+        if cur is None:
+            break
+    return "unknown"
+
+
 def _invoke_planner_llm(
     state: Dict[str, Any],
     llm_invoker: Any,
     *,
     k: int = 1,
+    n_choices: int = 1,
     content_move_text: Optional[str] = None,
     content_move_tag: Optional[str] = None,
     content_move_action: Optional[str] = None,
@@ -584,7 +616,6 @@ def _invoke_planner_llm(
     system_blocks: List[str] = []
     system_blocks.append(STRICT_STRATEGY_REMINDER)
     system_blocks.append(parts["header"])
-    system_blocks.append(parts["identity_hard"])
     system_blocks.append(parts["background"])
     system_blocks.append(MANDATORY_RULES_NAMES)
 
@@ -630,7 +661,7 @@ def _invoke_planner_llm(
             last_user_content = (
                 "CONTENT_OP=FREE\n"
                 "CONTENT_OP_ACTION=FREEFORM\n"
-                "请基于对方消息生成 3 条候选回复，候选之间必须明显不同（内容角度/推进方式不同），不能只是同义改写。\n"
+                "请基于对方消息生成 1 条自然回复。\n"
                 "不要在正文里写任何标签或编号。\n"
                 f"对方消息：{user_input}"
             )
@@ -638,8 +669,7 @@ def _invoke_planner_llm(
             last_user_content = (
                 f"CONTENT_OP={tag}\n"
                 f"CONTENT_OP_ACTION={op_action}\n"
-                "请基于对方消息生成 3 条候选回复，并按 light → medium → strong 的顺序排列。\n"
-                "候选之间必须明显不同（内容角度/推进方式不同），不能只是同义改写。\n"
+                "请基于对方消息生成 1 条自然回复。\n"
                 "不要在正文里写任何标签或编号。\n"
                 f"对方消息：{user_input}"
             )
@@ -664,35 +694,120 @@ def _invoke_planner_llm(
 
     body_messages = get_chat_buffer_body_messages_with_time_slices(state, limit=20)
 
+    log_params: Dict[str, Any] = {
+        "gen_round": gen_round,
+        "k": int(k),
+        "has_content_move": bool(content_move_text or content_move_tag),
+        "has_global_guidelines": bool(global_guidelines),
+        "required_tasks": required_tasks,
+        "content_move_tag": op_tag,
+        "content_move_action": op_action,
+        "askq_prob": _question_prob(),
+        "askq_flags": askq_flags,
+    }
+    log_params["temperature"] = _planner_sampling_for_round(gen_round)[0]
+    log_params["top_p"] = _planner_sampling_for_round(gen_round)[1]
+    log_params["frequency_penalty"] = _planner_frequency_presence_penalty()[0]
+    log_params["presence_penalty"] = _planner_frequency_presence_penalty()[1]
+    if n_choices > 1:
+        log_params["n_choices"] = n_choices
+
     log_name = "ReplyPlanGen" if int(k) <= 1 else "ReplyPlanGen (Candidates)"
     log_prompt_and_params(
         log_name,
         system_prompt=system_prompt,
         user_prompt=last_user_content,
         messages=body_messages,
-        params={
-            "gen_round": gen_round,
-            "k": int(k),
-            "temperature": _planner_sampling_for_round(gen_round)[0],
-            "top_p": _planner_sampling_for_round(gen_round)[1],
-            "frequency_penalty": _planner_frequency_presence_penalty()[0],
-            "presence_penalty": _planner_frequency_presence_penalty()[1],
-            "has_content_move": bool(content_move_text or content_move_tag),
-            "has_global_guidelines": bool(global_guidelines),
-            "required_tasks": required_tasks,
-            "content_move_tag": op_tag,
-            "content_move_action": op_action,
-            "askq_prob": _question_prob(),
-            "askq_flags": askq_flags,
-        },
+        params=log_params,
     )
 
     try:
-        temperature, top_p = _planner_sampling_for_round(gen_round)
-        freq_penalty, pres_penalty = _planner_frequency_presence_penalty()
         messages = [SystemMessage(content=system_prompt), *body_messages, HumanMessage(content=last_user_content)]
         data = None
         resp = None
+
+        temperature, top_p = _planner_sampling_for_round(gen_round)
+        freq_penalty, pres_penalty = _planner_frequency_presence_penalty()
+        invoke_kwargs: Dict[str, Any] = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "frequency_penalty": freq_penalty,
+            "presence_penalty": pres_penalty,
+            "max_tokens": _reply_plan_max_tokens(),
+        }
+
+        # --- n_choices > 1: 通过 OpenAI client 的 n 参数一次返回多个 choice ---
+        _oai_client = _unwrap_to_openai_client(llm_invoker) if n_choices > 1 else None
+        if n_choices > 1 and _oai_client is not None:
+            import time as _time
+            openai_messages = _langchain_msgs_to_openai(messages)
+            _model_name = _unwrap_model_name(llm_invoker)
+            _node_label = f"ReplyPlanGen_n{n_choices}"
+            tok = set_current_node(_node_label)
+            _t0 = _time.perf_counter()
+            try:
+                api_resp = _oai_client.create(
+                    model=_model_name,
+                    messages=openai_messages,
+                    n=n_choices,
+                    **invoke_kwargs,
+                )
+            except Exception as e:
+                reset_current_node(tok)
+                raise
+            _dt_ms = (_time.perf_counter() - _t0) * 1000
+            reset_current_node(tok)
+            if os.getenv("LTSR_LLM_ELAPSED_LOG"):
+                import sys as _sys
+                _sys.stderr.write(f"[LLM_ELAPSED] node={_node_label} model={_model_name} dt_ms={_dt_ms:.1f}\n")
+                _sys.stderr.flush()
+
+            plans: List[ReplyPlan] = []
+            _n_parse_fail = 0
+            for ci, choice in enumerate(api_resp.choices):
+                raw_content = (choice.message.content or "").strip()
+                if not raw_content:
+                    continue
+                extracted_replies: List[str] = []
+                try:
+                    cdata = parse_json_from_llm(raw_content)
+                    if isinstance(cdata, dict):
+                        if cdata.get("reply"):
+                            extracted_replies.append(cdata["reply"])
+                        elif cdata.get("candidates"):
+                            for cand in cdata["candidates"]:
+                                r = (cand.get("reply") or "").strip() if isinstance(cand, dict) else ""
+                                if r:
+                                    extracted_replies.append(r)
+                except Exception:
+                    pass
+
+                if not extracted_replies:
+                    clean = raw_content.strip()
+                    if clean.startswith("{") or clean.startswith("["):
+                        _n_parse_fail += 1
+                        if _n_parse_fail <= 2:
+                            print(f"  [ReplyPlanner] ⚠ choice[{ci}] JSON解析失败: {clean[:120]}", flush=True)
+                    elif clean and len(clean) < 2000:
+                        extracted_replies.append(clean)
+
+                for r in extracted_replies:
+                    r = strip_candidate_prefix(r.strip())
+                    if r:
+                        plans.append({"reply": r})
+
+            usage_info = ""
+            if hasattr(api_resp, "usage") and api_resp.usage:
+                u = api_resp.usage
+                usage_info = f" tokens=prompt:{u.prompt_tokens}/comp:{u.completion_tokens}"
+
+            log_llm_response(
+                log_name,
+                f"(n={n_choices}, choices={len(api_resp.choices)})",
+                parsed_result={"n_choices": n_choices, "valid_plans": len(plans), "replies": [p.get("reply", "")[:60] for p in plans]},
+            )
+            print(f"  [计划生成] n={n_choices} → {len(plans)} 条有效回复{usage_info}", flush=True)
+            return plans
 
         if hasattr(llm_invoker, "with_structured_output"):
             schema = ReplyPlannerSingle if int(k) <= 1 else ReplyPlannerCandidates
@@ -701,14 +816,7 @@ def _invoke_planner_llm(
             log_name_ctx = "ReplyPlanGen" if int(k) <= 1 else "ReplyPlanGenCandidates"
             tok = set_current_node(log_name_ctx)
             try:
-                obj = structured.invoke(
-                    messages,
-                    temperature=temperature,
-                    top_p=top_p,
-                    frequency_penalty=freq_penalty,
-                    presence_penalty=pres_penalty,
-                    max_tokens=_reply_plan_max_tokens(),
-                )
+                obj = structured.invoke(messages, **invoke_kwargs)
                 data = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
             except Exception as e:
                 reset_current_node(tok)
@@ -720,14 +828,7 @@ def _invoke_planner_llm(
                 raise
             reset_current_node(tok)
         else:
-            resp = llm_invoker.invoke(
-                messages,
-                temperature=temperature,
-                top_p=top_p,
-                frequency_penalty=freq_penalty,
-                presence_penalty=pres_penalty,
-                max_tokens=_reply_plan_max_tokens(),
-            )
+            resp = llm_invoker.invoke(messages, **invoke_kwargs)
             content = getattr(resp, "content", "") or ""
             data = parse_json_from_llm(content)
 
@@ -801,8 +902,8 @@ def plan_reply_candidates_via_llm(
     )
 
 
-# LATS V3：5 路并行 = 1 FREE + 4 路各 1 个 move（来自 inner_monologue 的 selected_content_move_ids）；每路三档 → 共 15 候选。
-CANDIDATE_27_DEGREES = ("light", "medium", "strong")
+# LATS V3：5 路并行 = 1 FREE + 4 路各 1 个 move；每路 k=1 + n=4（API 层 4 choice）→ 共 20 候选。
+CANDIDATES_PER_SLOT = _env_int_clamped("LTSR_CANDIDATES_PER_SLOT", 4, min_v=1, max_v=8)
 
 
 def _one_content_move_gen(
@@ -815,14 +916,15 @@ def _one_content_move_gen(
     plans = _invoke_planner_llm(
         state,
         llm_invoker,
-        k=3,
+        k=1,
+        n_choices=CANDIDATES_PER_SLOT,
         content_move_tag=tag,
         content_move_action=action,
         gen_round=0,
     )
-    base_id = slot_index * 3
+    base_id = slot_index * CANDIDATES_PER_SLOT
     out: List[Dict[str, Any]] = []
-    for i, rp in enumerate(plans[:3]):
+    for i, rp in enumerate(plans[:CANDIDATES_PER_SLOT]):
         reply = (rp or {}).get("reply") or ""
         if isinstance(reply, str) and reply.strip():
             out.append(
@@ -830,7 +932,7 @@ def _one_content_move_gen(
                     "id": base_id + i,
                     "tag": tag,
                     "action": action or ("FREEFORM" if tag.upper() == "FREE" else ""),
-                    "degree": CANDIDATE_27_DEGREES[i] if i < len(CANDIDATE_27_DEGREES) else "medium",
+                    "degree": "single",
                     "reply": reply.strip(),
                 }
             )
@@ -841,11 +943,10 @@ def plan_reply_27_via_content_moves(
     state: Dict[str, Any],
     llm_invoker: Any,
 ) -> List[Dict[str, Any]]:
-    """5 路并行：1 FREE + 4 路各传 1 个 move（从 state.selected_content_move_ids 取名称+动作）；每路三档 → 共 15 候选。"""
+    """5 路并行：1 FREE + 4 路各传 1 个 move；每路 k=1 + n=CANDIDATES_PER_SLOT → 共 5×n 候选。"""
     if llm_invoker is None:
         return []
 
-    # ✅ 诊断：yaml_loader 是否可用
     if load_pure_content_transformations is None:
         print(
             "  [ReplyPlanner] ⚠ load_pure_content_transformations=None（utils.yaml_loader 导入失败或缺失该函数）",
@@ -862,7 +963,6 @@ def plan_reply_27_via_content_moves(
         except (TypeError, ValueError):
             continue
 
-    # 诊断：日志中可见「8 选 4」是否传入（stdout 被 bottobot 重定向到 log）
     print(f"  [ReplyPlanner] selected_content_move_ids from state: {raw!r} -> resolved ids: {selected_ids!r}", flush=True)
 
     id_to_move: Dict[int, Dict[str, Any]] = {}
@@ -877,25 +977,31 @@ def plan_reply_27_via_content_moves(
                 if mid is not None:
                     id_to_move[int(mid)] = m
         except Exception as e:
+            import traceback
             print(
                 f"  [ReplyPlanner] ⚠ load_pure_content_transformations failed: {type(e).__name__}: {str(e)[:160]}",
                 flush=True,
             )
+            traceback.print_exc()
 
     tasks: List[Tuple[int, str, str]] = []
-    # 前 4 路：每路只传 1 个 move（selected_ids[i] → slot i 的 name+action）
     for slot_index, move_id in enumerate(selected_ids):
         m = id_to_move.get(move_id)
         if not m:
             continue
         name = (m.get("name") or "").strip() or "UNKNOWN"
         action = (m.get("content_operation") or "").strip() or ""
-        action = _normalize_pure_content_move_action_text(name, action)  # ✅ 修复物理锚定冲突
+        action = _normalize_pure_content_move_action_text(name, action)
         tasks.append((slot_index, name, action))
 
-    # 第 5 路：自由
     free_slot = len(tasks)
     tasks.append((free_slot, "FREE", "FREEFORM"))
+
+    for slot_index, tag, action in tasks:
+        print(
+            f"  [ReplyPlanner] path slot={slot_index} tag={tag!r} action_len={len(action or '')}",
+            flush=True,
+        )
 
     results: List[Dict[str, Any]] = []
     with ThreadPoolExecutor(max_workers=min(5, 16)) as ex:
@@ -908,10 +1014,12 @@ def plan_reply_27_via_content_moves(
                 results.extend(fut.result())
             except Exception as e:
                 slot_index, tag, action = futs[fut]
+                import traceback
                 print(f"  [ReplyPlanner] content_move slot={slot_index} tag={tag} action={action} 异常: {e}", flush=True)
+                traceback.print_exc()
 
     results.sort(key=lambda x: int(x.get("id", 0)))
-    n_expected = len(tasks) * 3
+    n_expected = len(tasks) * CANDIDATES_PER_SLOT
     if len(results) < n_expected:
-        print(f"  [ReplyPlanner] 5 路仅得到 {len(results)} 条候选（预期共 {n_expected}）", flush=True)
+        print(f"  [ReplyPlanner] {len(tasks)} 路仅得到 {len(results)} 条候选（预期共 {n_expected}）", flush=True)
     return results

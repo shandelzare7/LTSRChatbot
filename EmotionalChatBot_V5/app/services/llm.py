@@ -59,11 +59,11 @@ def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
     """
     Best-effort OpenAI service tier routing.
     仅在 llm.py 此处配置：哪些 model 在官方 endpoint 上默认走 priority。
-    当前配置：gpt-4o-mini、gpt-4.1-mini 默认 priority；可通过 LTSR_DISABLE_4OMINI_PRIORITY=1 关闭。
+    当前配置：gpt-4o-mini、gpt-4.1-mini、gpt-5-mini 默认 priority；可通过 LTSR_DISABLE_4OMINI_PRIORITY=1 关闭。
     """
     m = str(model or "")
-    # 仅以下 model 走 priority（之前只有 gpt-4o-mini，现增加 gpt-4.1-mini）
-    if not (m.startswith("gpt-4o-mini") or m.startswith("gpt-4.1-mini")):
+    # 仅以下 model 走 priority
+    if not (m.startswith("gpt-4o-mini") or m.startswith("gpt-4.1-mini") or m.startswith("gpt-5-mini")):
         return None
     b = (base_url or "").strip()
     if b and "api.openai.com" not in b:
@@ -599,6 +599,7 @@ def get_llm(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     temperature: float = 0.3,
+    base_url: Optional[str] = None,
 ) -> BaseChatModel:
     """
     获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。
@@ -661,7 +662,7 @@ def get_llm(
 
     key = api_key or role_api_key or preset_key or (os.getenv("OPENAI_API_KEY") or "")
     model_name = model or role_model or preset_model or os.getenv("OPENAI_MODEL", "gpt-4o")
-    base_url = role_base_url or preset_base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE")
+    base_url = base_url or role_base_url or preset_base_url or os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or os.getenv("OPENAI_BASE")
     if role_temp:
         try:
             temperature = float(role_temp)
@@ -674,12 +675,20 @@ def get_llm(
     if cache_key in _LLM_CACHE:
         return _LLM_CACHE[cache_key]
 
+    # gpt-5-mini 等 reasoning 模型不支持 temperature/top_p/penalty，构造时不传 temperature
+    _is_reasoning_model = model_name and "gpt-5" in str(model_name).lower()
+
     if key:
         kwargs: dict[str, Any] = {
             "model": model_name,
-            "temperature": temperature,
             "api_key": key,
         }
+        if not _is_reasoning_model:
+            kwargs["temperature"] = temperature
+        # reasoning 模型：显式传 verbosity / reasoning_effort（LangChain 要求显式参数，不要塞进 model_kwargs）
+        if _is_reasoning_model:
+            kwargs["verbosity"] = "low"
+            kwargs["reasoning_effort"] = "low"
         # 超时与重试：未配置时使用合理默认，避免瞬时网络错误(如 Connection reset by peer)导致直接失败。
         timeout_s_raw = os.getenv("OPENAI_TIMEOUT_SECONDS", "").strip()
         retries_raw = os.getenv("OPENAI_MAX_RETRIES", "").strip()
@@ -712,6 +721,8 @@ def get_llm(
         except TypeError:
             kwargs.pop("base_url", None)
             kwargs.pop("service_tier", None)
+            kwargs.pop("verbosity", None)
+            kwargs.pop("reasoning_effort", None)
             # Some versions may not accept timeout/max_retries either.
             kwargs.pop("timeout", None)
             kwargs.pop("max_retries", None)

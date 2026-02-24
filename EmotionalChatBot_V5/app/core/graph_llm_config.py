@@ -4,6 +4,6 @@
 """
 # ReplyPlanner 采样参数（由 graph.build_graph 在创建 llm_planner_27 前设置）
 PLANNER_TEMPERATURE: float = 1.1
-PLANNER_TOP_P: float = 0.95
+PLANNER_TOP_P: float = 0.75
 PLANNER_FREQUENCY_PENALTY: float = 0.4
 PLANNER_PRESENCE_PENALTY: float = 0.5

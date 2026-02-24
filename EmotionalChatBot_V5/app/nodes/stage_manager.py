@@ -397,7 +397,6 @@ class KnappStageManager:
                 print(f"[MONITOR] stage_growth_check_min_score: dim={dim}, score={score_val:.3f}, required_min={min_val_norm:.3f}")
                 if score_val < min_val_norm:
                     print(f"[MONITOR] stage_growth_blocked: {dim}={score_val:.3f} < required_min={min_val_norm:.3f}")
-                    logger.info(f"Growth blocked: {dim} too low (score={score_val:.2f} < required_min={min_val_norm:.2f}).")
                     growth_conditions_met = False
                     break
 
@@ -411,7 +410,6 @@ class KnappStageManager:
                 print(f"[MONITOR] stage_growth_check_power_balance: power={power:.3f}, imbalance={imbalance:.3f}, threshold={limit:.3f}")
                 if imbalance > limit:
                     print(f"[MONITOR] stage_growth_vetoed: power_imbalance={imbalance:.3f} > threshold={limit:.3f}")
-                    logger.info("Growth vetoed: Power imbalance.")
                     growth_conditions_met = False
 
         # Hysteresis: 需要连续多轮满足条件才触发

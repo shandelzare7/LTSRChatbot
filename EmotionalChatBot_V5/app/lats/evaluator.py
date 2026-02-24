@@ -651,8 +651,8 @@ def evaluate_27_candidates_single_llm(
 
     ranked_blocks: List[Tuple[int, int, str]] = []  # (risk_rank, cid, block)
 
-    n_candidates = min(27, len(candidates_27 or []))
-    for c in (candidates_27 or [])[:27]:
+    n_candidates = min(40, len(candidates_27 or []))
+    for c in (candidates_27 or [])[:40]:
         cid_raw = c.get("id", len(ranked_blocks))
         try:
             cid = int(cid_raw)
@@ -733,9 +733,12 @@ def evaluate_27_candidates_single_llm(
 3) immersion_break：出现“设定/系统/模型/提示词/规则/训练/越狱/剧本”等元信息或明显跳戏。
 4) assistantiness：像 AI/客服/教程文（自称 AI/助手；服务话术；过度模板化/科普长解释且用户没要）。
 5) identity：与 bot 人设/关系阶段/已知事实冲突；硬编身份事实；把自己说成系统或另一个人。
+6) hollow_poetic：诗意/纯诗化/纯感叹，没有任何具体信息交换（无提问、无回答、无事实、无经历、无观点）。判断标准：去掉比喻修辞后，如果句子不传递任何新信息，就是 hollow。例："像一杯温热的咖啡——刚醒的慵懒和初光的温柔" → hollow；"我周末一般赖床到十点哈哈" → 不是 hollow。
 
 【选优排序（仅用于 top_ids 内部排序）】
 - 更真实、自然、像人一样的发消息，真实的对话往往没有那么长，说多了反而假
+- 长度更接近真人微信消息（多数 20 字以内）的候选优先；超过 30 字的候选排序靠后
+- 优先选有具体信息交换（提问、回答、分享事实/经历/观点）的候选；含比喻修辞但同时有实质内容的可以接受
 - 与用户当前输入保持同一指代，不跑题、不硬凑
 - 避免复述：必要引用只摘极短关键词（不要整段复刻）
 - 语气贴合当前关系/情绪/PADB 与 current_strategy

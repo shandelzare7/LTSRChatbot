@@ -6,6 +6,15 @@
 - **禁止**在节点或子模块（如 `reply_planner`、`evaluator`、各 node 内部）中**重复定义或硬编码**上述参数。
 - 需要被节点使用的数值（如 ReplyPlanner 的 temperature/top_p）由 graph 在构建时写入 `app/core/graph_llm_config`，节点只读该模块，不得自行定义常量覆盖。
 
+## gpt-5-mini（reasoning 模型）参数规范
+
+详见 `docs/GPT5_MINI_CALLING_CONVENTION.md`。要点：
+
+- **不支持**：`temperature`、`top_p`、`frequency_penalty`、`presence_penalty`（禁止传）。
+- **构造时**（`get_llm()` 内）用**显式参数**：`ChatOpenAI(model="gpt-5-mini", verbosity="low", reasoning_effort="low")`。不要放进 `model_kwargs`。
+- **invoke 时不需要重复传** `verbosity` / `reasoning_effort`——构造时已存入 `_default_params`，每次调用（含 `with_structured_output`）自动带上。invoke 只传 `max_tokens`。
+- **判断 reasoning 模型**：`"gpt-5" in model_name.lower()`。
+
 ## Project Information
 
 **GitHub Repository**: https://github.com/shandelzare7/LTSRChatbot

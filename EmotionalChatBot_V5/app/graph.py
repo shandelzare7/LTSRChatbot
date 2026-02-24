@@ -68,12 +68,12 @@ def build_graph(
     - llm / memory_service 为 None 时使用默认（MockMemory、get_llm()）。
     - Mode 行为策略（心理模式）已归档，图中不再加载 modes 或使用 PsychoEngine。
     """
-    # LLM 分配：evolver、LATS 的 27 候选生成 用 fast；LATS 单模型评估用 main；fast_reply 用 main。
-    # 按节点设 temperature：detection 0.1、task_planner 0.15、fast_reply 0.55；
-    # processor 0.3、evolver 0.18、memory_manager 0.1、三 router 0.05；reply_planner 27 候选见下。
+    # LLM 分配：evolver、LATS 的 15 候选生成用 fast；LATS 单模型评估用 main；fast_reply 用 main。
+    # reply_planner 默认 gpt-4o-mini（fast role）；可通过 LTSR_PLANNER_MODEL / _API_KEY / _BASE_URL 切换模型。
+    # 例：LTSR_PLANNER_MODEL=qwen-plus LTSR_PLANNER_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 LTSR_PLANNER_API_KEY=sk-xxx
     from app.core import graph_llm_config as _glc
     _glc.PLANNER_TEMPERATURE = 1.1
-    _glc.PLANNER_TOP_P = 0.95
+    _glc.PLANNER_TOP_P = 0.75
     _glc.PLANNER_FREQUENCY_PENALTY = 0.4
     _glc.PLANNER_PRESENCE_PENALTY = 0.5
     llm = llm or get_llm(role="main")
@@ -81,7 +81,18 @@ def build_graph(
     llm_detection = get_llm(role="fast", temperature=0.1)
     llm_task_planner = get_llm(role="fast", temperature=0.15)
     llm_fast_reply = get_llm(role="main", temperature=0.55)
-    llm_planner_27 = get_llm(role="fast", model="gpt-4.1-mini", temperature=_glc.PLANNER_TEMPERATURE)
+    _planner_model = (os.getenv("LTSR_PLANNER_MODEL") or "").strip() or None
+    _planner_api_key = (os.getenv("LTSR_PLANNER_API_KEY") or "").strip() or None
+    _planner_base_url = (os.getenv("LTSR_PLANNER_BASE_URL") or "").strip() or None
+    if _planner_model and "qwen" in _planner_model.lower():
+        _planner_api_key = _planner_api_key or (os.getenv("QWEN_API_KEY") or "").strip() or None
+        _planner_base_url = _planner_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    llm_planner_27 = get_llm(
+        role="fast",
+        model=_planner_model,
+        api_key=_planner_api_key,
+        base_url=_planner_base_url,
+    )
     llm_processor = get_llm(role="fast", temperature=0.3)
     llm_evolver = get_llm(role="fast", temperature=0.18)
     llm_memory_manager = get_llm(role="fast", temperature=0.1)
@@ -174,7 +185,7 @@ def build_graph(
     lats_node = create_lats_search_node(
         llm_fast,
         llm_soft_scorer=llm_fast,
-        llm_gen=llm_planner_27,   # 27 候选生成（reply_planner）；temperature/top_p 由 graph_llm_config 定义，reply_planner 按 gen_round 读取
+        llm_gen=llm_planner_27,   # 15 候选生成（reply_planner, gpt-4o-mini）；temperature/top_p/penalty 由 graph_llm_config 定义
         llm_eval=llm,             # 单模型评估用 main
     )
     fast_reply_node = create_fast_reply_node(llm_fast_reply)  # main, temperature=0.55

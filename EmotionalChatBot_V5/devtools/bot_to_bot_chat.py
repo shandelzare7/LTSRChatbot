@@ -48,6 +48,55 @@ def _random_padb() -> Dict[str, float]:
     return out
 
 
+# Bot 描述随机池
+_PERSONALITY_POOL_MALE = [
+    "性格开朗、喜欢交流，对新鲜事物充满好奇",
+    "话少但幽默感强，喜欢冷幽默和自嘲",
+    "有点社恐但内心热情，熟了之后话很多",
+    "大大咧咧不拘小节，情绪表达直接",
+    "文艺青年气质，说话慢条斯理但有深度",
+    "理性派，喜欢讲逻辑但也会开玩笑",
+    "热心肠，爱操心朋友的事，有时话多",
+]
+_PERSONALITY_POOL_FEMALE = [
+    "性格温和、善于倾听，喜欢深入思考",
+    "活泼外向，反应快，说话带点俏皮",
+    "慢热但真诚，跟熟人聊天很放松",
+    "独立有主见，说话简洁利落",
+    "感性细腻，容易被小事打动，表达丰富",
+    "有点毒舌但心软，嘴硬心软型",
+    "安静内敛，偶尔冒出金句让人惊艳",
+]
+_OCCUPATION_POOL_MALE = [
+    "产品经理", "设计师", "教师", "插画师", "自由撰稿人",
+    "咖啡师", "建筑师", "纪录片导演", "翻译", "乐队吉他手",
+    "体育教练", "书店老板", "广告创意总监", "厨师", "旅行博主",
+]
+_OCCUPATION_POOL_FEMALE = [
+    "编辑", "运营", "心理咨询师", "策展人", "摄影师",
+    "花艺师", "独立音乐人", "插画师", "甜品师", "瑜伽教练",
+    "播客主播", "图书馆员", "手工皮具匠人", "建筑师", "调酒师",
+]
+
+
+def _random_bot_description(gender: str) -> str:
+    """为 bot 创建 prompt 随机生成描述。"""
+    if gender == "男":
+        personality = random.choice(_PERSONALITY_POOL_MALE)
+        occupations = random.sample(_OCCUPATION_POOL_MALE, 3)
+        avoid = "避免李明、张伟、王强等常见名"
+    else:
+        personality = random.choice(_PERSONALITY_POOL_FEMALE)
+        occupations = random.sample(_OCCUPATION_POOL_FEMALE, 3)
+        avoid = "避免李静怡、王芳、张敏等常见名"
+    occ_str = "、".join(occupations)
+    return (
+        f"请为人设起一个少见、有记忆点的中文全名（姓+名），{avoid}；"
+        f"{gender}性。{personality}。"
+        f"职业不要程序员，请从以下任选其一：{occ_str}。"
+    )
+
+
 # 首句池：两 bot 互聊时每次会话的首句随机（避免都是“你好”式打招呼）
 FIRST_MESSAGE_POOL = [
     "今天天气好怪啊，一会儿晴一会儿阴的。",
@@ -84,6 +133,16 @@ from app.graph import build_graph
 from app.services.llm import get_llm, get_llm_stats, reset_llm_stats, set_current_node, reset_current_node
 from main import _make_initial_state
 from utils.llm_json import parse_json_from_llm
+
+# 随机种子：BOT2BOT_SEED 环境变量，不设则每次不同
+_seed_env = os.getenv("BOT2BOT_SEED", "").strip()
+if _seed_env:
+    random.seed(int(_seed_env))
+    print(f"[bot_to_bot] 使用固定随机种子: {_seed_env}")
+else:
+    _auto_seed = random.randint(0, 2**31)
+    random.seed(_auto_seed)
+    print(f"[bot_to_bot] 自动随机种子: {_auto_seed}（可用 BOT2BOT_SEED={_auto_seed} 复现）")
 
 
 # ==========================================
@@ -563,22 +622,20 @@ async def main() -> None:
         b1_padb = b2_padb = {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}
         tok = set_current_node("bot_creation")
         try:
-            log_line("创建 Bot A（男，全名，非程序员）...")
+            desc_a = _random_bot_description("男")
+            log_line(f"创建 Bot A（男）… 描述: {desc_a[:60]}…")
             b1_basic, b1_big_five, b1_persona = await create_bot_via_llm(
-                llm, "Bot A",
-                "请为人设起一个少见、有记忆点的中文全名（姓+名），避免李明、张伟、王强等常见名；男性。性格开朗、喜欢交流。职业不要程序员，请从以下任选其一：产品经理、设计师、教师、插画师、自由撰稿人。",
-                log_line,
+                llm, "Bot A", desc_a, log_line,
             )
             b1_sidewrite, b1_backlog = None, None
             try:
                 b1_sidewrite, b1_backlog = await generate_sidewrite_and_backlog(llm, b1_basic, b1_big_five, b1_persona)
             except Exception as e:
                 log_line(f"  ⚠ 侧写/任务库生成失败: {e}")
-            log_line("创建 Bot B（女，全名，非程序员）...")
+            desc_b = _random_bot_description("女")
+            log_line(f"创建 Bot B（女）… 描述: {desc_b[:60]}…")
             b2_basic, b2_big_five, b2_persona = await create_bot_via_llm(
-                llm, "Bot B",
-                "请为人设起一个少见、有记忆点的中文全名（姓+名），避免李静怡、王芳、张敏等常见名；女性。性格温和、善于倾听。职业不要程序员，请从以下任选其一：编辑、运营、心理咨询师、策展人、摄影师。",
-                log_line,
+                llm, "Bot B", desc_b, log_line,
             )
             b2_sidewrite, b2_backlog = None, None
             try:

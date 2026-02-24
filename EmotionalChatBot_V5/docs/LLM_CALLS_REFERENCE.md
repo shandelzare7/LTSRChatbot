@@ -9,13 +9,49 @@
 
 | 角色 Role | 使用节点 | 默认模型 (preset=openai) |
 |-----------|----------|---------------------------|
-| **main**  | detection、inner_monologue、style（入参未直接用）、reply_planner、PsychoEngine、LATS 主规划 | gpt-4o |
+| **main**  | detection、inner_monologue、style（入参未直接用）、PsychoEngine、LATS 主规划 | gpt-4o |
 | **fast**  | security_check、task_planner、evolver、memory_manager、security_response | gpt-4o-mini (priority) |
+| **fast + model=gpt-5-mini** | reply_planner（15 候选生成，5 路并行） | gpt-5-mini (priority) |
 | **judge** | LATS evaluator（evaluate_27_candidates_single_llm，27 条一次评估） | gpt-4o-mini (priority) |
 | **processor** | Processor 节点（拆句+延迟） | **gpt-4o-mini**（LTSR_PROCESSOR_LLM_MODEL，默认） |
 
 - 角色级覆盖：`LTSR_LLM_<ROLE>_MODEL` / `_API_KEY` / `_BASE_URL` / `_TEMPERATURE`。
 - Preset：`LTSR_LLM_PRESET=openai | deepseek_route_a | deepseek_route_b` 等，见 `get_llm()` 注释。
+
+### gpt-5-mini（reasoning 模型）参数设置规范
+
+gpt-5-mini 是 OpenAI reasoning 模型，**不支持** `temperature`、`top_p`、`frequency_penalty`、`presence_penalty` 等采样参数。正确的调用方式如下：
+
+**构造时**（`app/services/llm.py` → `get_llm()`）：
+
+```python
+llm = ChatOpenAI(
+    model="gpt-5-mini",
+    api_key=key,
+    verbosity="low",           # 显式传，不要放 model_kwargs
+    reasoning_effort="low",    # 显式传，不要放 model_kwargs
+    # 不传 temperature / top_p / frequency_penalty / presence_penalty
+)
+```
+
+**invoke 时**（`app/lats/reply_planner.py` → `_invoke_planner_llm()`）：
+
+```python
+invoke_kwargs = {
+    "max_tokens": ...,
+    "verbosity": "low",
+    "reasoning_effort": "low",
+    # 不传 temperature / top_p / frequency_penalty / presence_penalty
+}
+structured.invoke(messages, **invoke_kwargs)
+```
+
+**关键注意事项**：
+
+1. `verbosity` 和 `reasoning_effort` 必须作为 `ChatOpenAI` 的**显式构造参数**传入，不要放进 `model_kwargs`（LangChain 会发出警告且可能丢失）。
+2. 构造时传入的参数会存入 `_default_params`，`with_structured_output` 链会自动保留，确保每次 API 调用都带上。
+3. invoke 时再传一遍是双保险，即使不传 invoke kwargs，构造时的值也会生效。
+4. 判断是否为 reasoning 模型：`"gpt-5" in model_name.lower()`。
 
 ---
 
@@ -135,7 +171,7 @@
 ## 7. reply_planner（LATS 回复规划）
 
 - **文件**: `app/lats/reply_planner.py`
-- **模型**: **main**
+- **模型**: **fast + model=gpt-5-mini**（reasoning 模型，verbosity=low，reasoning_effort=low；不传 temperature/top_p/penalty）
 
 **人设**  
 - 「你是 {bot_name}。你正在和 {user_name} 对话。」：Identity（bot_basic_info、bot_persona、user_basic_info、user_profile 选中的键）、Memory、State Snapshot、Style Profile、Requirements、任务与字数约束（tasks_for_lats、task_budget_max、word_budget）；禁止助手味、禁止自称 AI 等。
@@ -244,7 +280,7 @@ Gate1 与 evaluate_candidate、hard_gate 已删除；主流程仅用 **evaluate_
 | evolver            | 关系分析+画像抽取  | 常识经验丰富的语言学专家             | fast   |
 | evolver            | 任务完成检测       | 纯 Python，无 LLM                   | -      |
 | memory_manager     | 摘要+记忆沉淀      | 经验丰富的记录总结专家               | fast   |
-| reply_planner      | 多消息回复规划     | 你是 bot_name，和 user 对话          | main   |
+| reply_planner      | 多消息回复规划     | 你是 bot_name，和 user 对话          | fast (gpt-5-mini, verbosity=low, reasoning_effort=low) |
 | processor          | 拆句+延迟          | 语感优秀常识经验丰富的语言学专家     | processor (gpt-4o-mini) |
 | security_response  | 安全回复生成       | bot_name 拟人、有边界                | fast   |
 | PsychoEngine       | 心理模式选择       | 心理侧写师                           | main   |

@@ -23,8 +23,13 @@ def _normalize_parsed(obj: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _fix_smart_quotes(s: str) -> str:
+    """将中文/智能引号替换为 ASCII 双引号，以便 JSON 解析。"""
+    return s.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
+
+
 def _try_parse_one(s: str) -> Optional[Dict[str, Any]]:
-    """对单段字符串尝试解析为 JSON 并规范为 Dict；支持去除尾部逗号后重试。"""
+    """对单段字符串尝试解析为 JSON 并规范为 Dict；支持去除尾部逗号、智能引号修复后重试。"""
     s = s.strip()
     if not s:
         return None
@@ -42,6 +47,14 @@ def _try_parse_one(s: str) -> Optional[Dict[str, Any]]:
         return _normalize_parsed(obj)
     except json.JSONDecodeError:
         pass
+    # 3. 修复智能引号后重试（Qwen 常见）
+    s3 = _fix_smart_quotes(s2)
+    if s3 != s2:
+        try:
+            obj = json.loads(s3)
+            return _normalize_parsed(obj)
+        except json.JSONDecodeError:
+            pass
     return None
 
 

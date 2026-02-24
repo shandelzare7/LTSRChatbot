@@ -2,7 +2,7 @@
 
 ## 结论（默认配置、不早退）
 
-**一次用户消息 → 一次 bot 回复，大约会触发 15～20 次 LLM 请求**（具体取决于是否早退、是否走 processor 的 LLM 拟人化）。
+**一次用户消息 → 一次 bot 回复，大约会触发 11～12 次 LLM 请求**（具体取决于是否早退、是否走 processor 的 LLM 拟人化）。
 
 是否「并发限制」导致慢：**主要是「调用次数多 + 绝大部分串行」**，不是我们故意限并发；DeepSeek 侧若有 QPS/RPM 限制，会进一步拉长总时间。
 
@@ -38,10 +38,10 @@
 
 | 步骤 | 角色 | 调用次数 | 说明 |
 |------|------|----------|------|
-| 27 候选生成 | main | **9** | `plan_reply_27_via_content_moves`（9 路并行，每路 3 条） |
-| 27 候选评估 | judge | **1** | `evaluate_27_candidates_single_llm`（一次选 best_id + accept） |
+| 27 候选生成 | main | **5** | `plan_reply_27_via_content_moves`（5 路并行：1 FREE + 4 move，每路 3 条，共 15 候选） |
+| 15 候选评估 | judge | **1** | `evaluate_27_candidates_single_llm`（一次选 best_id + accept） |
 
-- **LATS V3**：9（生成）+ 1（评估）= **10** 次 LLM（主路径）。Skip 路径（rollouts/expand_k=0 或低风险跳过）不再做规则检查，直接通过。
+- **LATS V3**：5（生成）+ 1（评估）= **6** 次 LLM（主路径）。Skip 路径（rollouts/expand_k=0 或低风险跳过）不再做规则检查，直接通过。
 
 ---
 
@@ -49,12 +49,12 @@
 
 | 角色 | 来源 | 次数 |
 |------|------|------|
-| **main** | inner_monologue, reasoner, LATS 27 候选生成（9 路） | 1 + 1 + 9 = **11** |
-| **judge** | LATS 27 候选评估（1 次） | **1** |
+| **main** | inner_monologue, reasoner, LATS 15 候选生成（5 路） | 1 + 1 + 5 = **7** |
+| **judge** | LATS 15 候选评估（1 次） | **1** |
 | **fast** | detection, evolver, memory_manager | **3** |
-| **合计** | | **15** |
+| **合计** | | **11** |
 
-若 processor 再打 1 次 main：**16**。
+若 processor 再打 1 次 main：**12**。
 
 ---
 
@@ -65,9 +65,9 @@
   - 只有 LATS 里对「Top N 候选」做 LLM 精评时用了 `ThreadPoolExecutor`，且默认 `lats_llm_soft_max_concurrency=1`，即**精评也是串行**。  
   - 所以**没有故意把可并发的请求做成串行**，而是流程本身就以串行为主。
 - **DeepSeek（或任意厂商）**：  
-  - 若对同一 API Key 有 **QPS/RPM 限制**（例如 1 次/秒或 60 次/分钟），16 次请求串行发出时，总时间 ≥ 16 × 单次延迟；若还有排队，会更久。  
+  - 若对同一 API Key 有 **QPS/RPM 限制**（例如 1 次/秒或 60 次/分钟），12 次请求串行发出时，总时间 ≥ 12 × 单次延迟；若还有排队，会更久。  
   - 所以「并发限制」更可能指：  
-    1. **我们单轮调用次数多**（15～20）；  
+    1. **我们单轮调用次数多**（约 11～12）；  
     2. **这些调用几乎全串行**；  
     3. **厂商对同一 key 的并发/速率限制**（若有）会进一步拉长总时间。
 
@@ -77,7 +77,7 @@
 
 - 减少 LATS 调用：`rollouts=2`、`expand_k=1`，或开启早退、提高早退阈值，使更多轮只做根计划+根评。  
 - 少用 judge：`lats_llm_soft_top_n=0`（或关闭 soft scorer），精评次数会减少。  
-- 确认是否被厂商限流：看 DeepSeek 控制台该 key 的 QPS/RPM 限制，或单测「只打 1 次 main」的延迟，再乘以 16 做下界估算。
+- 确认是否被厂商限流：看 DeepSeek 控制台该 key 的 QPS/RPM 限制，或单测「只打 1 次 main」的延迟，再乘以 12 做下界估算。
 
 ---
 
@@ -92,7 +92,7 @@
 **已经实现的并行：**
 
 1. **根评估 + 首轮变体预取**：在根计划生成后，**根评估**和**第一轮 rollout 的变体生成**在 2 个线程里同时跑；首轮扩展 root 时直接复用预取变体，少一次 LLM 往返。
-2. **LATS V3**：27 条候选由 **evaluate_27_candidates_single_llm** 一次评估；Gate1 / evaluate_candidate 已移除。
+2. **LATS V3**：15 条候选由 **evaluate_27_candidates_single_llm** 一次评估；Gate1 / evaluate_candidate 已移除。
 3. **助手味检测**：对通过硬门槛的若干候选做 `check_assistant_like_via_llm` 时，多候选**并行**调用（线程池，最多 4 路）。
 
 **配置上如何更并行、更快：**

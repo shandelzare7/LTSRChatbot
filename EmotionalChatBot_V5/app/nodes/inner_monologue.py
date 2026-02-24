@@ -159,12 +159,6 @@ def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict
             selected_keys,
             len(monologue),
         )
-        print(
-            f"[InnerMonologue] selected_content_move_ids={selected_content_move_ids!r} "
-            f"({', '.join(names) if names else '（无）'}) "
-            f"selected_profile_keys={selected_keys!r} monologue_len={len(monologue)}",
-            flush=True,
-        )
 
         return {
             "inner_monologue": monologue,

@@ -124,7 +124,11 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
                     out["urgency"] = _clip_int(result.get("urgency"), 0, 10)
                     sub = result.get("subtext")
                     out["subtext"] = str(sub).strip() if sub else ""
-                    log_llm_response("Detection", msg, parsed_result=out)
+                    log_llm_response(
+                        "Detection",
+                        msg if msg is not None else "(structured_output)",
+                        parsed_result=out,
+                    )
         except Exception as e:
             print(f"[Detection] 解析异常: {e}，使用默认值")
 
