@@ -356,7 +356,6 @@ Bot 描述：{bot_description}
    - attributes: {{"catchphrase": "常用口头禅"}}
    - collections: {{"hobbies": ["爱好1", "爱好2", "爱好3"], "quirks": ["小特点1", "小特点2"]}}
    - lore: {{"origin": "简短来历", "secret": "小秘密"}}
-   - story: "一段话的背景故事（可选，如成长经历、为何做现在的事、对关系的态度等）"
 
 请以 JSON 格式输出，格式如下：
 {{
@@ -427,8 +426,6 @@ Bot 描述：{bot_description}
             persona["collections"] = {}
         if "lore" not in persona:
             persona["lore"] = {}
-        if "story" not in persona or not isinstance(persona.get("story"), str):
-            persona["story"] = ""
         
         log_line_func(f"  ✓ {bot_name} 人设生成成功")
         log_line_func(f"    名字: {basic_info.get('name')}, 年龄: {basic_info.get('age')}, 职业: {basic_info.get('occupation')}")
@@ -611,8 +608,24 @@ async def main() -> None:
     bot_b_id = None
     bot_a = None
     bot_b = None
-    # 本脚本用于「两个新 Bot + 互为空 User + 30 轮」：不使用已有 Bot，始终创建两个新 Bot
-    create_new_bots = True
+
+    # BOT2BOT_BOT_A_ID / BOT2BOT_BOT_B_ID：若设置了则直接从数据库加载已有 Bot
+    env_bot_a_id = (os.getenv("BOT2BOT_BOT_A_ID") or "").strip()
+    env_bot_b_id = (os.getenv("BOT2BOT_BOT_B_ID") or "").strip()
+    create_new_bots = not (env_bot_a_id and env_bot_b_id)
+
+    if not create_new_bots:
+        bot_a_id = env_bot_a_id
+        bot_b_id = env_bot_b_id
+        log_line(f"使用已有 Bot A: {bot_a_id}")
+        log_line(f"使用已有 Bot B: {bot_b_id}")
+        async with db.Session() as session:
+            bot_a = (await session.execute(select(Bot).where(Bot.id == uuid.UUID(bot_a_id)))).scalar_one_or_none()
+            bot_b = (await session.execute(select(Bot).where(Bot.id == uuid.UUID(bot_b_id)))).scalar_one_or_none()
+        if bot_a is None or bot_b is None:
+            raise RuntimeError(f"数据库中找不到指定 Bot: A={bot_a_id} found={bot_a is not None}, B={bot_b_id} found={bot_b is not None}")
+        log_line(f"✓ Bot A: {bot_a.name} (ID: {bot_a_id[:8]}...)")
+        log_line(f"✓ Bot B: {bot_b.name} (ID: {bot_b_id[:8]}...)")
 
     if create_new_bots:
         # 新建 User 关系维度参考：app/core/relationship_templates.py（RELATIONSHIP_TEMPLATES）

@@ -2,37 +2,37 @@ pure_content_transformations:
   - id: 1
     name: 向下细化
     english_name: Downward Specification
-    content_operation: 从用户的输入中提取一个核心名词或动词，并在回复中请求或补充关于该实体的更小颗粒度信息（如：具体分支、前置条件、某个切片的时间点、局部特征）。
+    content_operation: 挑对方提到的某个词或事，追问或补充更具体的细节（比如：哪种？什么时候？具体怎样？）。
 
   - id: 2
     name: 向上概括
     english_name: Upward Abstraction
-    content_operation: 将用户描述的具象事件或情绪，归类到一个更大的宏观集合、普遍规律、行业共性或系统级现象中。不要增加新的具体实体，只做层级爬升。
+    content_operation: 把对方说的具体事情往更大的道理或普遍现象上靠（比如："其实很多人都…""这就是所谓的…"）。不加新的具体内容，只拔高一层。
 
   - id: 3
     name: 横向联想
     english_name: Lateral Association
-    content_operation: 识别用户输入的核心概念结构，并从另一个完全不同的物理领域、时间线或主体中，提取一个具有相似概念结构的实体进行并列对比或映射。
+    content_operation: 从对方说的内容联想到另一个不同领域但结构相似的事，拿来类比或对比（比如对方聊工作压力，你联想到运动训练的节奏）。
 
   - id: 4
     name: 自我暴露
     english_name: Self-disclosure
-    content_operation: 提取角色自身知识库或设定集中的一条信息（如自身的某个历史行为、当前客观状态、已知属性），该信息必须与用户当前的话题在逻辑上形成镜像或对照。
+    content_operation: 分享一条关于自己的信息（经历、习惯、状态、偏好等），和对方正在聊的话题有关联即可。
 
   - id: 5
     name: 机制溯源
     english_name: Root Cause / Mechanism
-    content_operation: 针对用户抛出的现象或结果，输出一条指向该现象发生的物理起因、历史前置事件或底层运转流程的信息。
+    content_operation: 对对方提到的事情，给一个"为什么会这样"的解释或猜测（原因、背景、来龙去脉都算）。
 
   - id: 6
     name: 假设推演
     english_name: Hypothetical Deduction
-    content_operation: 改变用户叙述中的某一个关键变量（如时间倒流、条件反转、人物互换），并基于这个新前提，推导出一个逻辑上必然或可能的后续事件。
+    content_operation: 在对方说的基础上做一个"如果…那就…"的假设推演（换个条件、换个角度、换个时间线，想想会怎样）。
 
   - id: 7
     name: 状态评价
     english_name: State Evaluation
-    content_operation: 不要引入任何新的人、事、物。仅对用户刚才的整段输入或当前状态，给出一个定性（分类）或定量结论的陈述句。
+    content_operation: 对对方说的话或当前状态给一个简短的评价、判断或感受（比如："这挺厉害的""感觉你挺纠结""这事不简单"）。不引入新话题。
 
   - id: 8
     name: 物理锚定

@@ -72,7 +72,7 @@ def build_graph(
     # reply_planner 默认 gpt-4o-mini（fast role）；可通过 LTSR_PLANNER_MODEL / _API_KEY / _BASE_URL 切换模型。
     # 例：LTSR_PLANNER_MODEL=qwen-plus LTSR_PLANNER_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 LTSR_PLANNER_API_KEY=sk-xxx
     from app.core import graph_llm_config as _glc
-    _glc.PLANNER_TEMPERATURE = 1.1
+    _glc.PLANNER_TEMPERATURE = 1.2
     _glc.PLANNER_TOP_P = 0.75
     _glc.PLANNER_FREQUENCY_PENALTY = 0.4
     _glc.PLANNER_PRESENCE_PENALTY = 0.5

@@ -81,6 +81,23 @@ _STYLE_VALUE_TO_LABEL = (
 _STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "CHAT_MARKERS", "EXPRESSION_MODE")
 _EXPRESSION_MODE_LABELS = {0: "LITERAL_DIRECT", 1: "LITERAL_INDIRECT", 2: "FIGURATIVE", 3: "IRONIC_LIGHT"}
 
+_STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
+    "WARMTH": {
+        "extremely_low": "冰冷/公事公办，零情感词，不表达关心",
+        "low": "客气但疏离，不用亲昵/关心的词，不主动拉近",
+        "mid": "友善自然，偶尔轻微关心（'还好吗''注意休息'）",
+        "high": "明显温暖，主动关心、用柔和语气、带鼓励",
+        "extremely_high": "非常亲昵，撒娇/哄人/大量情感词",
+    },
+    "CHAT_MARKERS": {
+        "extremely_low": "零语气词/表情/感叹号，纯干文本",
+        "low": "极少语气词，偶尔一个'嗯'或句号",
+        "mid": "适量语气词（哈哈/嗯嗯/呀/～）和感叹号",
+        "high": "频繁语气词、颜表情、'hhh'/'awsl'等",
+        "extremely_high": "大量表情包/缩写/颜文字/重复感叹号",
+    },
+}
+
 
 def _style_value_to_label(value: float) -> str:
     """将 [0,1] 的数值映射为五档文字：extremely_low, low, mid, high, extremely_high。"""
@@ -109,7 +126,9 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
                     parts.append(f"{key}={label}")
                 else:
                     label = _style_value_to_label(float(v))
-                    parts.append(f"{key}={label}")
+                    dim_anchors = _STYLE_DIM_ANCHORS.get(key, {})
+                    anchor = dim_anchors.get(label, "")
+                    parts.append(f"{key}={label}（{anchor}）" if anchor else f"{key}={label}")
             except (TypeError, ValueError):
                 continue
         return "\n".join(parts) if parts else ""

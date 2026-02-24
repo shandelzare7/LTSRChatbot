@@ -78,9 +78,6 @@ class BotPersona(TypedDict, total=False):
     # 背景故事片段 (e.g. {"origin": "Born in Mars...", "secret": "..."})
     lore: Dict[str, str]
 
-    # 背景故事（一段话，由创建/编辑时填写或 LLM 生成）
-    story: str
-
 
 # ==========================================
 # 2. 用户侧写 (User Profiling)
