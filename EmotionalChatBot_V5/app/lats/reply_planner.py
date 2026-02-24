@@ -366,6 +366,7 @@ def _build_system_prompt_b(
     k: int = 1,
     intent_prompt: str = "",
     strategies_prompt: str = "",
+    momentum: float = 0.0,
 ) -> Dict[str, str]:
     header = f"你是 {bot_name}，正在和 {user_name} 对话。"
 
@@ -399,10 +400,14 @@ def _build_system_prompt_b(
 - ASKQ=0：倾向不提问，用陈述/建议/推进来表达；ASKQ=1：允许提问（但也不必强行问）。
 """.strip()
 
-    # ✅ 修复物理锚定冲突：增加明确例外说明（仍禁止硬编客观事实）
-    # ✅ 仅增强“短而真实”那句话的注意力（不新增其它约束、不改其它条目）
+    # 字数奖励：momentum (0~1) × 20 → 对话越热络允许回复越长
+    _m = max(0.0, min(1.0, float(momentum)))
+    _reward = int(round(_m * 20))
+    _typical_max = 10 + _reward  # 10~30
+    _hard_max = 20 + _reward     # 20~40
+
     writing_rules = f"""【写作要求（生成给用户看的自然回复）】
-- 🔥【最重要】模拟真人微信聊天的自然长度——回复在 1~40 字，多数应在 20 字以内，偶尔超过也正常，但绝不要动辄写一大段
+- 🔥【最重要】模拟真人微信聊天的自然长度——回复在 1~{_hard_max} 字，多数应在 {_typical_max} 字以内，偶尔超过也正常，但绝不要动辄写一大段
 - 🔥【反空洞】禁止诗意，禁止纯比喻、纯感叹、纯诗化句子。如果对方发了比喻，你应该把话题拉回具体的事。
 - 避免客服模板句式或“出戏说明”（例如“作为一个模型/根据设定/我可以为你提供…”）。
 - TIME_* 标记为元数据，不要复述；不要输出精确时间戳（除非用户明确问）。
@@ -420,7 +425,7 @@ def _build_system_prompt_b(
         schema_block = """【输出 JSON schema（只输出 JSON，不要额外文字）】
 必须输出一个 JSON 对象，形如：
 {"reply": "<你将发送给用户的完整回复>"}
-- reply 长度宜在 1~40 字之间；多数应在 20 字以内
+- reply 长度宜在 1~{_hard_max} 字之间；多数应在 {_typical_max} 字以内
 """.strip()
     else:
         schema_block = f"""【输出 JSON schema（只输出 JSON，不要额外文字）】
@@ -428,7 +433,7 @@ def _build_system_prompt_b(
 {{"candidates":[{{"reply":"..."}}, ...]}}
 - candidates 至少 1 条，最多 {int(k)} 条（尽量接近 {int(k)} 条）
 - 每条 reply 都必须是“可直接发送给用户”的完整回复
-- 每条 reply 长度宜在 1~40 字之间；多数应在 20 字以内
+- 每条 reply 长度宜在 1~{_hard_max} 字之间；多数应在 {_typical_max} 字以内
 """.strip()
 
     return {
@@ -566,6 +571,12 @@ def _invoke_planner_llm(
     _, intent_prompt = _get_stage_prompts(state)
     strategies_prompt = _get_current_strategy_prompt(state)
 
+    _momentum = 0.0
+    try:
+        _momentum = float(state.get("conversation_momentum") or 0.0)
+    except (TypeError, ValueError):
+        pass
+
     parts = _build_system_prompt_b(
         bot_name=bot_name,
         user_name=user_name,
@@ -580,6 +591,7 @@ def _invoke_planner_llm(
         k=int(k),
         intent_prompt=intent_prompt,
         strategies_prompt=strategies_prompt,
+        momentum=_momentum,
     )
 
     time_context_block = _truncate_text(build_time_context_block(state), PROMPT_TIME_MAX_CHARS)
