@@ -158,6 +158,22 @@ async function loadAndRenderChatHistory() {
 }
 
 // 最多 2 个 chip，优先 persona（quirks/hobbies），文案简短不拥挤
+// 预设人格标签（按 bot 名称），用于替换原有 chips 展示
+var BOT_PERSONA_LABELS = {
+    '林静怡': '【温和笃定的规范者】',
+    '沈默言': '【严谨纠结的话痨】',
+    '苏絮': '【冷漠怯场的脑洞派】',
+    '谢凌锋': '【散漫嘴毒的吐槽狂】',
+    '阿澈': '【盲目自信的直白大喇叭】',
+    '陆燃': '【绝对自信的带刺修辞家】',
+    '顾沉': '【冰冷笃定的直白机器】'
+};
+
+function personaLabelForBot(bot) {
+    var name = (bot && bot.name) ? String(bot.name).trim() : '';
+    return BOT_PERSONA_LABELS[name] || '';
+}
+
 function chipsForBot(bot) {
     const maxChips = 2;
     function short(s) {
@@ -204,7 +220,11 @@ async function loadBots() {
                 const basicInfo = bot.basic_info || {};
                 const age = basicInfo.age || '未知';
                 const occupation = basicInfo.occupation || '未知';
-                const chips = chipsForBot(bot);
+                var personaLabel = personaLabelForBot(bot);
+                var chips = chipsForBot(bot);
+                var tagOrChipsHtml = personaLabel
+                    ? ('<div class="bot-card-tag">' + escapeHtml(personaLabel) + '</div>')
+                    : ('<div class="bot-card-chips">' + chips.map(function (c) { return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('') + '</div>');
                 const card = document.createElement('div');
                 card.className = 'bot-card';
                 card.innerHTML =
@@ -213,9 +233,7 @@ async function loadBots() {
                     '<div class="bot-card-body">' +
                     '<div class="bot-card-name">' + escapeHtml(name) + '</div>' +
                     '<div class="bot-card-info">年龄: ' + escapeHtml(String(age)) + ' | 职业: ' + escapeHtml(String(occupation)) + '</div>' +
-                    '<div class="bot-card-chips">' +
-                    chips.map(function (c) { return '<span class="chip">' + escapeHtml(c) + '</span>'; }).join('') +
-                    '</div>' +
+                    tagOrChipsHtml +
                     '</div></div>' +
                     '<div class="bot-card-actions">' +
                     '<button class="btn-primary" onclick="selectBot(\'' + escapeHtml(bot.id) + '\')">开始对话</button>' +

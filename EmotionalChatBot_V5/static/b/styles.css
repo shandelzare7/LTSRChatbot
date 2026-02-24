@@ -261,6 +261,11 @@ body::after {
     gap: 6px;
     margin-bottom: 10px;
 }
+.bot-card-tag {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 10px;
+}
 .bot-card-actions {
     display: flex;
     gap: 8px;

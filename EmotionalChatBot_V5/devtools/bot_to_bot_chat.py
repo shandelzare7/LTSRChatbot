@@ -355,7 +355,8 @@ Bot 描述：{bot_description}
 3. **persona** (动态人设):
    - attributes: {{"catchphrase": "常用口头禅"}}
    - collections: {{"hobbies": ["爱好1", "爱好2", "爱好3"], "quirks": ["小特点1", "小特点2"]}}
-   - lore: {{"origin": "背景故事", "secret": "小秘密"}}
+   - lore: {{"origin": "简短来历", "secret": "小秘密"}}
+   - story: "一段话的背景故事（可选，如成长经历、为何做现在的事、对关系的态度等）"
 
 请以 JSON 格式输出，格式如下：
 {{
@@ -426,6 +427,8 @@ Bot 描述：{bot_description}
             persona["collections"] = {}
         if "lore" not in persona:
             persona["lore"] = {}
+        if "story" not in persona or not isinstance(persona.get("story"), str):
+            persona["story"] = ""
         
         log_line_func(f"  ✓ {bot_name} 人设生成成功")
         log_line_func(f"    名字: {basic_info.get('name')}, 年龄: {basic_info.get('age')}, 职业: {basic_info.get('occupation')}")

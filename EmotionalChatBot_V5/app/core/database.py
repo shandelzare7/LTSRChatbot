@@ -798,7 +798,7 @@ class DBManager:
                 bot_basic_info = _clamp_bot_age(dict(bot.basic_info or {}))
                 bot_persona = _scrub(dict(bot.persona or {})) if isinstance(bot.persona, dict) else {}
 
-                # lore 兜底：如果 scrub 后 lore 为空，给一段不 meta 的默认背景，避免 prompt 空洞
+                # lore / story 兜底：如果 scrub 后 lore 为空，给一段不 meta 的默认背景，避免 prompt 空洞
                 if isinstance(bot_persona, dict):
                     lore = bot_persona.get("lore") if isinstance(bot_persona.get("lore"), dict) else {}
                     if not lore:
@@ -806,6 +806,8 @@ class DBManager:
                             "origin": "平时话不算多，但对喜欢的东西会突然很认真。",
                             "secret": "有时候嘴硬，其实挺在意对方的反馈。",
                         }
+                    if "story" not in bot_persona or not isinstance(bot_persona.get("story"), str):
+                        bot_persona["story"] = ""
                 # 当前会话任务池：从 assets 恢复，供 task_planner 续用
                 current_session_tasks: List[Dict[str, Any]] = []
                 turn_count_in_session: int = 0

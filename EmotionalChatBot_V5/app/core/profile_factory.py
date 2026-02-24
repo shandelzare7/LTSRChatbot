@@ -99,6 +99,7 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
                 "嘴上说无所谓，心里会记很久。",
             ]),
         },
+        "story": "",  # 背景故事（一段话，由创建/编辑时填写或 LLM 生成）
     }
 
     return bot_basic_info, bot_big_five, bot_persona
