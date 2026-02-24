@@ -43,9 +43,9 @@ class Case:
     extraversion: float
     conscientiousness: float
     neuroticism: float
-    # Relationship (0-100)
+    # Relationship (0-1)
     closeness: float
-    trust: float = 50.0
+    trust: float = 0.5
     # Mood (PAD + busyness)
     arousal: float = 0.0
     pleasure: float = 0.0
@@ -70,10 +70,10 @@ def _mk_state(c: Case) -> AgentState:
         "relationship_state": {
             "closeness": c.closeness,
             "trust": c.trust,
-            "liking": 50.0,
-            "respect": 50.0,
-            "attractiveness": 50.0,
-            "power": 50.0,
+            "liking": 0.5,
+            "respect": 0.5,
+            "attractiveness": 0.5,
+            "power": 0.5,
         },
         "mood_state": {
             "pleasure": c.pleasure,
@@ -108,7 +108,7 @@ def _print_case_result(c: Case, out: dict, dyn: Dict[str, float]) -> None:
         "Big5: "
         f"E={c.extraversion:+.2f}, C={c.conscientiousness:+.2f}, N={c.neuroticism:+.2f} | "
         f"Mood: arousal={c.arousal:+.2f}, busyness={c.busyness:.2f} | "
-        f"Rel: closeness={c.closeness:.0f}"
+        f"Rel: closeness={c.closeness:.2f}"
     )
     print(f"user_input_len={len(c.user_input)} | response_len={len(c.final_response)}")
     print(
@@ -157,7 +157,7 @@ def main() -> None:
             extraversion=0.8,
             conscientiousness=-0.2,
             neuroticism=0.0,
-            closeness=85,
+            closeness=0.85,
             arousal=0.7,
             busyness=0.2,
         ),
@@ -170,7 +170,7 @@ def main() -> None:
             extraversion=-0.6,
             conscientiousness=0.5,
             neuroticism=0.0,
-            closeness=10,
+            closeness=0.10,
             arousal=-0.4,
             busyness=0.1,
         ),
@@ -183,7 +183,7 @@ def main() -> None:
             extraversion=0.2,
             conscientiousness=0.2,
             neuroticism=0.1,
-            closeness=55,
+            closeness=0.55,
             arousal=0.0,
             busyness=0.4,
         ),
@@ -196,7 +196,7 @@ def main() -> None:
             extraversion=0.0,
             conscientiousness=0.3,
             neuroticism=0.2,
-            closeness=40,
+            closeness=0.40,
             arousal=-0.1,
             busyness=0.9,
         ),
@@ -209,7 +209,7 @@ def main() -> None:
             extraversion=0.2,
             conscientiousness=0.0,
             neuroticism=0.9,
-            closeness=50,
+            closeness=0.50,
             arousal=0.2,
             busyness=0.2,
         ),
@@ -222,7 +222,7 @@ def main() -> None:
             extraversion=0.4,
             conscientiousness=0.1,
             neuroticism=0.0,
-            closeness=70,
+            closeness=0.70,
             arousal=0.1,
             busyness=0.0,
         ),
@@ -239,7 +239,7 @@ def main() -> None:
         m_busyness_drag = 1.0 + (c.busyness * 1.5)
         speed_factor = p_speed * p_caution * m_arousal_boost * m_busyness_drag * stage_factor
         noise_level = 0.1 + (max(0.0, c.neuroticism) * 0.4)
-        frag = (c.extraversion * 0.4) + ((c.closeness / 100.0) * 0.4) + (c.arousal * 0.2)
+        frag = (c.extraversion * 0.4) + (c.closeness * 0.4) + (c.arousal * 0.2)
         dyn = {
             "speed_factor": max(0.2, min(5.0, float(speed_factor))),
             "noise_level": max(0.05, min(0.8, float(noise_level))),

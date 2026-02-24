@@ -152,13 +152,12 @@ def _make_history(user_text: str) -> list[BaseMessage]:
 def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     rel = {
-        # Styler Node 需要的 The Essential 6
-        "closeness": float(rng.randint(0, 100)),
-        "trust": float(rng.randint(0, 100)),
-        "liking": float(rng.randint(0, 100)),
-        "respect": float(rng.randint(0, 100)),
-        "attractiveness": float(rng.randint(0, 100)),
-        "power": float(rng.randint(0, 100)),
+        "closeness": rng.uniform(0.0, 1.0),
+        "trust": rng.uniform(0.0, 1.0),
+        "liking": rng.uniform(0.0, 1.0),
+        "respect": rng.uniform(0.0, 1.0),
+        "attractiveness": rng.uniform(0.0, 1.0),
+        "power": rng.uniform(0.0, 1.0),
     }
     state: AgentState = {
         "messages": [HumanMessage(content=user_text)],

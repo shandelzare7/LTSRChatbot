@@ -31,6 +31,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# Big Five 与 PADB 随机化，增加 Bot 多样性（避免每次两 bot 人格/情绪相同）
+BIG_FIVE_KEYS = ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]
+PADB_KEYS = ["pleasure", "arousal", "dominance", "busyness"]
+
+
+def _random_big_five() -> Dict[str, float]:
+    """大五人格各维 [0, 1] 随机。"""
+    return {k: round(random.uniform(0.0, 1.0), 4) for k in BIG_FIVE_KEYS}
+
+
+def _random_padb() -> Dict[str, float]:
+    """PAD 情绪：pleasure/arousal/dominance 在 [-1, 1]，busyness 在 [0, 1]。"""
+    out = {k: round(random.uniform(-1.0, 1.0), 4) for k in ["pleasure", "arousal", "dominance"]}
+    out["busyness"] = round(random.uniform(0.0, 1.0), 4)
+    return out
+
+
 # 首句池：两 bot 互聊时每次会话的首句随机（避免都是“你好”式打招呼）
 FIRST_MESSAGE_POOL = [
     "今天天气好怪啊，一会儿晴一会儿阴的。",
@@ -483,6 +500,9 @@ async def main() -> None:
     if not os.getenv("DATABASE_URL"):
         raise RuntimeError("DATABASE_URL 未设置：请在 .env 里配置本地 PostgreSQL 连接串。")
 
+    # 强制关闭「前两条回复总用时走 fast」的开关，确保 30 轮全走 LATS 生成+评审（与 state 里 force_fast_route=False 一致）
+    os.environ["FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED"] = "0"
+
     # 完整记录生成与评审的 prompt 与输出（含 LATS 27 候选生成、单模型评估）
     os.environ.setdefault("BOT2BOT_FULL_LOGS", "1")
 
@@ -523,6 +543,7 @@ async def main() -> None:
     log_line("=" * 60)
     log_line("查找或创建两个 Bot")
     log_line("=" * 60)
+    log_line(f"FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED={os.getenv('FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED', '')}（脚本内已强制 0，走 LATS）")
 
     bot_a_id = None
     bot_b_id = None
@@ -538,12 +559,14 @@ async def main() -> None:
         llm = get_llm(role="fast")  # 创建 bot 等脚本统一用 gpt-4o-mini，不用 gpt-4o
         bot_a_id = str(uuid.uuid4())
         bot_b_id = str(uuid.uuid4())
+        # 默认 PADB（异常时 fallback）
+        b1_padb = b2_padb = {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}
         tok = set_current_node("bot_creation")
         try:
             log_line("创建 Bot A（男，全名，非程序员）...")
             b1_basic, b1_big_five, b1_persona = await create_bot_via_llm(
                 llm, "Bot A",
-                "请为人设起一个中文全名（姓+名），男性。性格开朗、喜欢交流。职业不要程序员，请从以下任选其一：产品经理、设计师、教师、插画师、自由撰稿人。",
+                "请为人设起一个少见、有记忆点的中文全名（姓+名），避免李明、张伟、王强等常见名；男性。性格开朗、喜欢交流。职业不要程序员，请从以下任选其一：产品经理、设计师、教师、插画师、自由撰稿人。",
                 log_line,
             )
             b1_sidewrite, b1_backlog = None, None
@@ -554,7 +577,7 @@ async def main() -> None:
             log_line("创建 Bot B（女，全名，非程序员）...")
             b2_basic, b2_big_five, b2_persona = await create_bot_via_llm(
                 llm, "Bot B",
-                "请为人设起一个中文全名（姓+名），女性。性格温和、善于倾听。职业不要程序员，请从以下任选其一：编辑、运营、心理咨询师、策展人、摄影师。",
+                "请为人设起一个少见、有记忆点的中文全名（姓+名），避免李静怡、王芳、张敏等常见名；女性。性格温和、善于倾听。职业不要程序员，请从以下任选其一：编辑、运营、心理咨询师、策展人、摄影师。",
                 log_line,
             )
             b2_sidewrite, b2_backlog = None, None
@@ -562,6 +585,13 @@ async def main() -> None:
                 b2_sidewrite, b2_backlog = await generate_sidewrite_and_backlog(llm, b2_basic, b2_big_five, b2_persona)
             except Exception as e:
                 log_line(f"  ⚠ 侧写/任务库生成失败: {e}")
+            # 用随机 Big Five 与 PADB 覆盖 LLM 输出，增加两 Bot 多样性
+            b1_big_five = _random_big_five()
+            b2_big_five = _random_big_five()
+            b1_padb = _random_padb()
+            b2_padb = _random_padb()
+            log_line(f"  Bot A 随机 big_five={b1_big_five}  mood_state(PADB)={b1_padb}")
+            log_line(f"  Bot B 随机 big_five={b2_big_five}  mood_state(PADB)={b2_padb}")
         finally:
             reset_current_node(tok)
         async with db.Session() as session:
@@ -574,6 +604,7 @@ async def main() -> None:
                     persona=b1_persona,
                     character_sidewrite=b1_sidewrite,
                     backlog_tasks=b1_backlog or [],
+                    mood_state=b1_padb,
                 )
                 bot2 = Bot(
                     id=uuid.UUID(bot_b_id),
@@ -583,6 +614,7 @@ async def main() -> None:
                     persona=b2_persona,
                     character_sidewrite=b2_sidewrite,
                     backlog_tasks=b2_backlog or [],
+                    mood_state=b2_padb,
                 )
                 session.add(bot1)
                 session.add(bot2)
@@ -595,6 +627,12 @@ async def main() -> None:
     # Bot A 作为 User A，Bot B 作为 User B
     user_a_external_id = f"bot_user_{bot_a_id}"
     user_b_external_id = f"bot_user_{bot_b_id}"
+
+    # 【身份约定，勿反】run_one_turn(user_id, bot_id, message) 语义：
+    # - user_id = 本轮回话中「发消息的人」在 DB 里的 external_id（即对方 Bot 的 proxy）
+    # - bot_id = 本轮回话中「回复的 Bot」的 id
+    # - 首句：Bot A 发 → (user_a_external_id, bot_b_id)，即 Bot B 视角下「用户=Bot A」收首句并回复
+    # - 轮换：本轮是 bot_id 回复后，下一轮 sender=该 bot，replier=对方 → (对方 proxy 的 user_id, 对方 bot_id)
 
     log_line("\n" + "=" * 60)
     log_line("在各自 Bot 下创建 User（get-or-create）")
@@ -721,7 +759,9 @@ async def main() -> None:
     
     # 30轮测试追踪数据
     conversation_log: List[Dict[str, Any]] = []  # 完整聊天记录
-    momentum_history: List[float] = []  # 冲量历史
+    momentum_history: List[float] = []  # 冲量历史（扁平列表，用于汇总 max/min/avg）
+    # 上一轮动量，按 (user_id, bot_id) 存，使 delta = 当前会话的 x(t)-x(t-1)，不混对方轮次
+    prev_momentum_by_key: Dict[Tuple[str, str], float] = {}
     # 上一轮 6 维关系状态，用于计算每轮变化；(user_id, bot_id) -> {dim: value}
     prev_relationship_state: Dict[Tuple[str, str], Dict[str, float]] = {}
     DIM_KEYS = ("closeness", "trust", "liking", "respect", "attractiveness", "power")
@@ -746,10 +786,12 @@ async def main() -> None:
                 await db.clear_all_memory_for(user_a_external_id, bot_b_id, reset_profile=True)
             except Exception:
                 pass
+            prev_momentum_by_key.clear()  # 新会话首轮 delta 按 N/A，不沿用上一会话
         current_message = random.choice(FIRST_MESSAGE_POOL)
+        # 首句是 Bot A 说的 → 语义应为「Bot A 发、Bot B 回」，即 user=Bot A 的 proxy，bot=Bot B
         current_speaker = "Bot A"
-        current_user_id = user_b_external_id
-        current_bot_id = bot_a_id
+        current_user_id = user_a_external_id
+        current_bot_id = bot_b_id
 
         log_line("\n" + "=" * 60)
         log_line(f"第 {run}/{num_runs} 次会话（首句随机）")
@@ -836,13 +878,14 @@ async def main() -> None:
                         if name == "processor":
                             break
                 
-                # 2.2 冲量变化追踪
+                # 2.2 冲量变化追踪（delta 按当前 (user_id, bot_id) 的上一轮动量计算，保证 delta = x(t)-x(t-1)）
                 momentum = result_state.get("conversation_momentum") if isinstance(result_state, dict) else None
                 momentum_f = float(momentum) if momentum is not None else None
                 if momentum_f is not None:
-                    # 先计算 delta（基于上一轮的值），再 append 当前值
-                    prev_momentum = momentum_history[-1] if len(momentum_history) > 0 else None
-                    momentum_delta = momentum_f - prev_momentum if prev_momentum is not None else 0.0
+                    key_m = (current_user_id, current_bot_id)
+                    prev_momentum = prev_momentum_by_key.get(key_m)  # 仅本会话上一轮，非对方
+                    momentum_delta = (momentum_f - prev_momentum) if prev_momentum is not None else None
+                    prev_momentum_by_key[key_m] = momentum_f
                     momentum_history.append(momentum_f)
                 else:
                     momentum_delta = None
@@ -1035,6 +1078,14 @@ async def main() -> None:
                         "final_response": reply,
                     }
                 )
+                # 确保第二轮 save_turn 带上「对方名字」等 user_basic_info，避免 graph 返回的 state 未含 memory_manager 的更新时把 DB 覆盖成空
+                # 优先用 result_state 的 user_basic_info；若为空则用本轮回写后 DB 中的 basic_info（与 Loader 下一轮读取的链路一致）
+                from_result = (result_state or {}).get("user_basic_info")
+                if from_result and isinstance(from_result, dict) and any(str(from_result.get(k) or "").strip() for k in ("name", "age", "gender", "occupation", "location")):
+                    state_after["user_basic_info"] = dict(from_result)
+                else:
+                    state_after["user_basic_info"] = dict(basic_info_after) if basic_info_after else {}
+                log_line(f"  [save_turn] user_basic_info 来源: {'result_state' if from_result and state_after.get('user_basic_info') else 'DB_after'}, name={state_after.get('user_basic_info', {}).get('name') or '?'}")
                 await db.save_turn(current_user_id, current_bot_id, state_after)
 
             except Exception as e:
@@ -1046,7 +1097,7 @@ async def main() -> None:
                     aborted_reason = str(e)
                 break
 
-            # 下一轮显示 "[谁] 发送: reply"：应是「本轮刚回复的 bot」，不是对方。先按 current_bot_id 定 speaker，再交换 (user_id, bot_id) 给对方。
+            # 下一轮：sender = 本轮刚回复的 bot (current_bot_id)，replier = 对方；交换为 (对方 proxy user_id, 对方 bot_id)
             current_message = reply
             current_speaker = "Bot A" if current_bot_id == bot_a_id else "Bot B"
             if current_speaker == "Bot A":

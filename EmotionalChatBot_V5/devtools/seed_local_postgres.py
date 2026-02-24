@@ -112,7 +112,7 @@ async def main() -> None:
         "humanized_output": {"total_latency_seconds": 1.23},
         # 关键：把 relationships 要更新的字段也带上（最少带 current_stage/relationship_state/mood_state）
         "current_stage": "initiating",
-        "relationship_state": {"closeness": 5, "trust": 3, "liking": 6, "respect": 50, "attractiveness": 10, "power": 50},
+        "relationship_state": {"closeness": 0.3, "trust": 0.3, "liking": 0.3, "respect": 0.3, "attractiveness": 0.3, "power": 0.5},
         "mood_state": {"pleasure": 0.1, "arousal": 0.2, "dominance": 0.0, "busyness": 0.0},
         # 可选
         "new_memory_content": "这是一次本地数据库写入测试。",

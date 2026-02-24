@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+import os
+from concurrent import futures
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.lats.evaluator import evaluate_27_candidates_single_llm
 from app.lats.reply_planner import plan_reply_27_via_content_moves
 from app.state import ProcessorPlan, ReplyPlan, SimReport
+
+logger = logging.getLogger(__name__)
 
 
 def _compile_reply_plan_to_text_plan(reply_plan: ReplyPlan, *, max_messages: int) -> ProcessorPlan:
@@ -43,22 +48,44 @@ def _repair_reply_via_llm(
     repair_instructions: str,
     llm_invoker: Any,
 ) -> Optional[str]:
-    """LATS V3：用轻模型做最多一次定向修复。输入原候选+修复指令，输出一条新 reply。"""
+    """LATS V3：用轻模型做最多一次定向修复。统一用 response format（structured output），带短超时。"""
     if not llm_invoker or not (repair_instructions or "").strip():
         return None
     from langchain_core.messages import HumanMessage, SystemMessage
-    from app.lats.prompt_utils import get_chat_buffer_body_messages, safe_text
 
-    system = "你是回复改写助手。根据「修复指令」对「原候选回复」做补丁式改写，只输出一条最终回复正文，不要解释、不要编号。"
-    user = f"原候选回复：\n{safe_text(original_reply)}\n\n修复指令：\n{safe_text(repair_instructions)}\n\n请输出一条修复后的完整回复（仅正文）："
-    body = get_chat_buffer_body_messages(state or {}, limit=30)
+    from app.lats.prompt_utils import get_chat_buffer_body_messages, safe_text
+    from src.schemas import RepairReplyOutput
+
     try:
-        resp = llm_invoker.invoke([SystemMessage(content=system), *body, HumanMessage(content=user)])
-        content = (getattr(resp, "content", "") or "").strip()
-        if content:
-            return content
-    except Exception:
-        pass
+        repair_timeout_s = float(os.getenv("LATS_REPAIR_TIMEOUT_SECONDS", "30").strip() or "30")
+    except (ValueError, TypeError):
+        repair_timeout_s = 30.0
+    repair_timeout_s = max(5.0, min(120.0, repair_timeout_s))
+
+    system = "你是回复改写助手。根据「修复指令」对「原候选回复」做补丁式改写，输出一条最终回复正文。"
+    user = f"原候选回复：\n{safe_text(original_reply)}\n\n修复指令：\n{safe_text(repair_instructions)}\n\n请按约定 JSON 格式输出修复后的 reply。"
+    body = get_chat_buffer_body_messages(state or {}, limit=30)
+    messages = [SystemMessage(content=system), *body, HumanMessage(content=user)]
+
+    def _do_invoke() -> Any:
+        if hasattr(llm_invoker, "with_structured_output"):
+            structured = llm_invoker.with_structured_output(RepairReplyOutput)
+            obj = structured.invoke(messages)
+            out = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+            return out.get("reply") or ""
+        resp = llm_invoker.invoke(messages)
+        return (getattr(resp, "content", "") or "").strip()
+
+    try:
+        with futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_do_invoke)
+            content = future.result(timeout=repair_timeout_s)
+        if isinstance(content, str) and content.strip():
+            return content.strip()
+    except futures.TimeoutError:
+        logger.warning("[LATS/repair] 修复调用超时（%.0fs，将回退 fallback）", repair_timeout_s)
+    except Exception as e:
+        logger.warning("[LATS/repair] 修复调用异常（将回退 fallback）: %s: %s", type(e).__name__, e)
     return None
 
 
@@ -79,7 +106,8 @@ def _lats_search_v3(
         return None, None, None, {**tree, "error": "plan_reply_27_failed"}
 
     eval_result = evaluate_27_candidates_single_llm(state, candidates_27, requirements, llm_invoker=llm_eval)
-    best_id = max(0, min(26, int(eval_result.get("best_id", 0))))
+    n_candidates = len(candidates_27)
+    best_id = max(0, min(n_candidates - 1, int(eval_result.get("best_id", 0)))) if n_candidates else 0
     accept = bool(eval_result.get("accept", False))
     fail_type = eval_result.get("fail_type")
     repair_instructions = eval_result.get("repair_instructions")
@@ -88,6 +116,21 @@ def _lats_search_v3(
     best_candidate = next((c for c in candidates_27 if int(c.get("id", -1)) == best_id), None)
     if not best_candidate:
         best_candidate = candidates_27[best_id] if best_id < len(candidates_27) else candidates_27[0]
+    # 5 路：tag/action 由 reply_planner 写在每条候选上，直接取
+    content_move_tag = (best_candidate or {}).get("tag", "FREE")
+    content_move_action = (best_candidate or {}).get("action", "FREEFORM")
+    content_move_tag = (best_candidate or {}).get("tag", "FREE")
+    content_move_action = (best_candidate or {}).get("action", "FREEFORM")
+    tree["content_move_tag"] = content_move_tag
+    tree["content_move_action"] = content_move_action
+    logger.info(
+        "[LATS] best_id=%s => content_move tag=%s action=%s accept=%s",
+        best_id,
+        content_move_tag,
+        content_move_action,
+        accept,
+    )
+
     original_reply = (best_candidate or {}).get("reply") or ""
 
     tree["best_id"] = best_id
@@ -106,9 +149,14 @@ def _lats_search_v3(
         }
         return reply_plan, proc, sim_report, tree
 
-    # 关闭 repair：未通过时直接用 fallback，不再多一次 LLM 调用
+    # 未通过：先尝试一次 repair，再 fallback
     final_reply: Optional[str] = None
-    if (fallback or "").strip():
+    if (repair_instructions or "").strip():
+        repaired = _repair_reply_via_llm(state, original_reply, repair_instructions, llm_gen)
+        if (repaired or "").strip():
+            final_reply = repaired.strip()
+            tree["used_repair"] = True
+    if final_reply is None and (fallback or "").strip():
         final_reply = (fallback or "").strip()
         tree["used_fallback"] = True
     if final_reply is None:

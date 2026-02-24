@@ -16,8 +16,7 @@ from pydantic import BaseModel, Field
 
 class RelationshipStateModel(BaseModel):
     """
-    系统内部统一使用 0-1 范围（与 prompt_helpers / evolver / requirements 一致）。
-    旧版若曾写入 0-100（points），应在持久化层/写入层做归一化与截断。
+    系统内部关系值统一 0-1。旧库若曾为 0-100，在持久化层/写入层兼容归一化与截断。
     """
 
     closeness: float = Field(0.3, ge=0.0, le=1.0)

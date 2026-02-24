@@ -2,6 +2,7 @@
 Fast 节点：当策略 route_path 为 fast 时由 strategy_resolver 路由到此节点。
 使用与 reply_planner 相同的提示词构建（含必须遵守规则，优先级从高到低：当前策略 > 时间与会话上下文 > 阶段意图与行为准则 > 写作要求；冲突时靠前的优先），
 仅输出单条回复，使用 main 的 LLM（gpt-4o），不经过 LATS。
+字数限制：fast_reply 路径下回复总字数不超过 25 字（中文按字计）。
 """
 from __future__ import annotations
 
@@ -15,6 +16,9 @@ from app.lats.requirements import compile_requirements
 from app.lats.reply_planner import plan_reply_via_llm
 from app.lats.search import _compile_reply_plan_to_text_plan
 from utils.external_text import strip_candidate_prefix
+
+# fast_reply 路径下的字数上限（字）
+FAST_REPLY_WORD_LIMIT = 25
 
 
 def create_fast_reply_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
@@ -45,9 +49,17 @@ def create_fast_reply_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         merged["requirements"] = requirements
         merged["style_profile"] = style_profile
 
-        rp = plan_reply_via_llm(merged, llm_invoker, user_message_only=True)
+        global_guidelines = (
+            f"回复总字数不超过 {FAST_REPLY_WORD_LIMIT} 字（中文按字计），简短自然即可。"
+        )
+        rp = plan_reply_via_llm(
+            merged, llm_invoker, user_message_only=True, global_guidelines=global_guidelines
+        )
         proc = _compile_reply_plan_to_text_plan(rp or {}, max_messages=1)
         final_text = " ".join([strip_candidate_prefix(str(x)) for x in (proc.get("messages") or [])]).strip()
+        # 硬截断：若 LLM 超出字数限制，按 25 字截断
+        if len(final_text) > FAST_REPLY_WORD_LIMIT:
+            final_text = final_text[:FAST_REPLY_WORD_LIMIT].rstrip()
 
         return {
             "requirements": requirements,

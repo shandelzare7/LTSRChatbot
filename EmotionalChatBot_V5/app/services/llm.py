@@ -58,28 +58,21 @@ def _dump_file_path() -> str:
 def _service_tier_for_call(*, model: str, base_url: str) -> Optional[str]:
     """
     Best-effort OpenAI service tier routing.
-    Default behavior in this repo: all `gpt-4o-mini` calls use `priority` on the official
-    OpenAI endpoint (unless explicitly disabled).
+    仅在 llm.py 此处配置：哪些 model 在官方 endpoint 上默认走 priority。
+    当前配置：gpt-4o-mini、gpt-4.1-mini 默认 priority；可通过 LTSR_DISABLE_4OMINI_PRIORITY=1 关闭。
     """
     m = str(model or "")
-    # Accept version-suffixed variants like "gpt-4o-mini-YYYY-MM-DD"
-    if not m.startswith("gpt-4o-mini"):
+    # 仅以下 model 走 priority（之前只有 gpt-4o-mini，现增加 gpt-4.1-mini）
+    if not (m.startswith("gpt-4o-mini") or m.startswith("gpt-4.1-mini")):
         return None
-    # Only for OpenAI official endpoint (or empty base_url which defaults to it in this repo)
     b = (base_url or "").strip()
     if b and "api.openai.com" not in b:
         return None
-    # Explicit disable switch (debug/perf comparisons)
     disable = (os.getenv("LTSR_DISABLE_4OMINI_PRIORITY") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "y",
-        "on",
+        "1", "true", "yes", "y", "on",
     }
     if disable:
         return None
-    # Allow override via env; default to priority for gpt-4o-mini
     tier = (os.getenv("LTSR_OPENAI_SERVICE_TIER") or os.getenv("OPENAI_SERVICE_TIER") or "").strip()
     return tier or "priority"
 

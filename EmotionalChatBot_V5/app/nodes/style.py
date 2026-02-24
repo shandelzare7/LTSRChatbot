@@ -40,6 +40,23 @@ def lin(
     return clip01(s)
 
 
+def contrast_gamma01(x: float, gamma: float = 1.25) -> float:
+    """
+    gamma>1: push values away from 0.5 (increase margin)
+    gamma<1: pull values toward 0.5 (decrease margin)
+
+    Smooth, symmetric around 0.5.
+    """
+    x = clip01(x)
+    if gamma <= 0:
+        return x
+    if abs(gamma - 1.0) < 1e-9:
+        return x
+    if x <= 0.5:
+        return 0.5 * (2.0 * x) ** gamma
+    return 1.0 - 0.5 * (2.0 * (1.0 - x)) ** gamma
+
+
 def _respect_mid01(respect01: float) -> float:
     """
     Mid-respect (~0.5) is safest for light play/irony; extremes are less safe.
@@ -69,19 +86,14 @@ def _parse_01(x: Any, default: float = 0.5) -> float:
 def _pad_to_01(
     x: Any,
     *,
-    pad_scale: Literal["auto", "0_1", "m1_1"] = "auto",
+    pad_scale: Literal["0_1", "m1_1"] = "m1_1",
     default: float = 0.5,
 ) -> float:
     """
-    PAD 常见两种尺度：
-      - [-1, 1]（中性=0）
-      - [0, 1]  （中性=0.5）
-
-    pad_scale:
-      - "0_1": 强制按 0..1
-      - "m1_1": 强制按 -1..1 映射到 0..1
-      - "auto": 若检测到负值 => 按 -1..1；否则按 0..1
-               （注意：若上游确实是 [-1,1] 但当前值恰好>=0，auto 无法完全区分）
+    PAD 值映射到 [0, 1]。不再使用 auto，由上游通过 mood["pad_scale"] 或 state 传入尺度。
+    - "m1_1": 输入为 [-1, 1]，0 为中性
+    - "0_1":  输入为 [0, 1]，0.5 为中性
+    缺省 m1_1（更安全）。
     """
     if x is None:
         return default
@@ -92,13 +104,8 @@ def _pad_to_01(
 
     if pad_scale == "0_1":
         return clip01(v)
-    if pad_scale == "m1_1":
-        return clip01((v + 1.0) / 2.0)
-
-    # auto
-    if v < 0.0:
-        return clip01((v + 1.0) / 2.0)
-    return clip01(v)
+    # m1_1（默认）
+    return clip01((v + 1.0) / 2.0)
 
 
 # -----------------------------
@@ -225,7 +232,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         base=0.50,
         terms={
             "C": +0.55,
-            "respect": +0.45,
+            "respect": +0.225,  # 减半：原 +0.45
             "hierarchy": +0.35,
             "busy": +0.15,
             "familiarity": -0.40,
@@ -237,22 +244,32 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         gain=0.95,
     )
 
-    # (b) POLITENESS
+    # (b) POLITENESS (rebalanced: less "always polite", more context-sensitive)
     POLITENESS = lin(
-        base=0.55,
+        base=0.50,  # was 0.55; make neutral actually neutral
         terms={
-            "A": +0.60,
-            "respect": +0.45,
-            "N": +0.20,
-            "hierarchy": -0.25,
-            "familiarity": -0.20,
-            "busy": -0.15,
-            "momentum": -0.05,
-            "topic_appeal": +0.05,
+            # deference / face-saving
+            "respect": +0.275,  # 减半：原 +0.55
+            # agreeableness should mostly show up in WARMTH; keep mild here
+            "A": +0.25,  # was +0.60
+            "N": +0.10,  # was +0.20
+            # when it's safe & familiar => drop pleasantries
+            "familiarity": -0.45,  # was -0.20
+            "safety_to_play": -0.25,  # new
+            # pressure => terse, less ceremonious
+            "busy": -0.25,  # was -0.15
+            "tension": -0.20,  # new
+            # separate "user power" vs "bot dominance" (adjust sign if your semantics differ)
+            "power": +0.20,  # new
+            "D": -0.15,  # new
+            # tiny dynamics
+            "momentum": -0.03,
+            "topic_appeal": +0.03,
         },
         values=v,
-        gain=0.95,
+        gain=1.05,  # slightly >1 to increase spread (margin)
     )
+    POLITENESS = clip01(POLITENESS + j * 0.5)
 
     # (c) WARMTH
     WARMTH = lin(
@@ -401,6 +418,17 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         EXPRESSION_MODE = 0 if CERTAINTY >= 0.55 else 1
         CHAT_MARKERS = min(CHAT_MARKERS, 0.20)
 
+    # -----------------------------
+    # post shaping (increase "margin" for LLM observability)
+    # -----------------------------
+    FORMALITY = contrast_gamma01(FORMALITY, gamma=1.15)
+    POLITENESS = contrast_gamma01(POLITENESS, gamma=1.30)
+    WARMTH = contrast_gamma01(WARMTH, gamma=1.10)
+    CHAT_MARKERS = contrast_gamma01(CHAT_MARKERS, gamma=1.20)
+
+    # CERTAINTY is safety-sensitive: keep mild, and respect the cap
+    CERTAINTY = min(contrast_gamma01(CERTAINTY, gamma=1.05), certainty_cap)
+
     return {
         "FORMALITY": float(FORMALITY),
         "POLITENESS": float(POLITENESS),
@@ -440,28 +468,22 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
         arousal_raw = mood.get("arousal")
         dominance_raw = mood.get("dominance")
 
-        pad_scale_hint = mood.get("pad_scale")  # optional: "m1_1" or "0_1"
-        if pad_scale_hint in ("m1_1", "0_1"):
-            pad_scale: Literal["auto", "0_1", "m1_1"] = pad_scale_hint
-        else:
-            # auto detect by negativity (best-effort)
-            neg_flag = False
-            for raw in (pleasure_raw, arousal_raw, dominance_raw):
-                if raw is None:
-                    continue
-                try:
-                    if float(raw) < 0.0:
-                        neg_flag = True
-                        break
-                except (TypeError, ValueError):
-                    continue
-            pad_scale = "m1_1" if neg_flag else "0_1"
+        # PAD：强制使用 mood["pad_scale"]，否则默认 m1_1（不再 auto 推断）
+        pad_scale: Literal["0_1", "m1_1"] = "m1_1"
+        if mood.get("pad_scale") in ("m1_1", "0_1"):
+            pad_scale = mood["pad_scale"]
 
         P = _pad_to_01(pleasure_raw, pad_scale=pad_scale, default=0.5)
         Ar = _pad_to_01(arousal_raw, pad_scale=pad_scale, default=0.5)
         D = _pad_to_01(dominance_raw, pad_scale=pad_scale, default=0.5)
 
-        # Relationship (0..1, allow -1..1)
+        # Relationship：强制使用 rel_scale，否则默认 0_1（避免 [−1,1] 的 0.2 被当成 [0,1] 的 0.2）
+        rel_scale: Literal["0_1", "m1_1"] = "0_1"
+        if rel.get("rel_scale") in ("m1_1", "0_1"):
+            rel_scale = rel["rel_scale"]
+        elif state.get("relationship_scale") in ("m1_1", "0_1"):
+            rel_scale = state["relationship_scale"]
+
         def _get_rel(key: str, default: float = 0.5) -> float:
             rv = rel.get(key)
             if rv is None and key == "attractiveness":
@@ -472,11 +494,8 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
                 f = float(rv)
             except (TypeError, ValueError):
                 return default
-
-            if 0.0 <= f <= 1.0:
-                return f
-            if -1.0 <= f <= 1.0:
-                return (f + 1.0) / 2.0
+            if rel_scale == "m1_1" and -1.0 <= f <= 1.0:
+                return clip01((f + 1.0) / 2.0)
             return clip01(f)
 
         closeness = _get_rel("closeness", 0.5)
@@ -492,8 +511,14 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
 
         # evidence：你现在没有来源 => 传 None
         inp = Inputs(
-            E=E, A=A, C=C, O=O, N=N,
-            P=P, Ar=Ar, D=D,
+            E=E,
+            A=A,
+            C=C,
+            O=O,
+            N=N,
+            P=P,
+            Ar=Ar,
+            D=D,
             busy=busy,
             momentum=momentum,
             topic_appeal=topic_appeal,

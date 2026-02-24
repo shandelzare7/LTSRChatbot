@@ -312,12 +312,12 @@ def create_test_state(user_input: str) -> AgentState:
         },
         "user_inferred_profile": {},
         "relationship_state": {
-            "closeness": 30.0,
-            "trust": 30.0,
-            "liking": 30.0,
-            "respect": 30.0,
-            "attractiveness": 30.0,
-            "power": 50.0,
+            "closeness": 0.3,
+            "trust": 0.3,
+            "liking": 0.3,
+            "respect": 0.3,
+            "attractiveness": 0.3,
+            "power": 0.5,
         },
         "mood_state": {
             "pleasure": 0.0,

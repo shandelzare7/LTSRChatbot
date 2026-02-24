@@ -97,7 +97,7 @@ class Base(DeclarativeBase):
 # -----------------------------
 
 
-_PADB_DEFAULT = lambda: {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}
+_PADB_DEFAULT = lambda: {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0, "pad_scale": "m1_1"}
 
 
 class Bot(Base):
@@ -699,7 +699,7 @@ class DBManager:
                 user_basic = dict(user.basic_info or {})
                 # 不再默认设置 name="User"，以便 task_planner 能正确触发 ask_user_name 等基础信息任务
 
-                # 关系维度：统一 0-1 量纲并补齐缺失 key（缺失不应默认为 0）
+                # 关系维度：统一 0-1 量纲并补齐缺失 key（项目关系值统一 0-1；读入时若为旧 0-100 则兼容归一化）
                 dims = dict(user.dimensions or {})
 
                 def _norm01(v: Any) -> float:
@@ -1176,7 +1176,7 @@ class DBManager:
                     )
 
                 user.current_stage = str(state.get("current_stage") or user.current_stage or "initiating")
-                # 关系维度：避免“部分字段写入”把其它维度抹掉；并统一到 0-1 量纲 + 单轮跳变截断
+                # 关系维度：避免“部分字段写入”把其它维度抹掉；统一到 0-1 量纲（关系值统一 0-1；若 incoming 为旧 0-100 则兼容归一化）+ 单轮跳变截断
                 prev_dims = dict(user.dimensions or {})
                 incoming_dims = dict(state.get("relationship_state") or {})
 
@@ -1185,7 +1185,7 @@ class DBManager:
                         x = float(v)
                     except Exception:
                         return 0.0
-                    # 兼容旧 points(0-100)
+                    # 兼容旧库/旧写入：若曾为 0-100 则归一化到 0-1
                     if x > 1.0:
                         if x <= 100.0:
                             x = x / 100.0
@@ -1255,7 +1255,8 @@ class DBManager:
                     _ik = list(new_inferred.keys()) if new_inferred else []
                     print(f"[Memory/Write] user.inferred_profile updated: keys={_ik}")
 
-                # user.basic_info: merge incoming updates (only fill None/empty fields)
+                # user.basic_info: merge incoming updates (only fill None/empty fields).
+                # 重要：若 incoming 为空，不覆盖已有 basic_info，避免 graph 未带回 memory_manager 更新时把名字等抹掉（如 bot-to-bot 第二轮 save_turn）。
                 incoming_basic = dict(state.get("user_basic_info") or {})
                 existing_basic = dict(user.basic_info or {})
                 merged_any = False

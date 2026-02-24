@@ -14,9 +14,9 @@ processor.py
 
 from __future__ import annotations
 
+import logging
 import random
 import re
-import sys
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -26,6 +26,8 @@ from app.state import AgentState, HumanizedOutput, ResponseSegment
 from src.schemas import ProcessorOutput
 from utils.llm_json import parse_json_from_llm
 from utils.tracing import trace_if_enabled
+
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # 配置常量 (Configuration)
@@ -69,15 +71,17 @@ def _clip01(x: Any) -> float:
     if v > 1.0: return 1.0
     return v
 
-def _pad_to_01(v: Any, *, default: float = 0.5) -> float:
-    if v is None: return _clip01(default)
+def _pad_to_01(v: Any, *, pad_scale: str = "m1_1", default: float = 0.5) -> float:
+    """PAD 映射到 [0,1]。pad_scale 由 mood[\"pad_scale\"] 传入，缺省 m1_1。"""
+    if v is None:
+        return _clip01(default)
     try:
         x = float(v)
     except Exception:
         return _clip01(default)
-    if x < 0.0 or x > 1.0:
-        return _clip01((x + 1.0) / 2.0)
-    return _clip01(x)
+    if pad_scale == "0_1":
+        return _clip01(x)
+    return _clip01((x + 1.0) / 2.0)
 
 def _extreme_deadzone(x01: float, *, low: float = 0.2, high: float = 0.8) -> Tuple[float, float]:
     x = _clip01(x01)
@@ -123,18 +127,17 @@ class HumanizationProcessor:
         c = _clip01(self.big5.get("conscientiousness", 0.0) or 0.0)
         n = _clip01(self.big5.get("neuroticism", 0.0) or 0.0)
 
+        pad_scale = "m1_1"
+        if self.mood.get("pad_scale") in ("m1_1", "0_1"):
+            pad_scale = self.mood["pad_scale"]
+
         P_raw = float(self.mood.get("pleasure", 0.0) or 0.0)
         A_raw = float(self.mood.get("arousal", 0.0) or 0.0)
         D_raw = float(self.mood.get("dominance", 0.0) or 0.0)
 
-        if (P_raw < 0.0 or P_raw > 1.0) or (A_raw < 0.0 or A_raw > 1.0) or (D_raw < 0.0 or D_raw > 1.0):
-            pleasure01 = _clip01((P_raw + 1.0) / 2.0)
-            arousal01 = _clip01((A_raw + 1.0) / 2.0)
-            dominance01 = _clip01((D_raw + 1.0) / 2.0)
-        else:
-            pleasure01 = _clip01(P_raw)
-            arousal01 = _clip01(A_raw)
-            dominance01 = _clip01(D_raw)
+        pleasure01 = _pad_to_01(P_raw, pad_scale=pad_scale)
+        arousal01 = _pad_to_01(A_raw, pad_scale=pad_scale)
+        dominance01 = _pad_to_01(D_raw, pad_scale=pad_scale)
 
         if pleasure01 == 0.0 and arousal01 == 0.0 and dominance01 == 0.0:
             pleasure01 = arousal01 = dominance01 = 0.5
@@ -253,7 +256,7 @@ class HumanizationProcessor:
 
         if is_macro:
             delay_hours = macro_delay / 3600.0
-            print(f"[MONITOR-Fallback] macro_delay: reason={macro_reason}, delay={delay_hours:.2f}h")
+            logger.info("[MONITOR-Fallback] macro_delay: reason=%s, delay=%.2fh", macro_reason, delay_hours)
 
         t_read = 0.5 + (len(user_input) * AVG_READING_SPEED)
         cognitive_load = len(final_response) * 0.02
@@ -452,7 +455,7 @@ def _humanize_via_llm(state: AgentState, llm_invoker: Any, dyn: Dict[str, float]
         if isinstance(data, dict):
             return _data_to_result(data)
     except Exception as e:
-        print(f"[Processor] LLM parsing failed: {e}")
+        logger.info("[Processor] LLM parsing failed: %s", e)
     return None
 
 
@@ -476,20 +479,14 @@ def humanize_response_node(state: AgentState, llm_invoker: Any = None) -> Dict[s
     total_latency = float(result.get("total_latency_seconds", 0.0) or 0.0)
 
     frag_tendency = float(dyn.get("fragmentation_tendency", 0.0))
-    # 分割信息同时打 stdout（进日志）和 stderr（控制台可见，因图内常将 stdout 重定向到 log）
-    def _console(s: str) -> None:
-        print(s)
-        try:
-            sys.stderr.write(s + "\n")
-            sys.stderr.flush()
-        except Exception:
-            pass
-    _console(f"[Processor] 核心动态: 碎片化倾向 tendency={frag_tendency:.2f}")
-    _console(f"[Processor] 延迟规划: 消息数 {len(segs)}, 首条延迟 {first_delay:.2f}s, 总延迟 {total_latency:.2f}s")
+    logger.info(
+        "[Processor] 核心动态: 碎片化倾向 tendency=%.2f | 延迟规划: 消息数 %s, 首条延迟 %.2fs, 总延迟 %.2fs",
+        frag_tendency, len(segs), first_delay, total_latency,
+    )
     for i, seg in enumerate(segs):
         full = (seg.get("content", "") or "")
         content_preview = (full[:40] + "...") if len(full) > 40 else full
-        _console(f"  [{i+1}] delay={float(seg.get('delay', 0.0)):.2f}s, content=\"{content_preview}\"")
+        logger.info("  [%s] delay=%.2fs, content=%s", i + 1, float(seg.get("delay", 0.0)), content_preview)
 
     return {
         "humanized_output": result,

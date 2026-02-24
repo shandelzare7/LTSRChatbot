@@ -84,6 +84,11 @@ class InnerMonologueOutput(BaseModel):
 
     monologue: str = Field("", description="内心独白文本")
     selected_profile_keys: List[str] = Field(default_factory=list, description="从 profile 中选中的键名")
+    selected_content_move_ids: List[int] = Field(
+        default_factory=list,
+        description="当轮可执行的 content move id，最多 4 个，对应 content_moves.yaml 中 pure_content_transformations 的 id",
+    )
+
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +172,14 @@ class LATSingleEvalResult(BaseModel):
     fail_type: Optional[str] = Field(None, description="不通过时填，如 immersion_break / repetition / stage_mismatch")
     repair_instructions: Optional[str] = Field(None, description="可执行的补丁式改写指令，供轻模型一次修复")
     fallback: Optional[str] = Field(None, description="兜底回复正文或类型标记，如 clarification / refuse")
+
+
+class RepairReplyOutput(BaseModel):
+    model_config = _pydantic_extra_forbid
+
+    """LATS repair：按修复指令改写后的单条回复，统一用 response format 输出。"""
+
+    reply: str = Field(..., description="修复后的完整回复正文，仅此一条")
 
 
 # ---------------------------------------------------------------------------

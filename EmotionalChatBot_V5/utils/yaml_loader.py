@@ -1,7 +1,7 @@
 """配置文件读取工具"""
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
 
@@ -172,4 +172,56 @@ def load_content_moves(config_path: Union[str, Path, None] = None) -> List[Dict[
         return [m for m in moves if isinstance(m, dict) and m.get("tag")]
     except Exception:
         return []
+
+
+def load_pure_content_transformations(config_path: Union[str, Path, None] = None) -> List[Dict[str, Any]]:
+    """加载 config/content_moves.yaml 中的 pure_content_transformations，供 inner_monologue 选当轮可执行的 content move。
+    返回列表，每项含 id, name, english_name(可选), content_operation。"""
+    if config_path is None:
+        root = get_project_root()
+        config_path = root / "config" / "content_moves.yaml"
+    else:
+        config_path = Path(config_path)
+    if not config_path.exists():
+        return []
+    try:
+        data = load_yaml(config_path)
+        raw = data.get("pure_content_transformations") if isinstance(data, dict) else None
+        if not isinstance(raw, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for m in raw:
+            if not isinstance(m, dict):
+                continue
+            id_val = m.get("id")
+            if id_val is None:
+                continue
+            out.append({
+                "id": int(id_val) if isinstance(id_val, (int, float)) else id_val,
+                "name": str(m.get("name") or "").strip(),
+                "english_name": str(m.get("english_name") or "").strip(),
+                "content_operation": str(m.get("content_operation") or "").strip(),
+            })
+        return out
+    except Exception:
+        return []
+
+def get_content_move_for_best_id(
+    best_id: int,
+    config_path: Union[str, Path, None] = None,
+) -> Tuple[str, str]:
+    """
+    根据 LATS 选中的 best_id (0..26) 从 content_moves.yaml 解析对应的 tag 与 action。
+    与生成时使用的配置一致，保证日志/state 中的 content_op 标签与 YAML 一致。
+    slot = best_id // 3；slot 0..7 为前 8 路 content_move，slot 8 为 FREE。
+    """
+    bid = max(0, min(26, int(best_id)))
+    slot = bid // 3
+    moves = load_content_moves(config_path)
+    if slot < len(moves) and slot < 8:
+        m = moves[slot]
+        tag = str((m or {}).get("tag") or "").strip() or "UNKNOWN"
+        action = str((m or {}).get("action") or (m or {}).get("action_en") or "").strip()
+        return (tag, action or tag)
+    return ("FREE", "FREEFORM")
 

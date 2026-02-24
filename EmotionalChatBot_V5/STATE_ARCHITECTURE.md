@@ -79,7 +79,7 @@ AI 分析出的用户隐性侧写（无固定字段，可扩展 JSON；整块注
 ### 3. Physics Layer (物理层) - "我们的关系和我的心情"
 
 #### RelationshipState
-6维核心关系属性，范围 `[0, 100]`：
+6维核心关系属性，范围 `[0, 1]`（统一 0-1，不再使用 0-100）：
 - **closeness**: 亲密（陌生 → 熟人）
 - **trust**: 信任（防备 → 依赖）
 - **liking**: 喜爱（工作伙伴 → 喜欢的伙伴）
@@ -208,12 +208,12 @@ initial_state: AgentState = {
     },
     
     "relationship_state": {
-        "closeness": 20.0,
-        "trust": 15.0,
-        "liking": 25.0,
-        "respect": 30.0,
-        "attractiveness": 40.0,
-        "power": 50.0
+        "closeness": 0.2,
+        "trust": 0.15,
+        "liking": 0.25,
+        "respect": 0.3,
+        "attractiveness": 0.4,
+        "power": 0.5
     },
     
     "mood_state": {
@@ -237,15 +237,15 @@ state["bot_persona"]["attributes"]["recent_interest"] = "某部剧"
 
 ### 计算关系变化
 ```python
-# 根据用户行为更新关系
+# 根据用户行为更新关系（关系值统一 0-1）
 deltas = {
-    "closeness": +5.0,
-    "trust": +3.0,
-    "attractiveness": +2.0
+    "closeness": +0.05,
+    "trust": +0.03,
+    "attractiveness": +0.02
 }
 
 for key, delta in deltas.items():
-    state["relationship_state"][key] = min(100.0, 
+    state["relationship_state"][key] = min(1.0,
         state["relationship_state"][key] + delta)
 ```
 

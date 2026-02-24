@@ -72,14 +72,16 @@ def build_graph(
     # 按节点设 temperature：detection 0.1、task_planner 0.15、fast_reply 0.55；
     # processor 0.3、evolver 0.18、memory_manager 0.1、三 router 0.05；reply_planner 27 候选见下。
     from app.core import graph_llm_config as _glc
-    _glc.PLANNER_TEMPERATURE = 0.8
-    _glc.PLANNER_TOP_P = 0.9
+    _glc.PLANNER_TEMPERATURE = 1.1
+    _glc.PLANNER_TOP_P = 0.95
+    _glc.PLANNER_FREQUENCY_PENALTY = 0.4
+    _glc.PLANNER_PRESENCE_PENALTY = 0.5
     llm = llm or get_llm(role="main")
     llm_fast = llm_fast or get_llm(role="fast")
     llm_detection = get_llm(role="fast", temperature=0.1)
     llm_task_planner = get_llm(role="fast", temperature=0.15)
     llm_fast_reply = get_llm(role="main", temperature=0.55)
-    llm_planner_27 = get_llm(role="fast", temperature=_glc.PLANNER_TEMPERATURE)
+    llm_planner_27 = get_llm(role="fast", model="gpt-4.1-mini", temperature=_glc.PLANNER_TEMPERATURE)
     llm_processor = get_llm(role="fast", temperature=0.3)
     llm_evolver = get_llm(role="fast", temperature=0.18)
     llm_memory_manager = get_llm(role="fast", temperature=0.1)
@@ -172,7 +174,7 @@ def build_graph(
     lats_node = create_lats_search_node(
         llm_fast,
         llm_soft_scorer=llm_fast,
-        llm_gen=llm_planner_27,   # 27 候选生成（reply_planner）fast；实际 temperature 以 reply_planner 内 _planner_sampling_for_round + invoke 传入为准
+        llm_gen=llm_planner_27,   # 27 候选生成（reply_planner）；temperature/top_p 由 graph_llm_config 定义，reply_planner 按 gen_round 读取
         llm_eval=llm,             # 单模型评估用 main
     )
     fast_reply_node = create_fast_reply_node(llm_fast_reply)  # main, temperature=0.55

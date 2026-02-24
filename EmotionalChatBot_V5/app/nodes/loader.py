@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from app.state import AgentState
 
 from app.lats.prompt_utils import sanitize_memory_text, filter_retrieved_memories
+from app.nodes.task_planner import get_session_basic_info_pending_task_ids
 from utils.external_text import sanitize_external_text, detect_internal_leak
 from utils.prompt_helpers import knapp_baseline_momentum
 from utils.busy_schedule import get_busy_fallback_from_schedule
@@ -71,6 +72,13 @@ def _seconds_since_last_message(
     return _parse_timestamp_to_seconds(kwargs.get("timestamp"))
 
 
+def _ensure_rel_scale(rel: Dict[str, Any]) -> Dict[str, Any]:
+    """保证 relationship_state 带 rel_scale，缺省 0_1（与 PAD 的 pad_scale 同理）。"""
+    d = dict(rel)
+    d.setdefault("rel_scale", "0_1")
+    return d
+
+
 def _resolve_conversation_momentum(
     seconds_since_last: Optional[float],
     current_stage: Any,
@@ -122,6 +130,7 @@ def _apply_busy_fallback_to_output(out: Dict[str, Any], state: Dict[str, Any]) -
     busy = min(float(busy), BUSYNESS_CAP)
     mood = dict(out.get("mood_state") or {})
     mood["busyness"] = busy
+    mood.setdefault("pad_scale", "m1_1")
     out["mood_state"] = mood
 
 
@@ -312,7 +321,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             out = {
                 "bot_id": str(bot_id),
                 "relationship_id": str(db_data.get("relationship_id") or ""),
-                "relationship_state": db_data.get("relationship_state") or {},  # 6D: closeness/trust/liking/respect/attractiveness/power，Style 节点输入
+                "relationship_state": _ensure_rel_scale(db_data.get("relationship_state") or {}),  # 6D + rel_scale 缺省 0_1
                 "reply_duration_seconds_list": db_data.get("reply_duration_seconds_list") or [],
                 "mood_state": db_data.get("mood_state") or {},
                 "current_stage": current_stage,
@@ -338,6 +347,12 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "memories": db_data.get("conversation_summary") or "",
                 "turn_count_in_session": turn_count,
             }
+            if new_session:
+                ra = dict(out.get("relationship_assets") or {})
+                ra["session_basic_info_pending_task_ids"] = get_session_basic_info_pending_task_ids(
+                    out.get("user_basic_info") or {}
+                )
+                out["relationship_assets"] = ra
             _apply_busy_fallback_to_output(out, state)
             return out
 
@@ -393,7 +408,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
 
             out = {
                 "bot_id": str(bot_id),
-                "relationship_state": local_data.get("relationship_state") or {},  # 6D，Style 节点输入；本地存盘需含 attractiveness 或 warmth/liking 回退
+                "relationship_state": _ensure_rel_scale(local_data.get("relationship_state") or {}),  # 6D + rel_scale 缺省 0_1
                 "reply_duration_seconds_list": local_data.get("reply_duration_seconds_list") or [],
                 "mood_state": local_data.get("mood_state") or {},
                 "current_stage": current_stage,
@@ -418,6 +433,12 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "memories": local_data.get("conversation_summary") or "",
                 "turn_count_in_session": turn_count,
             }
+            if new_session:
+                ra = dict(out.get("relationship_assets") or {})
+                ra["session_basic_info_pending_task_ids"] = get_session_basic_info_pending_task_ids(
+                    out.get("user_basic_info") or {}
+                )
+                out["relationship_assets"] = ra
             _apply_busy_fallback_to_output(out, state)
             return out
         except Exception:

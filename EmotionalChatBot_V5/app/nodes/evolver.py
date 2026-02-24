@@ -135,8 +135,12 @@ def _ensure_relationship_defaults(state: Dict[str, Any]) -> Dict[str, Any]:
             rel[k] = 0.5
         rel[k] = round(_clamp(rel[k], 0.0, REL_HI_CAP), 4)
 
+    rel.setdefault("rel_scale", "0_1")
     s["relationship_state"] = rel
-    s.setdefault("mood_state", {"pleasure": 0.0, "arousal": 0.0, "dominance": 0.0, "busyness": 0.0})
+    s.setdefault("mood_state", {"pleasure": 0.0, "arousal": 0.0, "dominance": 0.0, "busyness": 0.0, "pad_scale": "m1_1"})
+    mood = s.get("mood_state")
+    if isinstance(mood, dict):
+        mood.setdefault("pad_scale", "m1_1")
     s.setdefault("current_stage", "experimenting")
     s.setdefault("user_input", s.get("user_input") or "")
     return s

@@ -66,7 +66,7 @@ async def run_migration():
                 basic_info JSONB DEFAULT '{}'::jsonb,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
                 current_stage TEXT DEFAULT 'initiating',
-                dimensions JSONB DEFAULT '{"closeness": 0, "trust": 0, "liking": 0, "respect": 0, "attractiveness": 0, "power": 50}'::jsonb,
+                dimensions JSONB DEFAULT '{"closeness": 0.3, "trust": 0.3, "liking": 0.3, "respect": 0.3, "attractiveness": 0.3, "power": 0.5}'::jsonb,
                 mood_state JSONB DEFAULT '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'::jsonb,
                 inferred_profile JSONB DEFAULT '{}'::jsonb,
                 assets JSONB DEFAULT '{}'::jsonb,

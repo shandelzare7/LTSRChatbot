@@ -1,26 +1,40 @@
-# LATS V3: 8 个 content_move 标签，用于 9 路并行生成（8 路按标签各 3 档 + 1 路自由）
-# 每路生成 3 条回复：light / medium / strong（对 action 的应用强度递增）
-content_moves:
-  - tag: SPECIFY
-    action: ASK_FOR_DETAILS
+pure_content_transformations:
+  - id: 1
+    name: 向下细化
+    english_name: Downward Specification
+    content_operation: 从用户的输入中提取一个核心名词或动词，并在回复中请求或补充关于该实体的更小颗粒度信息（如：具体分支、前置条件、某个切片的时间点、局部特征）。
 
-  - tag: GENERALIZE
-    action: GENERALIZE_PATTERN
+  - id: 2
+    name: 向上概括
+    english_name: Upward Abstraction
+    content_operation: 将用户描述的具象事件或情绪，归类到一个更大的宏观集合、普遍规律、行业共性或系统级现象中。不要增加新的具体实体，只做层级爬升。
 
-  - tag: STRUCTURAL_ANALOGY
-    action: MAP_ANALOGY
+  - id: 3
+    name: 横向联想
+    english_name: Lateral Association
+    content_operation: 识别用户输入的核心概念结构，并从另一个完全不同的物理领域、时间线或主体中，提取一个具有相似概念结构的实体进行并列对比或映射。
 
-  - tag: STATUS_CHECK
-    action: STATUS_SUMMARY
+  - id: 4
+    name: 自我暴露
+    english_name: Self-disclosure
+    content_operation: 提取角色自身知识库或设定集中的一条信息（如自身的某个历史行为、当前客观状态、已知属性），该信息必须与用户当前的话题在逻辑上形成镜像或对照。
 
-  - tag: MECHANISM
-    action: PROPOSE_MECHANISM
+  - id: 5
+    name: 机制溯源
+    english_name: Root Cause / Mechanism
+    content_operation: 针对用户抛出的现象或结果，输出一条指向该现象发生的物理起因、历史前置事件或底层运转流程的信息。
 
-  - tag: COUNTERFACTUAL
-    action: COUNTERFACTUAL_IF_THEN
+  - id: 6
+    name: 假设推演
+    english_name: Hypothetical Deduction
+    content_operation: 改变用户叙述中的某一个关键变量（如时间倒流、条件反转、人物互换），并基于这个新前提，推导出一个逻辑上必然或可能的后续事件。
 
-  - tag: META_STATE
-    action: META_DIAGNOSE
+  - id: 7
+    name: 状态评价
+    english_name: State Evaluation
+    content_operation: 不要引入任何新的人、事、物。仅对用户刚才的整段输入或当前状态，给出一个定性（分类）或定量结论的陈述句。
 
-  - tag: COMMON_GROUND
-    action: ALIGN_TERMS
+  - id: 8
+    name: 物理锚定
+    english_name: Physical Anchoring
+    content_operation: 在回复中，引入一条关于当前对话发生的物理空间内的事物、感官输入（光线、声音、温度）或角色的躯体动作描述。

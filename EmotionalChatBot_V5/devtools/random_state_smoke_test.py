@@ -124,8 +124,8 @@ def _rand_stage(rng: random.Random) -> KnappStage:
 
 
 def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
-    closeness = rng.randint(0, 100)
-    trust = rng.randint(0, 100)
+    closeness = rng.random()
+    trust = rng.random()
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # 尽量填一些 detection 会用到的字段；其余字段图里不强制。
@@ -140,7 +140,7 @@ def make_random_state(user_text: str, *, rng: random.Random) -> AgentState:
         "retrieved_memories": ["用户：最近失眠", "用户：工作压力大"],
         "bot_basic_info": {"name": "小岚", "gender": "女", "age": 22, "region": "CN", "occupation": "学生", "education": "本科", "native_language": "zh", "speaking_style": "自然、俏皮"},
         "bot_big_five": {"openness": 0.4, "conscientiousness": 0.2, "extraversion": 0.3, "agreeableness": 0.6, "neuroticism": 0.1},
-        "relationship_state": {"closeness": float(closeness), "trust": float(trust), "commitment": 0.2, "dominance": 0.3, "tension": 0.1, "shared_memory": 0.1},
+        "relationship_state": {"closeness": closeness, "trust": trust, "commitment": 0.2, "dominance": 0.3, "tension": 0.1, "shared_memory": 0.1},
         "mood_state": {"pleasure": 0.1, "arousal": 0.0, "dominance": 0.1, "busyness": rng.random()},
         "current_stage": _rand_stage(rng),
         "chat_buffer": [HumanMessage(content=user_text)],

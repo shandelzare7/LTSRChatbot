@@ -305,9 +305,8 @@ def _compute_momentum_next(state: Dict[str, Any]) -> float:
     全参数动量公式：计算本轮结束后的新动量 M_next (0~1)。
 
     - Step 1: E_turn(0~10) = (E_user*w_e) + (T_bot*w_t) + (R_base*w_r) - (H_user*hostility_penalty_coef)
-    - Step 2: Multiplier_arousal = 1.0 + (Arousal * coef)
+    - Step 2: Multiplier_arousal = 1.0 + (Arousal * coef)，高唤醒=更愿意聊→抬动量
     - Step 3: Score_raw(0~100) = EMA( M_prev*100, E_turn*10 * Multiplier_arousal, α ) - Penalty_fatigue
-             修复：把 E_turn(0~10) 拉到 0~100（乘 10），避免量纲拉崩
     - Step 4: Ceiling = 100*(1 - Busyness*0.5), Score_final = min(Score_raw, Ceiling)，clamp 到 [0,100]，M_next = Score_final/100
     """
     detection = state.get("detection") or {}
@@ -337,11 +336,13 @@ def _compute_momentum_next(state: Dict[str, Any]) -> float:
     e_turn = max(0.0, min(10.0, e_turn))  # 防御性 clamp（避免出现极端负值把动量砸穿）
 
     arousal = _arousal_clamped(mood.get("arousal"))
-    ar_coef = float((_MOMENTUM_FORMULA_CONFIG.get("arousal") or {}).get("multiplier_coef", 0.5))
-    # 更稳健：限制 arousal multiplier 过猛（避免把 0.5/1.5 这种倍率拉得太极端）
+    ar_cfg = _MOMENTUM_FORMULA_CONFIG.get("arousal") or {}
+    ar_coef = float(ar_cfg.get("multiplier_coef", 0.5))
+    # 更稳健：限制 arousal multiplier 过猛
     ar_coef = max(0.0, min(0.3, ar_coef))
+    # 高唤醒=更愿意聊 → 乘数>1 抬动量
     multiplier_arousal = 1.0 + (arousal * ar_coef)
-    multiplier_arousal = max(0.2, multiplier_arousal)  # 避免出现 <=0 导致反向或过度衰减
+    multiplier_arousal = max(0.2, multiplier_arousal)  # 避免 <=0 导致反向或过度衰减
 
     # fatigue：默认从 30 轮后才开始惩罚，且每轮 1 分（0~100 量纲）
     turn_count = int(state.get("turn_count_in_session") or 0)

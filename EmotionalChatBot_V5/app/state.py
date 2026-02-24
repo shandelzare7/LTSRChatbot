@@ -104,10 +104,10 @@ class UserInferredProfile(TypedDict, total=False):
 # 3. 心理与关系引擎 (Physics Engine)
 # ==========================================
 
-class RelationshipState(TypedDict):
+class RelationshipState(TypedDict, total=False):
     """
-    6维核心关系属性 (The Essential 6)：closeness/trust/liking/respect/attractiveness/power - Range: [0, 100]
-    决定了 Bot 对 User 的'态度'
+    6 维核心关系属性：closeness/trust/liking/respect/attractiveness/power。
+    内部与存储尺度统一为 [0, 1]；若上游为 [-1, 1]，须设 rel_scale="m1_1" 由 style 等做 (x+1)/2 映射。
     """
     closeness: float  # 亲密 (陌生 -> 熟人)
     trust: float      # 信任 (防备 -> 依赖)
@@ -115,20 +115,27 @@ class RelationshipState(TypedDict):
     respect: float    # 尊重 (损友 -> 导师)
     attractiveness: float  # 吸引力 (无感 -> 被吸引)
     power: float      # 权力/主导（Bot 眼中的用户强势程度，越高用户越强势）
+    # 关系值尺度（与 PAD 的 pad_scale 同理）："0_1"=[0,1]，"m1_1"=[-1,1] 映射到 [0,1]。缺省 0_1。
+    rel_scale: str
 
 
-class MoodState(TypedDict):
+class MoodState(TypedDict, total=False):
     """
     当前情绪状态 (Transient State)
     """
-    # PAD 情绪模型 - Range: [-1.0, 1.0]
+    # PAD 情绪模型 - Range 由 pad_scale 决定：m1_1 时为 [-1.0, 1.0]，0_1 时为 [0.0, 1.0]
     pleasure: float   # P: 愉悦度
     arousal: float   # A: 唤醒度/激动度
     dominance: float # D: 掌控感
-    
+
     # 繁忙度/资源限制 - Range: [0.0, 1.0]
     # 下游用途：strategy_routers/resolver 用 >=0.6 判「忙碌」并参与 deferral；processor 用 >0.85 时可能加长延迟。无硬编码「强制缩短回复」逻辑。
     busyness: float
+
+    # PAD 使用的尺度（上游必须传入或由 loader 写入，否则默认 m1_1）：
+    # - "m1_1": pleasure/arousal/dominance 为 [-1, 1]，0 为中性（推荐，更安全）
+    # - "0_1":  [0, 1]，0.5 为中性
+    pad_scale: str
 
 
 # ==========================================
@@ -273,16 +280,18 @@ class SimReport(TypedDict, total=False):
 # 3.6 关系资产层 (Relationship Assets)
 # ==========================================
 
-class RelationshipAssets(TypedDict):
+class RelationshipAssets(TypedDict, total=False):
     """
     关系资产（可序列化的长期积累数据）：
     - topic_history: 话题历史（用 List 存储，便于 JSON 序列化）
     - breadth_score: 话题广度（unique topic 数量）
     - max_spt_depth: 历史最高自我暴露深度
+    - session_basic_info_pending_task_ids: 本 session 待触发的问名字/年龄/职业/地区任务 id 列表，触发即删
     """
     topic_history: List[str]
     breadth_score: int
     max_spt_depth: int
+    session_basic_info_pending_task_ids: List[str]
 
 
 # ==========================================
@@ -356,7 +365,9 @@ class AgentState(TypedDict, total=False):
     user_inferred_profile: UserInferredProfile
     
     # --- Dynamic Core (Read/Write frequently) ---
+    # relationship_state 内部为 [0,1]；若含 rel_scale="m1_1" 表示上游为 [-1,1]，style 会做 (x+1)/2。缺省 rel_scale 为 0_1。
     relationship_state: RelationshipState
+    # mood_state 须包含 pad_scale（"m1_1" 或 "0_1"），由 loader 等入口写入，缺省 m1_1
     mood_state: MoodState
     # --- Relationship Assets (长期积累资产，可选) ---
     relationship_assets: Optional[RelationshipAssets]
@@ -405,9 +416,10 @@ class AgentState(TypedDict, total=False):
     seconds_since_last_message: Optional[float]
 
     # --- Analysis Artifacts (中间产物) ---
-    # inner_monologue 节点输出：内心独白文本 + 选中的 inferred_profile 键名列表
+    # inner_monologue 节点输出：内心独白文本 + 选中的 inferred_profile 键名列表 + 当轮可执行的 content move id（最多 4 个）
     inner_monologue: Optional[str]
     selected_profile_keys: Optional[List[str]]
+    selected_content_move_ids: Optional[List[int]]
     response_strategy: Optional[str]
     # Analyzer 输出的意图
     user_intent: Optional[str]

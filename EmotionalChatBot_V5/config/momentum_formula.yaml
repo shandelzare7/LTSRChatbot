@@ -16,7 +16,7 @@ e_turn_r_base_weight: 0.3
 
 # PAD Arousal 参与计算时的范围与乘数
 # _arousal_clamped 将 arousal 归一化到 [range_min, range_max]
-# Multiplier_arousal = 1.0 + (Arousal * multiplier_coef)
+# 语义：高唤醒(arousal>0) = 更愿意聊 → Multiplier_arousal = 1.0 + (Arousal * multiplier_coef)，抬动量
 arousal:
   range_min: -1.0
   range_max: 1.0

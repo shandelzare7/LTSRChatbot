@@ -63,7 +63,7 @@ def _merge_and_sanitize_relationship(prev: Dict[str, Any], inc: Dict[str, Any]) 
     """
     合并关系维度写入：
     - 避免部分字段覆盖导致其它维度丢失（如 respect 突然变 0）
-    - 兼容旧 points(0-100) 写入
+    - 关系值统一 0-1；若写入为旧 0-100 则兼容归一化
     - 截断单轮跳变，避免 0.22 -> 1.00 这种爆炸
     """
     prev = dict(prev or {})
@@ -275,7 +275,7 @@ class LocalStoreManager:
             rel = {
                 "current_stage": "initiating",
                 "relationship_state": relationship_template,
-                "mood_state": {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0},
+                "mood_state": {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0, "pad_scale": "m1_1"},
                 "user_inferred_profile": user_inferred_profile,
                 "relationship_assets": {"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
                 "spt_info": {},

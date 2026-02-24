@@ -334,9 +334,20 @@ _BASIC_INFO_FIELDS: List[Tuple[str, str, str]] = [
     ("name",       "ask_user_name",       "本轮或近期回复中务必明确询问对方的姓名或称呼"),
     ("age",        "ask_user_age",        "本轮或近期回复中务必明确询问对方的年龄"),
     ("occupation", "ask_user_occupation", "本轮或近期回复中务必明确询问对方的职业"),
-    ("location",   "ask_user_location",   "本轮或近期回复中务必明确询问对方所在城市/地区"),
+    ("location",   "ask_user_location",   "本轮或近期回复中明确询问对方所在城市/地区"),
 ]
 # 性别不设问性别任务，仅靠 memory_manager 根据对话推断并写回 basic_info
+
+
+def get_session_basic_info_pending_task_ids(user_basic_info: Dict[str, Any]) -> List[str]:
+    """根据 user_basic_info 缺失项，返回本 session 待办的紧急任务 id 列表（问名字/年龄/职业/地区）。会话开始时调用一次，用于初始化 session_basic_info_pending_task_ids。"""
+    info = user_basic_info or {}
+    out: List[str] = []
+    for field, task_id, _desc in _BASIC_INFO_FIELDS:
+        val = info.get(field)
+        if val is None or (isinstance(val, str) and not val.strip()):
+            out.append(task_id)
+    return out
 
 
 def _basic_info_urgent_task(state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -380,12 +391,31 @@ def create_task_planner_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         metadata={"state_outputs": ["tasks_for_lats", "task_budget_max", "no_reply", "current_session_tasks"]},
     )
     def task_planner_node(state: AgentState) -> dict:
-        # ── 1. 紧急任务：仅保留 basic_info 来源；DB 来源暂注释 ──
-        # urgent_tasks = _urgent_tasks_from_state(state)
+        # ── 1. 紧急任务：本 session 仅从待办列表取一条，触发后即从列表移除（每 session 每类最多一次）──
         urgent_tasks: List[Dict[str, Any]] = []
-        profile_urgent = _basic_info_urgent_task(state)
-        if profile_urgent:
-            urgent_tasks.append(profile_urgent)
+        assets = state.get("relationship_assets") or {}
+        pending_ids: List[str] = list(assets.get("session_basic_info_pending_task_ids") or [])
+        if not isinstance(pending_ids, list):
+            pending_ids = []
+        updated_assets: Optional[Dict[str, Any]] = None
+        if pending_ids:
+            task_id = pending_ids[0]
+            desc = ""
+            for _f, tid, d in _BASIC_INFO_FIELDS:
+                if tid == task_id:
+                    desc = d
+                    break
+            urgent_tasks.append({
+                "id": task_id,
+                "description": desc or "询问用户基本信息",
+                "task_type": "urgent",
+                "is_urgent": True,
+                "importance": 0.85,
+                "source": "basic_info_check",
+                "_level": "system",
+            })
+            new_pending = pending_ids[1:]
+            updated_assets = {**assets, "session_basic_info_pending_task_ids": new_pending}
 
         has_urgent = len(urgent_tasks) > 0
         has_db_urgent = any(t.get("_level") in ("bot", "user") for t in urgent_tasks)
@@ -496,7 +526,7 @@ def create_task_planner_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         if has_urgent:
             print(f"[TaskPlanner] 基本信息紧急任务: {[t['description'][:50] for t in urgent_for_lats]}")
 
-        return {
+        result: Dict[str, Any] = {
             "tasks_for_lats": tasks_for_lats,
             "task_budget_max": task_budget_max,
             "no_reply": False,
@@ -505,5 +535,8 @@ def create_task_planner_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
             "current_session_tasks": current_session_tasks,
             "_urgent_tasks_consumed": has_db_urgent,
         }
+        if updated_assets is not None:
+            result["relationship_assets"] = updated_assets
+        return result
 
     return task_planner_node

@@ -117,17 +117,28 @@ def format_relationship_for_llm(relationship_state: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n\n" + REL_NOTE_FOR_LLM
 
 
-def _level_0_100(v: Any) -> str:
-    """把 0-100 数值映射到 LOW / MEDIUM / HIGH（容错）。"""
+def _level_0_1(v: Any) -> str:
+    """关系值 0-1 映射到 LOW / MEDIUM / HIGH（≤0.35 LOW，≥0.65 HIGH）。"""
     try:
         x = float(v)
     except Exception:
         return "UNKNOWN"
-    if x <= 35:
+    if x <= 0.35:
         return "LOW"
-    if x >= 65:
+    if x >= 0.65:
         return "HIGH"
     return "MEDIUM"
+
+
+def _level_0_100(v: Any) -> str:
+    """已废弃：关系值已统一为 0-1，请用 _level_0_1。兼容旧调用时按 0-1 处理。"""
+    try:
+        x = float(v)
+    except Exception:
+        return "UNKNOWN"
+    if x > 1.0:
+        x = x / 100.0
+    return _level_0_1(x)
 
 
 def format_mind_rules(state: Dict[str, Any]) -> str:
@@ -259,11 +270,11 @@ def stage_to_knapp_index(stage: Any) -> int:
 
 # Knapp 阶段索引 1~10 对应的动量回归值（新 Session 冷启动时用）
 _KNAPP_BASELINE_MOMENTUM: dict[int, float] = {
-    1: 0.7,   # initiating
-    2: 0.8,   # experimenting
-    3: 0.9,   # intensifying
-    4: 1.0,   # integrating
-    5: 0.8,   # bonding
+    1: 0.5,   # initiating
+    2: 0.6,   # experimenting
+    3: 0.8,   # intensifying
+    4: 0.9,   # integrating
+    5: 0.7,   # bonding
     6: 0.6,   # differentiating
     7: 0.5,   # circumscribing
     8: 0.4,   # stagnating
