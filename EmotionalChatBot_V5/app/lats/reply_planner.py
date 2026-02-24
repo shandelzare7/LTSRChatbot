@@ -411,7 +411,7 @@ def _build_system_prompt_b(
 
     # ✅ 修复物理锚定冲突：增加明确例外说明（仍禁止硬编客观事实）
     writing_rules = f"""【写作要求（生成给用户看的自然回复）】
-- 回复要自然、连贯、像真人说话；不要自称 AI/助手/模型/机器人。
+- 更真实、自然、像人一样的发消息，真实的对话往往没有那么长，说多了反而假
 - 避免客服模板句式或“出戏说明”（例如“作为一个模型/根据设定/我可以为你提供…”）。
 - TIME_* 标记为元数据，不要复述；不要输出精确时间戳（除非用户明确问）。
 - 不要输出你的推理过程或“内心独白”，只输出给用户看的最终回复。
@@ -801,7 +801,7 @@ def plan_reply_candidates_via_llm(
     )
 
 
-# LATS V3：5 路并行 = 4 路由 inner_monologue 选的 content_move（名称+动作） + 1 路 FREE；每路 3 档 → 最多 15 候选。
+# LATS V3：5 路并行 = 1 FREE + 4 路各 1 个 move（来自 inner_monologue 的 selected_content_move_ids）；每路三档 → 共 15 候选。
 CANDIDATE_27_DEGREES = ("light", "medium", "strong")
 
 
@@ -841,7 +841,7 @@ def plan_reply_27_via_content_moves(
     state: Dict[str, Any],
     llm_invoker: Any,
 ) -> List[Dict[str, Any]]:
-    """5 路并行：4 路从 state.selected_content_move_ids 取（名称+动作替换到 content_move 提示词）+ 1 路 FREE。每路 3 条 → 最多 15 候选。"""
+    """5 路并行：1 FREE + 4 路各传 1 个 move（从 state.selected_content_move_ids 取名称+动作）；每路三档 → 共 15 候选。"""
     if llm_invoker is None:
         return []
 
@@ -883,6 +883,7 @@ def plan_reply_27_via_content_moves(
             )
 
     tasks: List[Tuple[int, str, str]] = []
+    # 前 4 路：每路只传 1 个 move（selected_ids[i] → slot i 的 name+action）
     for slot_index, move_id in enumerate(selected_ids):
         m = id_to_move.get(move_id)
         if not m:
@@ -912,5 +913,5 @@ def plan_reply_27_via_content_moves(
     results.sort(key=lambda x: int(x.get("id", 0)))
     n_expected = len(tasks) * 3
     if len(results) < n_expected:
-        print(f"  [ReplyPlanner] 5 路仅得到 {len(results)} 条候选（预期最多 {n_expected}）", flush=True)
+        print(f"  [ReplyPlanner] 5 路仅得到 {len(results)} 条候选（预期共 {n_expected}）", flush=True)
     return results

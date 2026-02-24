@@ -18,16 +18,17 @@ from app.state import AgentState
 
 logger = logging.getLogger(__name__)
 
-# 内心独白：多句/短段均可，只表达倾向/意愿/态度，不写步骤；字数上限大幅放宽
 INNER_MONOLOGUE_MAX_CHARS = 400
 
-# 与 Detection 对齐：当轮消息≤800 字，历史每条≤500 字，最近 30 条
 LATEST_USER_TEXT_MAX = 800
 RECENT_MSG_CONTENT_MAX = 500
-RECENT_DIALOGUE_LAST_N = 30  # ✅ 修复：原代码里引用但未定义，会导致 NameError 然后被吞错兜底
-
-# 当轮可选的 content move 最多返回 4 个
+RECENT_DIALOGUE_LAST_N = 30  # ✅ 修复：原先引用但未定义
 SELECTED_CONTENT_MOVE_IDS_MAX = 4
+SELECTED_CONTENT_MOVE_IDS_REQUIRED = 4
+FALLBACK_CM_PRIORITY = [1, 2, 5, 7, 3, 6, 4, 8]
+
+# ✅ 注意力优化：每个 move 的动作描述不要太长（避免“8 选 4”时模型注意力分散）
+CM_ACTION_MAX_CHARS = 220
 
 
 def _is_user_message(m: BaseMessage) -> bool:
@@ -36,23 +37,21 @@ def _is_user_message(m: BaseMessage) -> bool:
 
 
 def _normalize_pure_content_transformations(raw: Any) -> List[Dict[str, Any]]:
-    """
-    兼容 loader 返回：
-    - list[dict]（理想）
-    - {"pure_content_transformations": [...]}（常见 YAML 顶层 dict）
-    - 其他/异常 → []
-    """
+    """兼容 loader 返回 list 或 {'pure_content_transformations': [...]}。"""
     if raw is None:
         return []
     if isinstance(raw, dict):
         raw = raw.get("pure_content_transformations") or []
     if not isinstance(raw, list):
         return []
-    out: List[Dict[str, Any]] = []
-    for x in raw:
-        if isinstance(x, dict):
-            out.append(x)
-    return out
+    return [x for x in raw if isinstance(x, dict)]
+
+
+def _truncate(s: str, n: int) -> str:
+    s = (s or "").strip()
+    if not s or n <= 0:
+        return ""
+    return s if len(s) <= n else (s[: max(1, n - 1)].rstrip() + "…")
 
 
 def _normalize_cm_action_for_prompt(name: str, action: str) -> str:
@@ -63,21 +62,19 @@ def _normalize_cm_action_for_prompt(name: str, action: str) -> str:
     n = (name or "").strip()
     a = (action or "").strip()
     if n in ("物理锚定", "Physical Anchoring"):
-        extra = "注意：避免硬编具体环境事实（光线/温度/声音/地点）；优先用可撤销的身体动作/停顿/语气来锚定。"
+        extra = "注意：避免硬编具体环境事实（光线/温度/声音/地点）；优先用可撤销的身体动作/停顿/语气锚定。"
         if extra not in a:
             a = (a + "\n" + extra).strip()
     return a
 
 
 def _gather_context_for_monologue(state: Dict[str, Any]) -> Tuple[str, str, str, str]:
-    """从 state 抽取：当轮用户消息、历史对话、关系状态描述、关系阶段描述。"""
     chat_buffer: List[BaseMessage] = list(
         state.get("chat_buffer") or state.get("messages", [])[-RECENT_DIALOGUE_LAST_N:]
     )
     stage_id = str(state.get("current_stage") or "initiating")
     relationship_state = state.get("relationship_state") or {}
 
-    # 当轮用户消息（≤800 字）
     latest_user_text_raw = (state.get("user_input") or "").strip()
     if not latest_user_text_raw and chat_buffer:
         last_msg = chat_buffer[-1]
@@ -86,7 +83,6 @@ def _gather_context_for_monologue(state: Dict[str, Any]) -> Tuple[str, str, str,
             latest_user_text_raw = latest_user_text_raw or "（无用户新句）"
     latest_user_text = (latest_user_text_raw or "（无用户消息）")[:LATEST_USER_TEXT_MAX]
 
-    # 历史对话（最近 30 条，每条 content≤500 字）
     lines: List[str] = []
     for m in chat_buffer:
         role = "Human" if _is_user_message(m) else "AI"
@@ -98,13 +94,39 @@ def _gather_context_for_monologue(state: Dict[str, Any]) -> Tuple[str, str, str,
 
     rel_for_llm = format_relationship_for_llm(relationship_state)
     stage_desc = format_stage_for_llm(stage_id, include_judge_hints=True)
-
     return latest_user_text, recent_dialogue_context, rel_for_llm, stage_desc
 
 
-def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
-    """创建内心独白节点：产出 inner_monologue 文本 + selected_profile_keys + selected_content_move_ids（最多 4 个）。"""
+def _pad_to_exact_4(selected: List[int], valid_ids: List[int]) -> List[int]:
+    """保证返回恰好 4 个 id：先去重保序，不足则按 FALLBACK_CM_PRIORITY 与 valid_ids 补齐。"""
+    out: List[int] = []
+    seen: set = set()
+    for x in selected:
+        if x in seen:
+            continue
+        seen.add(x)
+        out.append(x)
+    valid_set = set(valid_ids)
+    for x in FALLBACK_CM_PRIORITY:
+        if len(out) >= SELECTED_CONTENT_MOVE_IDS_REQUIRED:
+            break
+        if x in valid_set and x not in seen:
+            seen.add(x)
+            out.append(x)
+    for x in valid_ids:
+        if len(out) >= SELECTED_CONTENT_MOVE_IDS_REQUIRED:
+            break
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    if not out and valid_ids:
+        out = [valid_ids[0]]
+    while len(out) < SELECTED_CONTENT_MOVE_IDS_REQUIRED:
+        out.append(out[-1] if out else 1)
+    return out[:SELECTED_CONTENT_MOVE_IDS_REQUIRED]
 
+
+def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
     @trace_if_enabled(
         name="Inner Monologue",
         run_type="chain",
@@ -118,11 +140,10 @@ def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict
         if len(monologue) > INNER_MONOLOGUE_MAX_CHARS:
             monologue = monologue[:INNER_MONOLOGUE_MAX_CHARS]
 
-        # 当轮选中的 content move（最多 4 个）：打 logger 便于排查与统计
+        # 诊断日志：把 id→name 映射打出来
         id_to_name: Dict[int, str] = {}
         try:
-            raw = load_pure_content_transformations()
-            moves = _normalize_pure_content_transformations(raw)
+            moves = _normalize_pure_content_transformations(load_pure_content_transformations())
             for m in moves:
                 mid = m.get("id")
                 if mid is not None:
@@ -138,7 +159,6 @@ def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict
             selected_keys,
             len(monologue),
         )
-        # 同时 print 以便 bottobot 重定向 stdout 时写入同一 log 文件
         print(
             f"[InnerMonologue] selected_content_move_ids={selected_content_move_ids!r} "
             f"({', '.join(names) if names else '（无）'}) "
@@ -159,34 +179,28 @@ def _generate_monologue(
     state: AgentState,
     llm_invoker: Any,
 ) -> Tuple[str, List[str], List[int]]:
-    """LLM 生成内心独白 + 选择相关的 inferred_profile 键 + 选择最多 4 个当轮可执行的 content move id。"""
-    empty_ids: List[int] = []
+    valid_ids_list = list(range(1, 9))
     if llm_invoker is None:
-        return "按常理接话即可。", [], empty_ids
+        return "按常理接话即可。", [], _pad_to_exact_4([], list(range(1, 9)))
 
-    content: str = ""  # 用于异常兜底时的 fallback
+    content: str = ""
     try:
         latest_user_text, recent_dialogue_context, rel_for_llm, stage_desc = _gather_context_for_monologue(state)
 
-        # 加载 content_moves.yaml 中的 pure_content_transformations（名称 + 动作），供 LLM 选 4 个当轮可执行
-        transformations: List[Dict[str, Any]] = []
+        valid_ids_list = list(range(1, 9))  # 兜底，后续会被 transformations 覆盖
+        # ✅ 加载 moves（防御式）
         try:
-            raw = load_pure_content_transformations()
-            transformations = _normalize_pure_content_transformations(raw)
+            transformations = _normalize_pure_content_transformations(load_pure_content_transformations())
         except Exception as e:
             logger.exception("[InnerMonologue] load_pure_content_transformations failed: %s", e)
             transformations = []
 
-        if not transformations:
-            logger.warning(
-                "[InnerMonologue] pure_content_transformations is empty; selected_content_move_ids will likely be []"
-            )
+        valid_ids = {int(m["id"]) for m in transformations if m.get("id") is not None}
+        valid_ids_list = sorted(valid_ids) if valid_ids else list(range(1, 9))
 
-        valid_ids = {int(m["id"]) for m in transformations if isinstance(m, dict) and m.get("id") is not None}
-
+        # ✅ 注意力优化：只给 LLM “id+name+简短动作”，避免 8 个长段落稀释注意力
         content_moves_block = ""
         if transformations:
-            # 打乱顺序再传入，避免列表位置带来的选择偏差
             shuffled = list(transformations)
             random.shuffle(shuffled)
             lines_cm = []
@@ -195,10 +209,10 @@ def _generate_monologue(
                 name = (m.get("name") or "").strip() or "（未命名）"
                 action = (m.get("content_operation") or "").strip() or "（无）"
                 action = _normalize_cm_action_for_prompt(name, action)
-                lines_cm.append(f"- id: {mid}, 名称: {name}, 动作: {action}")
+                action = _truncate(action, CM_ACTION_MAX_CHARS)
+                lines_cm.append(f"- id: {mid} | {name} | 动作要点: {action}")
             content_moves_block = "\n".join(lines_cm)
 
-        # Bot / User 身份信息（与 reply_planner 对齐）
         bot_basic_info = state.get("bot_basic_info") or {}
         bot_persona = state.get("bot_persona") or ""
         user_basic_info = state.get("user_basic_info") or {}
@@ -206,7 +220,6 @@ def _generate_monologue(
         user_name_raw = safe_text((user_basic_info or {}).get("name") or "").strip()
         user_name = user_name_raw if user_name_raw else "你不知道对方的名字"
 
-        # 收集 inferred_profile 的所有键名
         inferred_profile = state.get("user_inferred_profile") or {}
         profile_keys = sorted(inferred_profile.keys()) if isinstance(inferred_profile, dict) else []
         profile_keys_str = ", ".join(profile_keys) if profile_keys else "（暂无）"
@@ -215,30 +228,25 @@ def _generate_monologue(
         if content_moves_block:
             part3_section = f"""
 ## 第三部分：选择当轮可执行的 content move (selected_content_move_ids)
-以下是可用的「内容推进」标签（id + 名称 + 动作）：
+可用 content moves（id | 名称 | 动作要点）：
 {content_moves_block}
-- 请从中选出**最多 {SELECTED_CONTENT_MOVE_IDS_MAX} 个**适合**本轮对话**可以执行的 id（只填 id 数字，如 [1, 3, 5]）。
-- 只选与本轮用户消息和语境相匹配的标签，不要凑满 4 个；若没有合适的可返回空数组 []。
+
+要求：
+- 你必须从候选中**选择最佳的确切 4 个** id，输出恰好 4 个，不要多也不要少。
+- id 必须来自上面候选列表中的 id（不要编造），且**不要重复**。
+- 选择标准：按“最适合本轮语境、最能推进对话”排序，取前 4 个。只填数字数组，如 [3,1,5,7]。
 """
 
         sys = f"""你是 {bot_name}。你正在和 {user_name} 对话。
-下面给你一段「历史对话」和「当轮用户消息」作为正文，请以你（{bot_name}）的第一人称视角，根据正文语境输出三部分内容，给下游执行用，不给用户看。
-
-## Identity (Bot & User)
-bot_basic_info: {safe_text(bot_basic_info)}
-bot_persona: {safe_text(bot_persona)}
-user_basic_info: {safe_text(user_basic_info)}
+下面给你「历史对话」和「当轮用户消息」，请输出给下游执行用（不给用户看）。
 
 ## 第一部分：内心独白 (monologue)
-- 字数**最多 {INNER_MONOLOGUE_MAX_CHARS} 个字符（中文按字计）**，可多句、可短段，但不得超出此上限。
-- 以你（{bot_name}）的第一人称视角表达倾向/意愿/态度（如：懒得问、想挡一下、想接球但别太热情、对这句话有点意外但可以接），不要步骤、不要策略清单。
+- ≤{INNER_MONOLOGUE_MAX_CHARS} 字符；第一人称；只写倾向/意愿/态度；不要步骤/清单。
 
 ## 第二部分：选择相关的用户画像键 (selected_profile_keys)
-以下是当前已有的用户推断画像键名列表：
+可选键名：
 [{profile_keys_str}]
-- 从中选出 0~5 个与当前对话语境**相关**的键名（用于后续生成回复时参考）。
-- 如果没有相关键或列表为空，返回空数组 []。
-- 只选键名，不要自己编造不存在的键。
+- 选 0~5 个；只选存在的键名；无则 []。
 {part3_section}
 ## 关系状态（0–1）
 {rel_for_llm}
@@ -246,20 +254,20 @@ user_basic_info: {safe_text(user_basic_info)}
 ## 关系阶段与越界提示
 {stage_desc}
 
-## 输出格式（Response format，必须严格遵守）
-必须输出且仅输出一个 JSON 对象，包含且仅包含以下三个键（与 schema 一致，便于解析）：
-- **monologue** (string)：内心独白文本，可为空字符串。
-- **selected_profile_keys** (array of string)：选中的画像键名列表，0~5 个，无则 []。
-- **selected_content_move_ids** (array of integer)：当轮可执行的 content move 的 id 列表，最多 4 个，如 [1, 3, 5, 7]，无则 []。
-不要输出其他键或 Markdown 代码块标记，只输出上述 JSON。
+## 输出格式（必须严格 JSON）
+仅输出一个 JSON 对象，且只包含：
+- monologue: string
+- selected_profile_keys: string[]
+- selected_content_move_ids: int[]
+不要输出其他键/不要 Markdown。
 """
+
         user_body = f"""【历史对话】（最近 {RECENT_DIALOGUE_LAST_N} 条）
 {recent_dialogue_context}
 
 【当轮用户消息】
 {latest_user_text}
-
-请根据上述对话与当轮用户消息，按【输出格式】输出内心独白、选中的画像键以及当轮可执行的 content move id（三键：monologue, selected_profile_keys, selected_content_move_ids）。"""
+"""
 
         data = None
         if hasattr(llm_invoker, "with_structured_output"):
@@ -279,36 +287,31 @@ user_basic_info: {safe_text(user_basic_info)}
         if isinstance(data, dict):
             monologue = str(data.get("monologue") or "").strip().strip("\"'")
             raw_keys = data.get("selected_profile_keys") or []
-            selected = [
-                str(k)
-                for k in raw_keys
+            selected_keys = [
+                str(k) for k in raw_keys
                 if isinstance(k, str) and k.strip() and k.strip() in profile_keys
             ][:5]
 
             raw_ids = data.get("selected_content_move_ids") or []
             selected_ids = [
-                int(x)
-                for x in raw_ids
-                if x is not None
-                and (
+                int(x) for x in raw_ids
+                if x is not None and (
                     isinstance(x, int)
                     or (isinstance(x, float) and int(x) == x)
                     or (isinstance(x, str) and str(x).strip().isdigit())
                 )
             ]
             selected_ids = [x for x in selected_ids if x in valid_ids][:SELECTED_CONTENT_MOVE_IDS_MAX]
+            selected_ids = _pad_to_exact_4(selected_ids, valid_ids_list)
 
-            # 只要解析成功就返回（含 selected_ids），不要仅因 monologue 为空就丢弃 8 选 4 结果
             monologue_out = (monologue or "按常理接话即可。").strip()[:INNER_MONOLOGUE_MAX_CHARS]
-            return monologue_out, selected, selected_ids
+            return monologue_out, selected_keys, selected_ids
 
-        # JSON 解析失败时，将整个输出作为独白文本
         fallback_text = (content or "").strip().strip("\"'")
         if fallback_text:
-            return fallback_text[:INNER_MONOLOGUE_MAX_CHARS], [], empty_ids
+            return fallback_text[:INNER_MONOLOGUE_MAX_CHARS], [], _pad_to_exact_4([], valid_ids_list)
 
     except Exception as e:
-        # ✅ 关键：不要吞错
         logger.exception("[InnerMonologue] _generate_monologue failed: %s", e)
 
-    return "按常理接话即可。", [], empty_ids
+    return "按常理接话即可。", [], _pad_to_exact_4([], valid_ids_list)
