@@ -52,6 +52,51 @@ async function _registerServiceWorkerIfPossible() {
         return await navigator.serviceWorker.ready;
     } catch (e) { return null; }
 }
+
+function _urlBase64ToUint8Array(base64String) {
+    var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    var base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    var rawData = window.atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+}
+async function _getVapidPublicKey() {
+    var resp = await fetch('/api/push/public-key', { credentials: 'include' });
+    if (!resp.ok) throw new Error('get public key failed');
+    var data = await resp.json();
+    if (!data || !data.public_key) throw new Error('missing public key');
+    return String(data.public_key);
+}
+/** 将当前会话的推送订阅同步到服务端（B 版必须调用，否则服务端没有订阅、非活动时收不到推送）。每次进入聊天页且已授权时调用。 */
+async function syncPushSubscriptionToServer() {
+    try {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+        var reg = await _registerServiceWorkerIfPossible();
+        if (!reg || !reg.pushManager) return;
+        var sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+            var pub = await _getVapidPublicKey();
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: _urlBase64ToUint8Array(pub),
+            });
+        }
+        if (!sub) return;
+        var payload = { subscription: sub.toJSON ? sub.toJSON() : sub };
+        var r = await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+        });
+        if (r.ok) _setPushEnabled(true);
+    } catch (e) {
+        console.warn('syncPushSubscriptionToServer:', e);
+    }
+}
+
 async function maybeNotifyBotMessage(text) {
     try {
         if (_pushEnabled() || !_notifyEnabled() || !('Notification' in window) || Notification.permission !== 'granted' || !_shouldNotifyNow()) return;
@@ -259,11 +304,12 @@ function escapeHtml(s) {
 
 async function selectBot(botId) {
     try {
+        const source = new URLSearchParams(window.location.search).get('source') || undefined;
         const response = await fetch('/api/session/init', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ bot_id: botId }),
+            body: JSON.stringify({ bot_id: botId, source: source }),
         });
         if (!response.ok) {
             const err = await response.json();
@@ -376,6 +422,8 @@ function initChat() {
     if (!messageInput || !sendBtn) return;
 
     autoRequestNotificationPermission();
+    // 将推送订阅同步到服务端（当前 session），否则非活动时收不到推送；Render 重启后服务端会按 user+bot 回退查订阅
+    syncPushSubscriptionToServer().catch(function () {});
 
     // 聊天页头部：更新 bot 头像与名称
     fetchSessionStatus().then(function (status) {

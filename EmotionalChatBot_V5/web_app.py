@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime, timezone
+import logging
 import time
 import asyncio
 import io
@@ -83,7 +84,7 @@ def _get_user_bot_from_session_or_cookies(
 
 
 def _set_visit_source_cookie_if_present(response: Response, request: Request) -> None:
-    """若 URL 带 ?source=xxx，写入 cookie 供后续创建 User 时写入 DB 追踪。"""
+    """若 URL 带 ?source=xxx，写入 cookie 供后续创建 User 时写入 DB 追踪。path=/ 确保所有请求都会带上。"""
     source = (request.query_params.get("source") or "").strip()
     if not source:
         return
@@ -91,6 +92,7 @@ def _set_visit_source_cookie_if_present(response: Response, request: Request) ->
     response.set_cookie(
         key=_COOKIE_VISIT_SOURCE,
         value=source,
+        path="/",
         httponly=True,
         secure=secure,
         samesite="lax",
@@ -309,6 +311,7 @@ class ChatRequest(BaseModel):
 
 class SessionInitRequest(BaseModel):
     bot_id: str
+    source: Optional[str] = None  # 可选，与 ?source= 一致，便于前端从当前 URL 传入
 
 
 # Push subscription payload
@@ -429,10 +432,22 @@ async def _upsert_push_subscription(
         await conn.commit()
 
 
-async def _delete_push_subscription(db: DBManager, *, session_id: str) -> None:
+async def _delete_push_subscription(
+    db: DBManager,
+    *,
+    session_id: str,
+    user_external_id: Optional[str] = None,
+    bot_id: Optional[str] = None,
+) -> None:
+    """按 session_id 删除；若同时提供 user_external_id 与 bot_id，则删除该 user+bot 下所有行（含其他 session），避免重启后残留。"""
     await _ensure_push_schema(db)
     async with db.engine.connect() as conn:
         await conn.execute(text("DELETE FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})
+        if user_external_id and bot_id:
+            await conn.execute(
+                text("DELETE FROM push_subscriptions WHERE user_external_id=:uid AND bot_id=:bid::uuid"),
+                {"uid": user_external_id, "bid": bot_id},
+            )
         await conn.commit()
 
 
@@ -524,11 +539,19 @@ async def push_subscribe(
 
 
 @app.post("/api/push/unsubscribe")
-async def push_unsubscribe(session_id: Optional[str] = Cookie(None)):
+async def push_unsubscribe(
+    request: Request,
+    session_id: Optional[str] = Cookie(None),
+    web_user_id: Optional[str] = Cookie(None, alias=_COOKIE_WEB_USER_ID),
+    bot_id_cookie: Optional[str] = Cookie(None, alias=_COOKIE_BOT_ID),
+):
     if not session_id:
         raise HTTPException(status_code=401, detail="未找到会话")
     db = get_db_manager()
-    await _delete_push_subscription(db, session_id=session_id)
+    # 按 session 删除；若有 cookie 的 user_id/bot_id 则同时删该 user+bot 下所有订阅，避免重启后残留
+    uid = (web_user_id or "").strip() or None
+    bid = (bot_id_cookie or "").strip() or None
+    await _delete_push_subscription(db, session_id=session_id, user_external_id=uid, bot_id=bid)
     return {"status": "success"}
 
 
@@ -595,13 +618,20 @@ async def chat_with_bot(
                     set_session_visit_source(session_id, src)
                     try:
                         db = get_db_manager()
-                        await db.set_visit_source(
+                        ok = await db.set_visit_source(
                             existing_session["user_id"],
                             bot_id_str,
                             src,
                         )
-                    except Exception:
-                        pass  # 不因打标失败影响页面打开
+                        if not ok:
+                            logging.getLogger(__name__).warning(
+                                "set_visit_source: user not found external_id=%r bot_id=%r",
+                                existing_session.get("user_id"), bot_id_str,
+                            )
+                    except Exception as e:
+                        logging.getLogger(__name__).warning(
+                            "set_visit_source failed: %s", e, exc_info=True,
+                        )
                 return get_chat_html_b(bot_id_str)
         
         # 创建新会话（优先复用持久 cookie 的 web_user_id，避免 IP 变化导致“历史丢失”）
@@ -675,8 +705,12 @@ async def init_session(
             
             bot_id = str(bot.id)
         
-        # 创建会话 + 设置 Cookie（包含持久 user_id/bot_id）；若有 visit_source cookie 则写入 session 供后续写 User 表
-        visit_src = (request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip() or None
+        # 创建会话 + 设置 Cookie；visit_source 优先从 body/query 取（前端可从当前 URL 传入），否则从 cookie
+        visit_src = (
+            (getattr(data, "source", None) or "").strip()
+            or (request.query_params.get("source") or "").strip()
+            or (request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip()
+        ) or None
         session_id = create_session(user_id, bot_id, visit_source=visit_src)
         _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
         
@@ -758,8 +792,9 @@ async def chat(
         raise HTTPException(status_code=401, detail="未找到会话，请先选择bot")
     user_id, bot_id = resolved
     if not session_id or not get_session(session_id):
-        # recreate an in-memory session for concurrency control
-        session_id = create_session(user_id, bot_id)
+        # recreate an in-memory session for concurrency control（从 cookie 带回 visit_source，避免 lab 等来源丢失）
+        visit_src = (request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip() or None
+        session_id = create_session(user_id, bot_id, visit_source=visit_src)
         _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
     
     if not chat_data.message or not chat_data.message.strip():
