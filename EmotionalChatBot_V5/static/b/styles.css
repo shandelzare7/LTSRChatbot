@@ -530,6 +530,66 @@ body::after {
 .b-user-id .user-id-copy:hover {
     background: rgba(17, 24, 39, 0.06);
 }
+.b-user-id .user-id-text {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+}
+
+/* 手机端：聊天头部不竖排、会话 ID 不换行、整体紧凑 */
+@media (max-width: 640px) {
+    body {
+        padding: 12px;
+    }
+    .b-chat-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 0 12px;
+        margin-bottom: 12px;
+    }
+    .b-chat-header-left {
+        flex: 1 1 auto;
+        min-width: 0;
+        order: 1;
+    }
+    .b-chat-header-right {
+        order: 2;
+        flex-shrink: 0;
+    }
+    .b-chat-header .avatar {
+        width: 36px;
+        height: 36px;
+        font-size: 16px;
+        flex-shrink: 0;
+    }
+    .b-chat-header .h1 {
+        font-size: 17px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+    }
+    .b-chat-header .btn-secondary {
+        font-size: 13px;
+        padding: 6px 12px;
+    }
+    .b-user-id {
+        order: 3;
+        flex-basis: 100%;
+        width: 100%;
+        margin-top: 4px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+    }
+    .b-user-id .user-id-text {
+        max-width: calc(100vw - 100px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
 
 /* 分享弹窗（B 版沿用结构，样式微调） */
 .share-dialog-overlay {
