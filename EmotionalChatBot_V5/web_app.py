@@ -38,6 +38,7 @@ from app.web.session import (
     create_session,
     get_session,
     delete_session,
+    set_session_visit_source,
     generate_user_id_from_request,
 )
 from main import _make_initial_state
@@ -59,6 +60,7 @@ _inflight_chat: dict[str, dict] = {}
 # Persistent cookies (so history survives Render restarts / IP changes)
 _COOKIE_WEB_USER_ID = "web_user_id"
 _COOKIE_BOT_ID = "bot_id"
+_COOKIE_VISIT_SOURCE = "visit_source"
 
 
 def _get_user_bot_from_session_or_cookies(
@@ -78,6 +80,22 @@ def _get_user_bot_from_session_or_cookies(
     if web_user_id and bot_id_cookie:
         return str(web_user_id), str(bot_id_cookie)
     return None
+
+
+def _set_visit_source_cookie_if_present(response: Response, request: Request) -> None:
+    """若 URL 带 ?source=xxx，写入 cookie 供后续创建 User 时写入 DB 追踪。"""
+    source = (request.query_params.get("source") or "").strip()
+    if not source:
+        return
+    secure = os.getenv("ENVIRONMENT") == "production"
+    response.set_cookie(
+        key=_COOKIE_VISIT_SOURCE,
+        value=source,
+        httponly=True,
+        secure=secure,
+        samesite="lax",
+        max_age=86400 * 7,
+    )
 
 
 def _set_persistent_session_cookies(response: Response, *, user_id: str, bot_id: str, session_id: str) -> None:
@@ -418,14 +436,35 @@ async def _delete_push_subscription(db: DBManager, *, session_id: str) -> None:
         await conn.commit()
 
 
-async def _get_push_subscription(db: DBManager, *, session_id: str) -> Optional[dict]:
+async def _get_push_subscription(
+    db: DBManager,
+    *,
+    session_id: Optional[str] = None,
+    user_external_id: Optional[str] = None,
+    bot_id: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    查推送订阅：优先用 session_id；若未提供或未命中则用 (user_external_id, bot_id) 取最新一条。
+    这样 Render 重启后 session 变了仍能发推送。
+    """
     await _ensure_push_schema(db)
     async with db.engine.connect() as conn:
-        row = (await conn.execute(text("SELECT subscription FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})).first()
-    if not row:
-        return None
-    sub = row[0]
-    return sub if isinstance(sub, dict) else None
+        if session_id:
+            row = (await conn.execute(text("SELECT subscription FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})).first()
+            if row:
+                sub = row[0]
+                return sub if isinstance(sub, dict) else None
+        if user_external_id and bot_id:
+            row = (
+                await conn.execute(
+                    text("SELECT subscription FROM push_subscriptions WHERE user_external_id=:uid AND bot_id=:bid::uuid ORDER BY updated_at DESC LIMIT 1"),
+                    {"uid": user_external_id, "bid": bot_id},
+                )
+            ).first()
+            if row:
+                sub = row[0]
+                return sub if isinstance(sub, dict) else None
+    return None
 
 
 async def _send_web_push(*, subscription: dict, title: str, body: str, url: str = "/", tag: str = "ltsr-push") -> None:
@@ -494,18 +533,22 @@ async def push_unsubscribe(session_id: Optional[str] = Cookie(None)):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index():
-    """直接进入 b 版 bot 选择页（暂不使用首页）"""
-    return HTMLResponse(
+async def index(request: Request):
+    """直接进入 b 版 bot 选择页（暂不使用首页）。?source=xxx 会写入 cookie 供后续写入 User 表追踪。"""
+    resp = HTMLResponse(
         content=get_bot_selection_html_b(),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate"},
     )
+    _set_visit_source_cookie_if_present(resp, request)
+    return resp
 
 
 @app.get("/bots", response_class=HTMLResponse)
-async def bot_selection_page():
-    """始终返回 b 版 bot 选择页，不检查会话；cookie 保留，从选 Bot 页再点进同一 bot 即恢复原会话"""
-    return get_bot_selection_html_b()
+async def bot_selection_page(request: Request):
+    """始终返回 b 版 bot 选择页；?source=xxx 会写入 cookie 供后续写入 User 表追踪。"""
+    resp = HTMLResponse(content=get_bot_selection_html_b())
+    _set_visit_source_cookie_if_present(resp, request)
+    return resp
 
 
 @app.get("/chat/{bot_id}", response_class=HTMLResponse)
@@ -545,12 +588,27 @@ async def chat_with_bot(
         if session_id:
             existing_session = get_session(session_id)
             if existing_session and existing_session["bot_id"] == bot_id_str:
-                # 已有匹配的会话，直接返回聊天界面（b 版）
+                # 已有匹配的会话：若有 ?source= 或 cookie 的 visit_source，立即写 cookie、session，并更新 DB 中该 User 的 visit_source（即使用户已存在、本轮未发消息）
+                _set_visit_source_cookie_if_present(response, request)
+                src = (request.query_params.get("source") or request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip()
+                if src:
+                    set_session_visit_source(session_id, src)
+                    try:
+                        db = get_db_manager()
+                        await db.set_visit_source(
+                            existing_session["user_id"],
+                            bot_id_str,
+                            src,
+                        )
+                    except Exception:
+                        pass  # 不因打标失败影响页面打开
                 return get_chat_html_b(bot_id_str)
         
         # 创建新会话（优先复用持久 cookie 的 web_user_id，避免 IP 变化导致“历史丢失”）
+        _set_visit_source_cookie_if_present(response, request)
+        visit_src = (request.query_params.get("source") or request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip() or None
         user_id = (request.cookies.get(_COOKIE_WEB_USER_ID) or "").strip() or generate_user_id_from_request(request)
-        new_session_id = create_session(user_id, bot_id_str)
+        new_session_id = create_session(user_id, bot_id_str, visit_source=visit_src)
         _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id_str, session_id=new_session_id)
         
         # 返回聊天界面（b 版）
@@ -617,8 +675,9 @@ async def init_session(
             
             bot_id = str(bot.id)
         
-        # 创建会话 + 设置 Cookie（包含持久 user_id/bot_id）
-        session_id = create_session(user_id, bot_id)
+        # 创建会话 + 设置 Cookie（包含持久 user_id/bot_id）；若有 visit_source cookie 则写入 session 供后续写 User 表
+        visit_src = (request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip() or None
+        session_id = create_session(user_id, bot_id, visit_source=visit_src)
         _set_persistent_session_cookies(response, user_id=user_id, bot_id=bot_id, session_id=session_id)
         
         return {
@@ -775,9 +834,16 @@ async def chat(
                 if not merged_text:
                     return
 
-                # Load fresh state (includes any just-appended user messages)
+                # Load fresh state (includes any just-appended user messages)；若有 session/cookie 的 visit_source 则写入 User 表追踪
+                visit_src = None
+                if session_id:
+                    sess = get_session(session_id)
+                    if isinstance(sess, dict):
+                        visit_src = (sess.get("visit_source") or "").strip() or None
+                if not visit_src:
+                    visit_src = (request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip() or None
                 t0 = time.perf_counter()
-                db_state = await db.load_state(user_id, bot_id)
+                db_state = await db.load_state(user_id, bot_id, visit_source=visit_src)
                 t_load_ms = (time.perf_counter() - t0) * 1000.0
 
                 state = _make_initial_state(user_id, bot_id)
@@ -979,9 +1045,14 @@ async def chat(
                     inflight["pending_user_msgs"] = []
                     w = inflight.get("waiter")
                     if w is not None and (not w.done()):
-                        # Web Push (best-effort): send once per bot turn.
+                        # Web Push (best-effort): send once per bot turn. 用 session_id 查，若无则用 (user_id, bot_id) 查（Render 重启后 session 会变）
                         try:
-                            sub = await _get_push_subscription(db, session_id=session_id)
+                            sub = await _get_push_subscription(
+                                db,
+                                session_id=session_id,
+                                user_external_id=user_id,
+                                bot_id=bot_id,
+                            )
                             if isinstance(sub, dict) and sub:
                                 bot_name = ""
                                 try:
@@ -1312,6 +1383,42 @@ async def get_all_share_links(request: Request):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取分享链接失败: {str(e)}")
+
+
+def _get_render_base_url(request: Request) -> str:
+    """Render 基础 URL：优先 RENDER_EXTERNAL_URL，其次 WEB_DOMAIN，最后 request.base_url"""
+    base = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if base:
+        return base
+    if os.getenv("WEB_DOMAIN"):
+        return f"https://{os.getenv('WEB_DOMAIN').strip()}"
+    return str(request.base_url).rstrip("/")
+
+
+@app.get("/api/render-links")
+async def get_render_links(request: Request, source: Optional[str] = None):
+    """
+    生成带不同 source 参数的 Render 链接，用于分流/统计。
+    - 无 query：返回所有预设 source 的链接（lab, demo 等）
+    - ?source=lab：只返回该 source 的链接
+    预设 source 列表可通过环境变量 RENDER_LINK_SOURCES 配置，逗号分隔，如：lab,demo,invite
+    """
+    base_url = _get_render_base_url(request)
+    sources_str = (os.getenv("RENDER_LINK_SOURCES") or "lab,demo,invite").strip()
+    sources = [s.strip() for s in sources_str.split(",") if s.strip()]
+    if not sources:
+        sources = ["lab", "demo", "invite"]
+
+    if source is not None:
+        # 只返回指定 source 的一条链接
+        one = source.strip()
+        if not one:
+            raise HTTPException(status_code=400, detail="source 不能为空")
+        url = f"{base_url}/?source={one}"
+        return {"base_url": base_url, "source": one, "url": url}
+
+    links = {s: f"{base_url}/?source={s}" for s in sources}
+    return {"base_url": base_url, "links": links}
 
 
 # HTML 模板函数

@@ -25,16 +25,25 @@ def generate_user_id_from_request(request) -> str:
     return f"web_user_{uuid.uuid4().hex[:16]}"
 
 
-def create_session(user_id: str, bot_id: str) -> str:
-    """创建新会话"""
+def create_session(user_id: str, bot_id: str, visit_source: Optional[str] = None) -> str:
+    """创建新会话。visit_source 为从 ?source= 进入时的来源，用于后续写入 User 表追踪。"""
     session_id = generate_session_id()
     _sessions[session_id] = {
         "user_id": user_id,
         "bot_id": bot_id,
+        "visit_source": (visit_source or "").strip() or None,
         "created_at": datetime.now(),
         "last_active": datetime.now(),
     }
     return session_id
+
+
+def set_session_visit_source(session_id: str, visit_source: Optional[str]) -> bool:
+    """将会话的访问来源设为 visit_source（用于从 cookie 回填）。"""
+    if session_id not in _sessions:
+        return False
+    _sessions[session_id]["visit_source"] = (visit_source or "").strip() or None
+    return True
 
 
 def get_session(session_id: str) -> Optional[Dict]:

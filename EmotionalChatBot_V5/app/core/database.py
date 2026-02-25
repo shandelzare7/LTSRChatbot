@@ -604,16 +604,28 @@ class DBManager:
         engine = _create_async_engine_from_database_url(url)
         return cls(engine)
 
-    async def _get_or_create_user(self, session: AsyncSession, bot_id: str, external_id: str) -> User:
-        """按 (bot_id, external_id) 获取或创建用户（user 挂在 bot 下）。"""
+    async def _get_or_create_user(
+        self,
+        session: AsyncSession,
+        bot_id: str,
+        external_id: str,
+        visit_source: Optional[str] = None,
+    ) -> User:
+        """按 (bot_id, external_id) 获取或创建用户（user 挂在 bot 下）。若新建且传入 visit_source 则写入 assets。"""
         bot = await self._get_or_create_bot(session, bot_id)
         q = select(User).where(User.bot_id == bot.id, User.external_id == external_id)
         user = (await session.execute(q)).scalars().first()
         if user:
+            # 已有用户：若从未记录过来源且本次有来源，则补写（仅写一次）
+            if visit_source and (user.assets or {}).get("visit_source") is None:
+                user.assets = dict(user.assets or {})
+                user.assets["visit_source"] = visit_source
             return user
         user_basic_info, user_inferred = generate_user_profile(external_id)
-        # 随机选择一个关系维度模板
         relationship_template = get_random_relationship_template()
+        assets = {"topic_history": [], "breadth_score": 0, "max_spt_depth": 1}
+        if visit_source:
+            assets["visit_source"] = visit_source
         user = User(
             bot_id=bot.id,
             bot_name=bot.name,
@@ -622,7 +634,7 @@ class DBManager:
             current_stage="initiating",
             dimensions=relationship_template,
             inferred_profile=user_inferred,
-            assets={"topic_history": [], "breadth_score": 0, "max_spt_depth": 1},
+            assets=assets,
             spt_info={},
             conversation_summary="",
         )
@@ -668,14 +680,20 @@ class DBManager:
         await session.flush()
         return bot
 
-    async def load_state(self, user_id: str, bot_id: str) -> Dict[str, Any]:
+    async def load_state(
+        self,
+        user_id: str,
+        bot_id: str,
+        visit_source: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Loader：只读（必要时会创建缺失的 user/bot/relationship 行，属于“初始化”）。
+        visit_source：从 ?source= 进入时的来源，会写入 User.assets[\"visit_source\"] 用于追踪。
         返回：用于灌入 AgentState 的字典片段（增量更新）。
         """
         async with self.Session() as session:
             async with session.begin():
-                user = await self._get_or_create_user(session, bot_id, user_id)
+                user = await self._get_or_create_user(session, bot_id, user_id, visit_source=visit_source)
                 bot = await self._get_or_create_bot(session, bot_id)
 
                 # Stable ordering:
@@ -919,6 +937,32 @@ class DBManager:
                     "db_urgent_tasks": db_urgent_tasks,
                     "turn_count_in_session": turn_count_in_session,
                 }
+
+    async def set_visit_source(
+        self,
+        user_external_id: str,
+        bot_id: str,
+        visit_source: str,
+    ) -> bool:
+        """
+        将指定 (user_external_id, bot_id) 对应用户的 assets["visit_source"] 设为 visit_source。
+        用于：用户通过 ?source= 链接打开页面时立即打标，即使用户已存在、本轮未发消息。
+        返回是否找到并更新了用户。
+        """
+        if not (visit_source and str(visit_source).strip()):
+            return False
+        src = str(visit_source).strip()
+        async with self.Session() as session:
+            async with session.begin():
+                bot = await self._get_or_create_bot(session, bot_id)
+                q = select(User).where(User.bot_id == bot.id, User.external_id == user_external_id)
+                user = (await session.execute(q)).scalars().first()
+                if not user:
+                    return False
+                assets = dict(user.assets or {})
+                assets["visit_source"] = src
+                user.assets = assets
+        return True
 
     async def clear_messages_for(self, user_id: str, bot_id: str) -> int:
         """删除该 bot 下该用户的所有消息，返回删除条数。"""
