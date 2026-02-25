@@ -411,7 +411,11 @@ async function autoRequestNotificationPermission() {
         if (!('Notification' in window)) return;
         if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
         setTimeout(function () {
-            Notification.requestPermission().catch(function () {});
+            Notification.requestPermission()
+                .then(function (result) {
+                    if (result === 'granted') syncPushSubscriptionToServer().catch(function () {});
+                })
+                .catch(function () {});
         }, 1000);
     } catch (e) {}
 }
@@ -422,8 +426,11 @@ function initChat() {
     if (!messageInput || !sendBtn) return;
 
     autoRequestNotificationPermission();
-    // 将推送订阅同步到服务端（当前 session），否则非活动时收不到推送；Render 重启后服务端会按 user+bot 回退查订阅
-    syncPushSubscriptionToServer().catch(function () {});
+    // 已授权时立即同步；未授权时会在用户点「允许」后由 autoRequestNotificationPermission 回调里同步；再 2.5s 兜底一次（用户可能刚点允许）
+    if (Notification.permission === 'granted') syncPushSubscriptionToServer().catch(function () {});
+    setTimeout(function () {
+        if (Notification.permission === 'granted') syncPushSubscriptionToServer().catch(function () {});
+    }, 2500);
 
     // 聊天页头部：更新 bot 头像与名称
     fetchSessionStatus().then(function (status) {

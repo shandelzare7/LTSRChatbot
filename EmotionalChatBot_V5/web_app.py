@@ -13,7 +13,7 @@ import io
 import json
 import html
 import zipfile
-from typing import Optional
+from typing import Any, Optional
 import uuid
 
 # 加载 .env（若存在）
@@ -451,6 +451,18 @@ async def _delete_push_subscription(
         await conn.commit()
 
 
+def _parse_subscription_row(sub: Any) -> Optional[dict]:
+    """JSONB 可能被驱动返回为 dict 或 str，统一为 dict。"""
+    if isinstance(sub, dict):
+        return sub
+    if isinstance(sub, str):
+        try:
+            return json.loads(sub)
+        except Exception:
+            return None
+    return None
+
+
 async def _get_push_subscription(
     db: DBManager,
     *,
@@ -467,8 +479,9 @@ async def _get_push_subscription(
         if session_id:
             row = (await conn.execute(text("SELECT subscription FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})).first()
             if row:
-                sub = row[0]
-                return sub if isinstance(sub, dict) else None
+                parsed = _parse_subscription_row(row[0])
+                if parsed:
+                    return parsed
         if user_external_id and bot_id:
             row = (
                 await conn.execute(
@@ -477,8 +490,9 @@ async def _get_push_subscription(
                 )
             ).first()
             if row:
-                sub = row[0]
-                return sub if isinstance(sub, dict) else None
+                parsed = _parse_subscription_row(row[0])
+                if parsed:
+                    return parsed
     return None
 
 
@@ -1097,9 +1111,13 @@ async def chat(
                                 title = bot_name or "Chatbot"
                                 body = (str(segments[0].get("content", "")) if segments else str(reply or ""))[:200]
                                 await _send_web_push(subscription=sub, title=title, body=body, url="/", tag="ltsr-bot-message")
-                        except Exception:
-                            # never block chat on push failures
-                            pass
+                            else:
+                                logging.getLogger(__name__).info(
+                                    "push: no subscription session_id=%r user_id=%r bot_id=%r",
+                                    session_id, user_id, bot_id,
+                                )
+                        except Exception as e:
+                            logging.getLogger(__name__).warning("push send failed: %s", e, exc_info=True)
                         w.set_result(
                             {
                                 "reply": reply,
