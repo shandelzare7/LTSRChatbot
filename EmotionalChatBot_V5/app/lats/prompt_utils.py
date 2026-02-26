@@ -88,11 +88,11 @@ _EXPRESSION_MODE_LABELS = {
 
 _STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
     "WARMTH": {
-        "extremely_low": "冰冷/公事公办，零情感词，不表达关心",
-        "low": "客气但疏离，不用亲昵/关心的词，不主动拉近",
-        "mid": "友善自然，偶尔轻微关心（'还好吗''注意休息'）",
-        "high": "明显温暖，主动关心、用柔和语气、带鼓励",
-        "extremely_high": "非常亲昵，撒娇/哄人/大量情感词",
+        "extremely_low": "底层气质冷淡，即使正面情绪时也不主动流露温情",
+        "low": "底层偏克制，温情需要明显触发才会显现",
+        "mid": "底层气质平和，情感流露随即时情绪自然起伏",
+        "high": "底层偏温暖，正面情绪时情感表达比较顺畅",
+        "extremely_high": "底层气质亲密，情感表达阈值低，容易流露",
     },
     "CHAT_MARKERS": {
         "extremely_low": "零语气词/表情/感叹号，纯干文本",
