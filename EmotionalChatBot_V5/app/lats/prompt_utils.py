@@ -79,15 +79,41 @@ _STYLE_VALUE_TO_LABEL = (
 
 # 新 6 维 style 的 key 顺序与 EXPRESSION_MODE 枚举
 _STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "CHAT_MARKERS", "EXPRESSION_MODE")
-_EXPRESSION_MODE_LABELS = {0: "LITERAL_DIRECT", 1: "LITERAL_INDIRECT", 2: "FIGURATIVE", 3: "IRONIC_LIGHT"}
+_EXPRESSION_MODE_LABELS = {
+    0: "字面直白（直接说想法，不拐弯抹角）",
+    1: "字面委婉（同样是字面意思，但措辞迂回、留余地）",
+    2: "比喻/意象（用比喻、意象或隐喻表达，语言更具体感）",
+    3: "轻调侃（带一点反讽或调侃，关系亲密时才用）",
+}
 
 _STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
+    "FORMALITY": {
+        "extremely_low": "极度随意，大量口语缩写/俚语，完全不顾格式",
+        "low": "轻松口语，常用省略和缩写，没有礼节性措辞",
+        "mid": "普通日常用语，不刻意正式也不刻意随意",
+        "high": "比较规范，用词完整，较少省略，有一定格式感",
+        "extremely_high": "非常正式，书面措辞，句子完整，慎用俚语",
+    },
+    "POLITENESS": {
+        "extremely_low": "直接生硬，不顾及对方感受，不加任何客套",
+        "low": "直白，偶尔省略客套，语气偏硬",
+        "mid": "正常礼貌，说话有分寸，不特别客套也不失礼",
+        "high": "明显客气，措辞有礼，顾及对方面子",
+        "extremely_high": "非常客套，处处留面子，反复表达尊重",
+    },
     "WARMTH": {
         "extremely_low": "冰冷/公事公办，零情感词，不表达关心",
         "low": "客气但疏离，不用亲昵/关心的词，不主动拉近",
         "mid": "友善自然，偶尔轻微关心（'还好吗''注意休息'）",
         "high": "明显温暖，主动关心、用柔和语气、带鼓励",
         "extremely_high": "非常亲昵，撒娇/哄人/大量情感词",
+    },
+    "CERTAINTY": {
+        "extremely_low": "极度模糊，处处加'可能''也许''我不太确定'",
+        "low": "多用不确定措辞，语气偏软，经常自我怀疑",
+        "mid": "表达适度，该肯定时肯定，不过分自信也不过分怀疑",
+        "high": "语气比较笃定，少用'可能'等不确定词",
+        "extremely_high": "非常笃定，断言式表达，基本不加不确定措辞",
     },
     "CHAT_MARKERS": {
         "extremely_low": "零语气词/表情/感叹号，纯干文本",
@@ -122,7 +148,7 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
                 v = style_dict[key]
                 if key == "EXPRESSION_MODE":
                     mode = int(v) if v is not None else 0
-                    label = _EXPRESSION_MODE_LABELS.get(mode, "LITERAL_DIRECT")
+                    label = _EXPRESSION_MODE_LABELS.get(mode, "字面直白（直接说想法，不拐弯抹角）")
                     parts.append(f"{key}={label}")
                 else:
                     label = _style_value_to_label(float(v))

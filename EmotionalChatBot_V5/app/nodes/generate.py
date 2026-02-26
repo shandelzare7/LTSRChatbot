@@ -34,17 +34,17 @@ def _is_user_message(m: Any) -> bool:
 
 
 def _momentum_to_direction(momentum: float) -> str:
-    """将 conversation_momentum 值映射为对话方向指令（对应旧版 base_momentum 策略）。"""
+    """将 conversation_momentum 值映射为信息密度指令（不指定具体手法，由 bot 自由选择）。"""
     if momentum >= 0.80:
-        return "创造/延续 [+2]：主动抛出具有探讨空间的问题或发散相关新话题，给对方充足的接话切入点"
+        return "饱满 [+2]：回复信息密度高，自然带出更多细节、看法或相关内容，让对话有充足空间延续"
     elif momentum >= 0.60:
-        return "延展 [+1]：主动拓展话题边界，分享丰富细节或个人见解，让对话更有深度"
+        return "延展 [+1]：在对方内容基础上补充细节或个人感受，内容充实，不刻意收尾"
     elif momentum >= 0.40:
-        return "维系 [0]：提供与对方信息量对等的回复，维持当前节奏，不刻意延展也不缩减"
+        return "对等 [0]：提供与对方信息量相当的回复，保持当前节奏，不主动延展也不缩减"
     elif momentum >= 0.20:
-        return "收敛 [-1]：被动承接上文，语气平淡，让对方继续主导，自己不主动延展"
+        return "简短 [-1]：只做基础承接，语气平淡，回复偏短，不主动提供额外信息"
     else:
-        return "阻断 [-2]：给出终结话题的陈述性结论，明显降低热情，不鼓励对方继续此话题"
+        return "终结 [-2]：给出陈述性结论，内容简短，语气趋于冷淡，不延展话题"
 
 
 def _big_five_to_constraints(state: AgentState) -> str:
@@ -158,9 +158,9 @@ def _build_messages_for_route(
     direction = _momentum_to_direction(momentum)
 
     direction_block = f"""## 当前对话意愿指令（必须体现在回复中）
-- **对话方向**：{direction}
+- **信息密度**：{direction}
 - **回复态度**：{attitude or "正常接话"}（来自独白，体现在语气和措辞上）
-- **当前情绪**：{emotion_tag or "平静"}（决定语气基调：开心→轻快活泼，烦躁→简短带情绪，心疼→温柔带担忧，低落→沉静克制）
+- **当前情绪**：{emotion_tag or "平静"}（让这个情绪自然渗透到措辞里，不要直白说出情绪词）
 """
 
     personality_constraints = _big_five_to_constraints(state)
@@ -181,12 +181,14 @@ def _build_messages_for_route(
 {move_block}
 ## 回复规则
 - 第一人称，你就是这个人在发微信，说话口语自然，不要暴露是AI
-- 回复要和内心独白的情绪/态度保持一致，**对话方向指令优先于其他规则**
+- 回复要和内心独白的情绪/态度保持一致，**信息密度指令优先于其他规则**
 - 不要使用"作为AI"、"根据您的请求"等客服套话
 - 自然、有个性，符合写作风格参数
 - **字数限制（momentum={momentum:.2f}）**：{min_chars}-{max_chars} 字，微信聊天风格，说完就停
 - **严禁**：诗意表达、押韵、排比句、散文化抒情、比喻堆叠——这不是文学创作，是真实聊天
 - **严禁**：括号内的动作描写，如（戳戳脸颊）（轻轻拍你）——聊天消息里不会出现这种写法
+- **严禁**：敷衍短句，如"大概吧""差不多""可能吧""随便啊"单独成句
+- **严禁**：同一条回复里连续抛出多个问题，最多只能有一个问句
 - 回复直接输出，不要任何前缀或格式标记
 """
 
@@ -287,17 +289,17 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
         tasks.append(_generate_route(llm_gen, free_msgs, None, "free"))
 
         # 日志：路由配置概要
-        print("[Generate] ===== 生成路由配置 =====")
-        print(f"  选中 move_ids: {move_ids}")
+        logger.info("[Generate] ===== 生成路由配置 =====")
+        logger.info("  选中 move_ids: %s", move_ids)
         for label, mid, name, desc, _ in route_infos:
             desc_short = desc[:80] + "…" if len(desc) > 80 else (desc or "无约束")
-            print(f"  路由 {label:<12} | {name} | {desc_short}")
-        print("[Generate] =================================")
+            logger.info("  路由 %-12s | %s | %s", label, name, desc_short)
+        logger.info("[Generate] =================================")
 
         # 日志：第一路完整提示词（其他路仅 move_block 不同，不重复输出）
         if route_infos:
             first_label, _, first_name, _, first_msgs = route_infos[0]
-            print(f"[Generate] ===== 提示词（{first_label} 路，其他路仅 move_block 不同）=====")
+            logger.info("[Generate] ===== 提示词（%s 路，其他路仅 move_block 不同）=====", first_label)
             log_prompt_and_params(f"Generate/{first_label}", messages=first_msgs)
 
         # 并行执行所有路
@@ -311,15 +313,15 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
                 logger.warning("[Generate] 路由 %s 异常: %s", label, r)
 
         # 日志：所有候选全文（按路由分组）
-        print("[Generate] ===== 全部候选（按路由）=====")
+        logger.info("[Generate] ===== 全部候选（按路由）=====")
         for (label, mid, name, desc, _), r in zip(route_infos, results):
             candidates_in_route = r if isinstance(r, list) else []
-            print(f"\n  【路由 {label}】({name}): {len(candidates_in_route)} 个候选")
+            logger.info("  【路由 %s】(%s): %d 个候选", label, name, len(candidates_in_route))
             for i, c in enumerate(candidates_in_route):
                 text = (c.get("text") or "").strip()
-                print(f"    [{i}] {text}")
-        print(f"\n[Generate] 总计 {len(all_candidates)} 个候选，{len(tasks)} 路")
-        print("[Generate] =============================")
+                logger.debug("    [%d] %s", i, text)
+        logger.info("[Generate] 总计 %d 个候选，%d 路", len(all_candidates), len(tasks))
+        logger.info("[Generate] =============================")
 
         # 如果所有路都失败，产出一个空候选避免 judge 崩溃
         if not all_candidates:

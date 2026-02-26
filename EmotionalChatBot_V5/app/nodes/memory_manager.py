@@ -131,10 +131,6 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         existing_basic: Dict[str, Any] = dict(state.get("user_basic_info") or {})
         existing_profile: Dict[str, Any] = dict(state.get("user_inferred_profile") or {})
 
-        has_gender = bool(
-            existing_basic.get("gender") is not None and str(existing_basic.get("gender")).strip()
-        )
-
         sys_prompt = """你是经验丰富的记录总结专家，擅长从对话中提炼关键信息并形成结构化记录。
 你将基于【旧摘要】+【本轮对话】输出严格 JSON，用于更新摘要、沉淀稳定记忆与抽取用户基础信息。
 
@@ -192,13 +188,6 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 - 避免重复：如果话题与已有话题相似或只是已有话题的细分，不要添加
 - 话题应该是概括性的主题词（如“工作”、“电影”、“旅行”），而不是具体细节
 - 如果本轮没有新话题，返回空数组 []"""
-
-        if not has_gender:
-            sys_prompt += """
-
-【用户性别推断（仅当用户画像中性别未知时）】
-当前用户画像中性别为空。请根据【本轮对话】及上下文（称呼、用词、自述等）推断用户性别，在 inferred_user_gender 中填写：男 / 女 / 其他。若无把握则留空。
-"""
 
         existing_topic_history_str = ", ".join(existing_topic_history) if existing_topic_history else "（空）"
         human_prompt = f"""【旧摘要】
@@ -396,14 +385,6 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 
             updated_basic[k] = new_val_s
             wrote_basic_keys.append(k)
-
-        # 若用户性别仍为空且本轮 LLM 返回了推断性别，则写回
-        if not (updated_basic.get("gender") and str(updated_basic.get("gender")).strip()):
-            inferred_gender = data.get("inferred_user_gender")
-            if inferred_gender is not None and str(inferred_gender).strip():
-                updated_basic["gender"] = str(inferred_gender).strip()
-                wrote_basic_keys.append("gender")
-                logger.info("[MemoryManager] 性别推断写回: %r", updated_basic["gender"])
 
         # 4) new_inferred_entries：保守合并（少而精；schema 为 List[InferredEntry]，转为 dict）
         inferred_raw = data.get("new_inferred_entries") or []

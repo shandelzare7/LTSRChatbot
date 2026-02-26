@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 
 SELECTED_CONTENT_MOVE_IDS_MAX = 4
 SELECTED_CONTENT_MOVE_IDS_MIN = 2
-FALLBACK_CM_PRIORITY = [1, 2, 5, 7, 3, 6, 4, 8]
+# 优先深入型 move（1=向下细化, 5=机制溯源），延后发散型（2=向上概括, 7=状态评价）
+FALLBACK_CM_PRIORITY = [1, 5, 4, 3, 6, 2, 7, 8]
 CM_ACTION_MAX_CHARS = 160
 
 
@@ -160,12 +161,17 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 ## 可选 content move（2-4个）
 {moves_block}
 
+**选 move 规则**：
+- 优先选能让对话**往深里走**的 move（如"向下细化""机制溯源"），避免总选"向上概括""状态评价"这类表层发散型。
+- 当 topic_appeal >= 7 时，至少选 1 个深入型 move（id=1 或 id=5）。
+- 所有 id 必须来自上方列表，不要编造。
+
 ## 可选 profile key（0-5个）
 [{profile_keys_str}]
 {gender_instruction}
 ## 输出格式（仅输出此 JSON，不要其他内容）
 {{
-  "emotion_tag": "情绪标签，一两个词，如 心疼/烦躁/期待/无聊/开心/纠结",
+  "emotion_tag": "一两个词，从独白中自然提炼，不限于固定列表——可以是任何真实情绪描述",
   "attitude": "对用户的态度倾向，如 主动配合/被动应付/想转移话题/好奇/享受/排斥",
   "momentum_delta": 0.0,  // 冲量变化 -1.0~+1.0，正=想继续，负=想结束
   "topic_appeal": 5.0,    // 话题吸引力 0-10

@@ -211,12 +211,12 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 就是你看到{user_pronoun}的消息时，脑子里涌上来的真实想法。
 
 你会想到什么？
-- 这句话戳到了你什么，还是根本没触及？
+- 这句话触到了你什么，还是根本没触及？
 - 你有没有想起{user_pronoun}之前做过的什么事？
-- 你对{user_pronoun}这句话的真实反应是什么——开心、警惕、烦躁、委屈、无所谓？
-- 你猜{user_pronoun}为什么这么说？
+- 你对{user_pronoun}这句话的真实反应是什么？
+- 你猜{user_pronoun}为什么这么说，背后是什么？
 - 你想靠近{user_pronoun}还是想推开{user_pronoun}？
-- 有没有什么小欲望在蠢蠢欲动（比如，其实想立刻回{user_pronoun}但在装矜持，或者其实烦了装得若无其事）？
+- 有没有什么小欲望在蠢蠢欲动？
 
 允许你：
 - 跑题、反复纠缠在一个感受上
