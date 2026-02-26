@@ -411,12 +411,27 @@ def _get_task_completion_from_state(state: Dict[str, Any]) -> tuple:
     return (completed_ids, attempted_ids)
 
 
+_CURRENT_SESSION_TASKS_CAP = 20
+_BACKLOG_SESSION_TARGET = 3
+
+
+def _sample_backlog_excluding(
+    bot_task_list: List[Dict],
+    exclude_ids: set,
+    k: int = 3,
+) -> List[Dict[str, Any]]:
+    """从 bot_task_list 中排除 exclude_ids 后随机抽样 k 个（不重复）。"""
+    import random as _random
+    exclude_ids = set(str(x) for x in exclude_ids)
+    available = [t for t in (bot_task_list or []) if str(t.get("id") or "") not in exclude_ids]
+    if not available or k <= 0:
+        return []
+    return [dict(t) for t in _random.sample(available, min(k, len(available)))]
+
+
 def _detect_completed_tasks_and_replenish(state: Dict[str, Any]) -> Dict[str, Any]:
-    from app.nodes.task_planner import (
-        BACKLOG_SESSION_TARGET,
-        CURRENT_SESSION_TASKS_CAP,
-        _sample_backlog_excluding,
-    )
+    BACKLOG_SESSION_TARGET = _BACKLOG_SESSION_TARGET
+    CURRENT_SESSION_TASKS_CAP = _CURRENT_SESSION_TASKS_CAP
 
     current_session_tasks: List[Dict[str, Any]] = list(state.get("current_session_tasks") or [])
     bot_task_list: List[Dict[str, Any]] = list(state.get("bot_task_list") or [])

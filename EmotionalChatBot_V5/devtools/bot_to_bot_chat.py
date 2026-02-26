@@ -1250,6 +1250,8 @@ async def main() -> None:
         log_line(f"\n3. 冲量变化趋势: 无数据")
     
     # 4. 基础信息任务触发总次数（仅参考：= planner 放入 tasks_for_lats 的次数，不代表执行或完成）
+    _basic_info_task_ids = {"ask_user_name", "ask_user_age", "ask_user_occupation", "ask_user_location"}
+    basic_info_task_ids = locals().get("basic_info_task_ids") or _basic_info_task_ids
     log_line(f"\n4. Basic info 触发总次数（tasks_for_lats 出现次数，仅参考）:")
     for tid in basic_info_task_ids:
         count = basic_info_task_triggered.get(tid, 0)
