@@ -861,8 +861,9 @@ async def chat(
             inflight["waiter"] = waiter
             inflight["latest_req_id"] = req_id
 
-            # Cancel in-flight tasks (generation and tail settlement)
-            for k in ("fast_task", "tail_task"):
+            # Cancel in-flight generation task only.
+            # tail_task writes the bot message to DB — do NOT cancel it or the message is lost.
+            for k in ("fast_task",):
                 t = inflight.get(k)
                 if t is not None and hasattr(t, "done") and (not t.done()):
                     try:
@@ -1454,13 +1455,13 @@ async def get_render_links(request: Request, source: Optional[str] = None):
     生成带不同 source 参数的 Render 链接，用于分流/统计。
     - 无 query：返回所有预设 source 的链接（lab, demo 等）
     - ?source=lab：只返回该 source 的链接
-    预设 source 列表可通过环境变量 RENDER_LINK_SOURCES 配置，逗号分隔，如：lab,demo,invite
+    预设 source 列表可通过环境变量 RENDER_LINK_SOURCES 配置，逗号分隔，如：lab,demo,invite,share
     """
     base_url = _get_render_base_url(request)
-    sources_str = (os.getenv("RENDER_LINK_SOURCES") or "lab,demo,invite").strip()
+    sources_str = (os.getenv("RENDER_LINK_SOURCES") or "lab,demo,invite,share").strip()
     sources = [s.strip() for s in sources_str.split(",") if s.strip()]
     if not sources:
-        sources = ["lab", "demo", "invite"]
+        sources = ["lab", "demo", "invite", "share"]
 
     if source is not None:
         # 只返回指定 source 的一条链接

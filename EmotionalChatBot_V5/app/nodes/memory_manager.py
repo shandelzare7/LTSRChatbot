@@ -222,14 +222,14 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             if hasattr(llm_invoker, "with_structured_output"):
                 try:
                     structured = llm_invoker.with_structured_output(MemoryManagerOutput)
-                    obj = structured.invoke(
+                    obj = await structured.ainvoke(
                         [SystemMessage(content=sys_prompt), HumanMessage(content=human_prompt)]
                     )
                     data = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
                 except Exception:
                     data = {}
             if not data:
-                resp = llm_invoker.invoke(
+                resp = await llm_invoker.ainvoke(
                     [SystemMessage(content=sys_prompt), HumanMessage(content=human_prompt)]
                 )
                 raw_content = getattr(resp, "content", str(resp)) or ""
