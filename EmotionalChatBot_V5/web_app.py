@@ -5,7 +5,7 @@ FastAPI Web Application for EmotionalChatBot V5.0
 import os
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 import time
 import asyncio
@@ -1002,14 +1002,34 @@ async def chat(
                 if db:
                     try:
                         _stage = (result.get("current_stage") if isinstance(result, dict) else None) or (state.get("current_stage") if isinstance(state, dict) else None)
+                        
+                        # ai_sent_at is ISO string, parse it to calculate segment times
+                        try:
+                            # Note: fromisoformat in older python might be strict about Z vs +00:00, but here we generated it
+                            if ai_sent_at.endswith('Z'):
+                                base_time = datetime.fromisoformat(ai_sent_at[:-1] + '+00:00')
+                            else:
+                                base_time = datetime.fromisoformat(ai_sent_at)
+                        except Exception:
+                            base_time = datetime.now(timezone.utc)
+                            
+                        cumulative_delay = 0.0
                         for _idx, _seg in enumerate(segments):
                             _text = str(_seg.get("content", "") or "").strip()
+                            # Accumulate delay: frontend shows "typing" for this duration BEFORE showing the message
+                            _delay = float(_seg.get("delay") or 0.0)
+                            cumulative_delay += _delay
+                            
                             if _text:
+                                # Calculate timestamp for this segment
+                                seg_ts = base_time + timedelta(seconds=cumulative_delay)
+                                seg_ts_iso = seg_ts.isoformat(timespec="milliseconds")
+                                
                                 await db.append_message(
                                     user_id, bot_id,
                                     role="ai",
                                     content=_text,
-                                    created_at=ai_sent_at,
+                                    created_at=seg_ts_iso,
                                     meta={"source": "web", "session_id": session_id, "segment_index": _idx, "current_stage": _stage},
                                 )
                     except Exception:
