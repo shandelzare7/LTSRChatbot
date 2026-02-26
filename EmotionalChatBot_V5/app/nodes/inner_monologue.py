@@ -1,34 +1,32 @@
-"""内心独白节点：产出内心反应文本 + 选择相关的 inferred_profile 键（不负责预算）。"""
+"""内心独白节点（新架构核心模块）：产出角色的真实内在反应文本。
+
+改动说明（V2 版本）：
+- 只输出纯文本独白，不做结构化提取（profile_keys / move_ids 移入 monologue_extraction 节点）
+- 输入改进：使用 state_to_text 将 PAD/busy/momentum/relationship 转成有感染力的文本
+- 字数不限（通常 600-1200），让独白自然流出
+- Prompt 重点：被触发的感受，不是"我应该怎么回"，而是"我心里真实的翻涌"
+- 历史窗口：降至 10-15 轮（对 RAG 检索结果的关联度更好）
+"""
 from __future__ import annotations
 
 import logging
-import random
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, List, Dict, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
 from app.lats.prompt_utils import safe_text
-from utils.prompt_helpers import format_relationship_for_llm, format_stage_for_llm
 from utils.tracing import trace_if_enabled
-from utils.llm_json import parse_json_from_llm
+from utils.state_to_text import convert_state_to_context_text
 from src.schemas import InnerMonologueOutput
-from utils.yaml_loader import load_pure_content_transformations
 
 from app.state import AgentState
 
 logger = logging.getLogger(__name__)
 
-INNER_MONOLOGUE_MAX_CHARS = 400
-
+INNER_MONOLOGUE_MAX_CHARS = 2000  # 不硬限，让独白自然，最后截断防溢出
 LATEST_USER_TEXT_MAX = 800
-RECENT_MSG_CONTENT_MAX = 500
-RECENT_DIALOGUE_LAST_N = 30  # ✅ 修复：原先引用但未定义
-SELECTED_CONTENT_MOVE_IDS_MAX = 4
-SELECTED_CONTENT_MOVE_IDS_REQUIRED = 4
-FALLBACK_CM_PRIORITY = [1, 2, 5, 7, 3, 6, 4, 8]
-
-# ✅ 注意力优化：每个 move 的动作描述不要太长（避免“8 选 4”时模型注意力分散）
-CM_ACTION_MAX_CHARS = 220
+RECENT_MSG_CONTENT_MAX = 200  # 每条对话只显示 200 字，减少噪声
+RECENT_DIALOGUE_LAST_N = 15  # 降至 15 轮，减少 token 并提升相关性
 
 
 def _is_user_message(m: BaseMessage) -> bool:
@@ -36,276 +34,212 @@ def _is_user_message(m: BaseMessage) -> bool:
     return "human" in t.lower() or "user" in t.lower()
 
 
-def _normalize_pure_content_transformations(raw: Any) -> List[Dict[str, Any]]:
-    """兼容 loader 返回 list 或 {'pure_content_transformations': [...]}。"""
-    if raw is None:
-        return []
-    if isinstance(raw, dict):
-        raw = raw.get("pure_content_transformations") or []
-    if not isinstance(raw, list):
-        return []
-    return [x for x in raw if isinstance(x, dict)]
+def _build_user_profile_summary(state: AgentState) -> str:
+    """从user_inferred_profile生成简短的用户画像总结。"""
+    user_profile = state.get("user_inferred_profile") or {}
+    if not user_profile:
+        return "（关于他的了解还不多）"
+
+    lines = []
+    # 取最多5条关键信息
+    for key, value in list(user_profile.items())[:5]:
+        if isinstance(value, (str, int, float)):
+            lines.append(f"- {key}: {value}")
+    return "\n".join(lines) if lines else "（关于他的了解还不多）"
 
 
-def _truncate(s: str, n: int) -> str:
-    s = (s or "").strip()
-    if not s or n <= 0:
-        return ""
-    return s if len(s) <= n else (s[: max(1, n - 1)].rstrip() + "…")
-
-
-def _normalize_cm_action_for_prompt(name: str, action: str) -> str:
-    """
-    仅用于“给 LLM 看”的 content_operation 文案修正，避免与 ReplyPlanner 写作规则硬冲突。
-    物理锚定：强调用可撤销的身体动作/停顿/语气锚定，避免硬编环境事实。
-    """
-    n = (name or "").strip()
-    a = (action or "").strip()
-    if n in ("物理锚定", "Physical Anchoring"):
-        extra = "注意：避免硬编具体环境事实（光线/温度/声音/地点）；优先用可撤销的身体动作/停顿/语气锚定。"
-        if extra not in a:
-            a = (a + "\n" + extra).strip()
-    return a
-
-
-def _gather_context_for_monologue(state: Dict[str, Any]) -> Tuple[str, str, str, str]:
+def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
+    """收集内心独白所需的所有上下文信息。"""
     chat_buffer: List[BaseMessage] = list(
         state.get("chat_buffer") or state.get("messages", [])[-RECENT_DIALOGUE_LAST_N:]
     )
-    stage_id = str(state.get("current_stage") or "initiating")
-    relationship_state = state.get("relationship_state") or {}
 
+    # 最新用户消息
     latest_user_text_raw = (state.get("user_input") or "").strip()
     if not latest_user_text_raw and chat_buffer:
         last_msg = chat_buffer[-1]
         latest_user_text_raw = (getattr(last_msg, "content", "") or str(last_msg)).strip()
-        if not _is_user_message(last_msg):
-            latest_user_text_raw = latest_user_text_raw or "（无用户新句）"
     latest_user_text = (latest_user_text_raw or "（无用户消息）")[:LATEST_USER_TEXT_MAX]
 
+    # 近期对话历史
     lines: List[str] = []
-    for m in chat_buffer:
-        role = "Human" if _is_user_message(m) else "AI"
+    for m in chat_buffer[-RECENT_DIALOGUE_LAST_N:]:
+        role = "User" if _is_user_message(m) else "Bot"
         content = (getattr(m, "content", "") or str(m)).strip()
         if len(content) > RECENT_MSG_CONTENT_MAX:
             content = content[:RECENT_MSG_CONTENT_MAX] + "…"
         lines.append(f"{role}: {content}")
     recent_dialogue_context = "\n".join(lines) if lines else "（无历史对话）"
 
-    rel_for_llm = format_relationship_for_llm(relationship_state)
-    stage_desc = format_stage_for_llm(stage_id, include_judge_hints=True)
-    return latest_user_text, recent_dialogue_context, rel_for_llm, stage_desc
+    # 角色名字和用户名字
+    bot_basic_info = state.get("bot_basic_info") or {}
+    user_basic_info = state.get("user_basic_info") or {}
+    bot_name = safe_text((bot_basic_info or {}).get("name") or "Bot").strip() or "Bot"
+    user_name_raw = safe_text((user_basic_info or {}).get("name") or "").strip()
+    user_name = user_name_raw if user_name_raw else "（你还不知道对方的名字）"
 
+    # 检索到的相关记忆（top 3-5）
+    retrieved_memories: List[str] = list(state.get("retrieved_memories") or [])
+    mem_block = ""
+    if retrieved_memories:
+        mem_lines = [f"- {m[:150]}" for m in retrieved_memories[:5]]
+        mem_block = "## 被唤起的记忆\n" + "\n".join(mem_lines)
 
-def _pad_to_exact_4(selected: List[int], valid_ids: List[int]) -> List[int]:
-    """保证返回恰好 4 个 id：先去重保序，不足则按 FALLBACK_CM_PRIORITY 与 valid_ids 补齐。"""
-    out: List[int] = []
-    seen: set = set()
-    for x in selected:
-        if x in seen:
-            continue
-        seen.add(x)
-        out.append(x)
-    valid_set = set(valid_ids)
-    for x in FALLBACK_CM_PRIORITY:
-        if len(out) >= SELECTED_CONTENT_MOVE_IDS_REQUIRED:
-            break
-        if x in valid_set and x not in seen:
-            seen.add(x)
-            out.append(x)
-    for x in valid_ids:
-        if len(out) >= SELECTED_CONTENT_MOVE_IDS_REQUIRED:
-            break
-        if x not in seen:
-            seen.add(x)
-            out.append(x)
-    if not out and valid_ids:
-        out = [valid_ids[0]]
-    while len(out) < SELECTED_CONTENT_MOVE_IDS_REQUIRED:
-        out.append(out[-1] if out else 1)
-    return out[:SELECTED_CONTENT_MOVE_IDS_REQUIRED]
+    # Detection 客观信号
+    detection = state.get("detection") or {}
+    det_block = ""
+    if detection:
+        hostility = detection.get("hostility_level", 0)
+        engagement = detection.get("engagement_level", 5)
+        urgency = detection.get("urgency", 5)
+        stage_pacing = detection.get("stage_pacing", "正常")
+        det_block = (
+            f"## 他说这句话的语境\n"
+            f"- 敌意程度：{hostility}/10（0无，10很强）\n"
+            f"- 信息量/投入度：{engagement}/10（0冷淡，10很活跃）\n"
+            f"- 紧迫感：{urgency}/10（0可延后，10很紧急）\n"
+            f"- 关系节奏：{stage_pacing}"
+        )
+
+    # 转换动态状态为文本（PAD、busy、momentum、relationship）
+    state_text_dict = convert_state_to_context_text(state)
+
+    # 组合后的"你现在的状态"块
+    current_state_block = f"""## 你现在的状态
+- 身体/心理感受：{state_text_dict["pad_state"]}
+- 忙碌度/注意力：{state_text_dict["busy_text"]}
+- 聊天意愿：{state_text_dict["momentum_text"]}
+- 对关系的感受：{state_text_dict["relationship_narrative"]}
+- 关系阶段：{state_text_dict["stage_narrative"]}"""
+
+    return {
+        "bot_name": bot_name,
+        "user_name": user_name,
+        "latest_user_text": latest_user_text,
+        "recent_dialogue": recent_dialogue_context,
+        "persona": safe_text(str(state.get("bot_persona") or ""))[:600],
+        "memories": mem_block,
+        "detection": det_block,
+        "current_state": current_state_block,
+        "user_profile_summary": _build_user_profile_summary(state),
+    }
 
 
 def create_inner_monologue_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
+    """创建内心独白节点。"""
+
     @trace_if_enabled(
         name="Inner Monologue",
         run_type="chain",
-        tags=["node", "inner_monologue", "perception"],
-        metadata={"state_outputs": ["inner_monologue", "selected_profile_keys", "selected_content_move_ids"]},
+        tags=["node", "inner_monologue", "core"],
+        metadata={"state_outputs": ["inner_monologue"]},
     )
     def inner_monologue_node(state: AgentState) -> dict:
-        monologue, selected_keys, selected_content_move_ids = _generate_monologue(state, llm_invoker)
-
+        monologue = _generate_monologue(state, llm_invoker)
         monologue = (monologue or "按常理接话即可。").strip()
+
+        # 防溢出截断，但不硬限
         if len(monologue) > INNER_MONOLOGUE_MAX_CHARS:
             monologue = monologue[:INNER_MONOLOGUE_MAX_CHARS]
 
-        # 诊断日志：把 id→name 映射打出来
-        id_to_name: Dict[int, str] = {}
-        try:
-            moves = _normalize_pure_content_transformations(load_pure_content_transformations())
-            for m in moves:
-                mid = m.get("id")
-                if mid is not None:
-                    id_to_name[int(mid)] = (m.get("name") or "").strip() or str(mid)
-        except Exception as e:
-            logger.exception("[InnerMonologue] load_pure_content_transformations failed in logger mapping: %s", e)
-
-        names = [id_to_name.get(i, str(i)) for i in selected_content_move_ids]
-        logger.info(
-            "[InnerMonologue] selected_content_move_ids=%s (%s) selected_profile_keys=%s monologue_len=%d",
-            selected_content_move_ids,
-            ", ".join(names) if names else "（无）",
-            selected_keys,
-            len(monologue),
-        )
-
-        return {
-            "inner_monologue": monologue,
-            "selected_profile_keys": selected_keys,
-            "selected_content_move_ids": selected_content_move_ids,
-        }
+        logger.info("[InnerMonologue] generated, length=%d chars", len(monologue))
+        return {"inner_monologue": monologue}
 
     return inner_monologue_node
 
 
-def _generate_monologue(
-    state: AgentState,
-    llm_invoker: Any,
-) -> Tuple[str, List[str], List[int]]:
-    valid_ids_list = list(range(1, 9))
+def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
+    """生成纯内心独白（不再选move、不再选profile_keys）。"""
     if llm_invoker is None:
-        return "按常理接话即可。", [], _pad_to_exact_4([], list(range(1, 9)))
+        return "按常理接话即可。"
 
-    content: str = ""
     try:
-        latest_user_text, recent_dialogue_context, rel_for_llm, stage_desc = _gather_context_for_monologue(state)
+        ctx = _gather_context_for_monologue(state)
+        bot_name = ctx["bot_name"]
+        user_name = ctx["user_name"]
 
-        valid_ids_list = list(range(1, 9))  # 兜底，后续会被 transformations 覆盖
-        # ✅ 加载 moves（防御式）
+        # 新式提示词：重点是"被触发的感受"而不是"下一步怎么办"
+        system_prompt = f"""你是 {bot_name}。
+
+## 你这个人
+{ctx['persona']}
+
+## 你现在的状态
+{ctx['current_state']}
+
+{ctx['detection']}
+
+{ctx['memories']}
+
+## 关于 {user_name}
+{ctx['user_profile_summary']}
+
+## 最近的对话
+{ctx['recent_dialogue']}
+
+---
+
+## 你现在的任务
+写出你（{bot_name}）在这一刻的内心独白。
+
+不是分析他说了什么，不是规划你该怎么回。
+就是你看到他的消息时，脑子里涌上来的真实想法。
+
+你会想到什么？
+- 这句话戳到了你什么，还是根本没触及？
+- 你有没有想起他之前做过的什么事？
+- 你对他这句话的真实反应是什么——开心、警惕、烦躁、委屈、无所谓？
+- 你猜他为什么这么说？
+- 你想靠近他还是想推开他？
+- 有没有什么小欲望在蠢蠢欲动（比如，其实想立刻回他但在装矜持，或者其实烦了装得若无其事）？
+
+允许你：
+- 跑题、反复纠缠在一个感受上
+- 心里想的和将来要说的不一样
+- 有矛盾、有防御、有不敢说出口的欲望
+- 一会儿理性一会儿纯情绪
+
+不要：
+- 分析他的意图（除非你真的在猜测）
+- 规划你的回复方式或措辞
+- 列清单或分条目
+- 输出 JSON 或其他结构化格式
+
+就是意识流。你的思绪。此刻。
+"""
+
+        user_prompt = f"""他（{user_name}）刚刚对你说：
+
+"{ctx['latest_user_text']}"
+
+---
+
+写出你现在的内心独白。"""
+
+        # 调用 LLM
         try:
-            transformations = _normalize_pure_content_transformations(load_pure_content_transformations())
-        except Exception as e:
-            logger.exception("[InnerMonologue] load_pure_content_transformations failed: %s", e)
-            transformations = []
+            if hasattr(llm_invoker, "with_structured_output"):
+                try:
+                    structured = llm_invoker.with_structured_output(InnerMonologueOutput)
+                    obj = structured.invoke([
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=user_prompt)
+                    ])
+                    result = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
+                    return str(result.get("monologue") or "").strip()
+                except Exception as e:
+                    logger.warning("[InnerMonologue] structured_output failed, fallback to plain text: %s", e)
+        except Exception:
+            pass
 
-        valid_ids = {int(m["id"]) for m in transformations if m.get("id") is not None}
-        valid_ids_list = sorted(valid_ids) if valid_ids else list(range(1, 9))
-
-        # ✅ 注意力优化：只给 LLM “id+name+简短动作”，避免 8 个长段落稀释注意力
-        content_moves_block = ""
-        if transformations:
-            shuffled = list(transformations)
-            random.shuffle(shuffled)
-            lines_cm = []
-            for m in shuffled:
-                mid = m.get("id")
-                name = (m.get("name") or "").strip() or "（未命名）"
-                action = (m.get("content_operation") or "").strip() or "（无）"
-                action = _normalize_cm_action_for_prompt(name, action)
-                action = _truncate(action, CM_ACTION_MAX_CHARS)
-                lines_cm.append(f"- id: {mid} | {name} | 动作要点: {action}")
-            content_moves_block = "\n".join(lines_cm)
-
-        bot_basic_info = state.get("bot_basic_info") or {}
-        bot_persona = state.get("bot_persona") or ""
-        user_basic_info = state.get("user_basic_info") or {}
-        bot_name = safe_text((bot_basic_info or {}).get("name") or "Bot").strip() or "Bot"
-        user_name_raw = safe_text((user_basic_info or {}).get("name") or "").strip()
-        user_name = user_name_raw if user_name_raw else "你不知道对方的名字"
-
-        inferred_profile = state.get("user_inferred_profile") or {}
-        profile_keys = sorted(inferred_profile.keys()) if isinstance(inferred_profile, dict) else []
-        profile_keys_str = ", ".join(profile_keys) if profile_keys else "（暂无）"
-
-        part3_section = ""
-        if content_moves_block:
-            part3_section = f"""
-## 第三部分：选择当轮可执行的 content move (selected_content_move_ids)
-可用 content moves（id | 名称 | 动作要点）：
-{content_moves_block}
-
-要求：
-- 你必须从候选中**选择最佳的确切 4 个** id，输出恰好 4 个，不要多也不要少。
-- id 必须来自上面候选列表中的 id（不要编造），且**不要重复**。
-- 选择标准：按“最适合本轮语境、最能推进对话”排序，取前 4 个。只填数字数组，如 [3,1,5,7]。
-"""
-
-        sys = f"""你是 {bot_name}。你正在和 {user_name} 对话。
-下面给你「历史对话」和「当轮用户消息」，请输出给下游执行用（不给用户看）。
-
-## 第一部分：内心独白 (monologue)
-- ≤{INNER_MONOLOGUE_MAX_CHARS} 字符；第一人称；只写倾向/意愿/态度；不要步骤/清单。
-
-## 第二部分：选择相关的用户画像键 (selected_profile_keys)
-可选键名：
-[{profile_keys_str}]
-- 选 0~5 个；只选存在的键名；无则 []。
-{part3_section}
-## 关系状态（0–1）
-{rel_for_llm}
-
-## 关系阶段与越界提示
-{stage_desc}
-
-## 输出格式（必须严格 JSON）
-仅输出一个 JSON 对象，且只包含：
-- monologue: string
-- selected_profile_keys: string[]
-- selected_content_move_ids: int[]
-不要输出其他键/不要 Markdown。
-"""
-
-        user_body = f"""【历史对话】（最近 {RECENT_DIALOGUE_LAST_N} 条）
-{recent_dialogue_context}
-
-【当轮用户消息】
-{latest_user_text}
-"""
-
-        data = None
-        if hasattr(llm_invoker, "with_structured_output"):
-            try:
-                structured = llm_invoker.with_structured_output(InnerMonologueOutput)
-                obj = structured.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
-                data = obj.model_dump() if hasattr(obj, "model_dump") else obj.dict()
-            except Exception as e:
-                logger.exception("[InnerMonologue] structured_output failed, fallback to json parse: %s", e)
-                data = None
-
-        if data is None:
-            msg = llm_invoker.invoke([SystemMessage(content=sys), HumanMessage(content=user_body)])
-            content = (getattr(msg, "content", "") or str(msg)).strip()
-            data = parse_json_from_llm(content)
-
-        if isinstance(data, dict):
-            monologue = str(data.get("monologue") or "").strip().strip("\"'")
-            raw_keys = data.get("selected_profile_keys") or []
-            selected_keys = [
-                str(k) for k in raw_keys
-                if isinstance(k, str) and k.strip() and k.strip() in profile_keys
-            ][:5]
-
-            raw_ids = data.get("selected_content_move_ids") or []
-            selected_ids = [
-                int(x) for x in raw_ids
-                if x is not None and (
-                    isinstance(x, int)
-                    or (isinstance(x, float) and int(x) == x)
-                    or (isinstance(x, str) and str(x).strip().isdigit())
-                )
-            ]
-            selected_ids = [x for x in selected_ids if x in valid_ids][:SELECTED_CONTENT_MOVE_IDS_MAX]
-            selected_ids = _pad_to_exact_4(selected_ids, valid_ids_list)
-
-            monologue_out = (monologue or "按常理接话即可。").strip()[:INNER_MONOLOGUE_MAX_CHARS]
-            return monologue_out, selected_keys, selected_ids
-
-        fallback_text = (content or "").strip().strip("\"'")
-        if fallback_text:
-            return fallback_text[:INNER_MONOLOGUE_MAX_CHARS], [], _pad_to_exact_4([], valid_ids_list)
+        # Fallback: 纯文本调用
+        msg = llm_invoker.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ])
+        content = (getattr(msg, "content", "") or str(msg)).strip()
+        return content
 
     except Exception as e:
-        logger.exception("[InnerMonologue] _generate_monologue failed: %s", e)
-
-    return "按常理接话即可。", [], _pad_to_exact_4([], valid_ids_list)
+        logger.exception("[InnerMonologue] failed to generate monologue: %s", e)
+        return "按常理接话即可。"

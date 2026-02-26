@@ -387,10 +387,8 @@ class AgentState(TypedDict, total=False):
     # 当前会话要处理的任务子集，通常 0-3 条；由 save_turn 写入 assets（DB/local），loader 恢复
     current_session_tasks: List[Task]
 
-    # --- TaskPlanner 输出（LATS 之前节点写入，供 LATS / reply_planner 使用）---
-    # 本轮交给 LATS 的至多 3 条自然语言任务（带 id 便于回写完成）
-    tasks_for_lats: List[Dict[str, Any]]  # [{"id": str, "description": str, "task_type": str?}, ...]
-    # 本轮允许完成的任务数 0/1/2；0 时仍可带任务包，但倾向“隐式完成”
+    # 旧 TaskPlanner 字段（已废弃，新架构不再使用 task_planner 节点）
+    tasks_for_lats: List[Dict[str, Any]]
     task_budget_max: int
 
     # --- Task settlement (由 Evolver 根据 final_response 判定后写入) ---
@@ -416,8 +414,20 @@ class AgentState(TypedDict, total=False):
     seconds_since_last_message: Optional[float]
 
     # --- Analysis Artifacts (中间产物) ---
-    # inner_monologue 节点输出：内心独白文本 + 选中的 inferred_profile 键名列表 + 当轮可执行的 content move id（最多 4 个）
+    # inner_monologue 节点输出：纯文本内心独白（新架构：不再包含 profile_keys / move_ids，这两个移入 monologue_extract）
     inner_monologue: Optional[str]
+    # state_prep 节点输出：PAD/busy/momentum/relationship 转换为的自然语言状态描述（纯代码生成）
+    state_text: Optional[str]
+    # extract 节点输出：从独白中结构化提取的信号（emotion_tag/attitude/momentum_delta/topic_appeal/subtext_guess/profile_keys/move_ids）
+    monologue_extract: Optional[Dict[str, Any]]
+    # generate 节点输出：所有路的候选回复列表 [{"move_id": int|None, "route": str, "text": str}, ...]
+    generation_candidates: Optional[List[Dict[str, Any]]]
+    # judge 节点输出：评审结果 {winner_index: int, justification: str}
+    judge_result: Optional[Dict[str, Any]]
+    # 安全层输出
+    safety_triggered: Optional[bool]
+    safety_strategy_id: Optional[str]
+    # 旧字段（已废弃，保留仅供兼容旧日志/序列化）
     selected_profile_keys: Optional[List[str]]
     selected_content_move_ids: Optional[List[int]]
     response_strategy: Optional[str]
@@ -433,12 +443,9 @@ class AgentState(TypedDict, total=False):
     # --- Detection（简化：6 个量，含 urgency）---
     # hostility_level 0-10, engagement_level 0-10, topic_appeal 0-10, stage_pacing 正常|过分亲密|过分生疏, subtext
     detection: Optional[Dict[str, Any]]
-    # --- 本轮策略（来自 config/strategies.yaml 的 20 态策略矩阵）---
-    # 策略 id，对应 strategies.yaml 中某条的 id
+    # --- 旧策略字段（已废弃，新架构用 safety_triggered/safety_strategy_id 替代）---
     current_strategy_id: Optional[str]
-    # 本轮选中的策略对象（含 id, name, category, knapp_stages, route_path, trigger, prompt），由路由节点写入
     current_strategy: Optional[Dict[str, Any]]
-    # 策略路由三节点输出（命中时为策略 id，否则 None）
     router_high_stakes: Optional[str]
     router_emotional_game: Optional[str]
     router_form_rhythm: Optional[str]
@@ -449,13 +456,10 @@ class AgentState(TypedDict, total=False):
     # 兼容/日志用（不再用于路由；路由改由 no_reply）
     detection_result: Optional[str]
     detection_category: Optional[str]
-    # 是否本轮不回复（由 task_planner 设置，graph 条件边短路）
+    # 旧路由控制字段（已废弃，保留仅供兼容旧日志）
     no_reply: Optional[bool]
-    # 是否因动量过低跳过回复（由 strategy_resolver 设置；跳过 LATS/processor，直接进入 evolver 等后续节点）
     skip_reply: Optional[bool]
-    # 每轮回复耗时（秒），按轮次顺序；用于「前两条回复总用时 < 阈值则走 fast」的可选路由
     reply_duration_seconds_list: Optional[List[float]]
-    # 由 strategy_resolver 设置：前两条回复总用时 < 阈值且全局开关开启时走 fast_reply
     force_fast_route: Optional[bool]
     # 直觉思考：由 Inner Monologue 节点生成（原 detection 的“先想再分类”现移入 inner_monologue）
     intuition_thought: Optional[str]
@@ -487,29 +491,21 @@ class AgentState(TypedDict, total=False):
     reply_plan: Optional[ReplyPlan]
     sim_report: Optional[SimReport]
 
-    # LATS 搜索树与统计（保持灵活，便于迭代）
+    # 旧 LATS 字段（已废弃，新架构用并行 generate + judge 替代）
     lats_tree: Optional[Dict[str, Any]]
     lats_best_id: Optional[str]
     lats_rollouts: Optional[int]
     lats_expand_k: Optional[int]
-    # 是否启用 LLM soft scorer（用于 plan_alignment/style/stage/memory/persona/relationship 等“可优化维度”评审）
     lats_enable_llm_soft_scorer: Optional[bool]
-    # LATS 两阶段评审参数（可选；必须进入 AgentState 否则会被 LangGraph 丢弃）
     lats_llm_soft_top_n: Optional[int]
     lats_llm_soft_max_concurrency: Optional[int]
     lats_assistant_check_top_n: Optional[int]
-    # LATS 早退/停止相关阈值（必须进入 AgentState，否则 LangGraph 传播会丢字段）
     lats_early_exit_root_score: Optional[float]
     lats_early_exit_plan_alignment_min: Optional[float]
     lats_early_exit_assistantiness_max: Optional[float]
     lats_early_exit_mode_fit_min: Optional[float]
-    # bot-to-bot/压测用：禁用早退（强制至少跑完 rollouts）
     lats_disable_early_exit: Optional[bool]
-    # 可选：低风险回合跳过 LATS rollout 搜索（只用根计划）
     lats_skip_low_risk: Optional[bool]
-    # P0：至少跑完 N 次 rollout 才允许 early-exit（root_plan 直接早退）。
-    # - 默认 1：避免“树永远不长”
-    # - 设为 0：允许 root_plan 直接早退（旧行为）
     lats_min_rollouts_before_early_exit: Optional[int]
     
     # --- Final Output ---

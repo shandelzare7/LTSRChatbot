@@ -53,4 +53,6 @@ EmotionalChatBot_V5/*.zip
 EmotionalChatBot_V5/render_backup/
 EmotionalChatBot_V5/render_backup_*/
 EmotionalChatBot_V5/render_log/
+EmotionalChatBot_V5/data_summary/
+EmotionalChatBot_V5/devtools/downloaded_logs/
 EmotionalChatBot_V5/claude_cross_device_output.txt

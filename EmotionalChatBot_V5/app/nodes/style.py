@@ -505,9 +505,16 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
         attractiveness = _get_rel("attractiveness", 0.5)
         power = _get_rel("power", 0.5)
 
-        # momentum/topic_appeal（你稍后适配即可）
-        momentum = _parse_01(mood.get("momentum", state.get("momentum")), 0.5)
-        topic_appeal = _parse_01(mood.get("topic_appeal", state.get("topic_appeal")), 0.5)
+        # momentum：从 state 读
+        momentum = _parse_01(state.get("conversation_momentum", mood.get("momentum")), 0.5)
+        # topic_appeal：优先从 monologue_extract 读（新架构），退回 mood/state（向后兼容）
+        monologue_extract = state.get("monologue_extract") or {}
+        _ta_raw = monologue_extract.get("topic_appeal")
+        if _ta_raw is not None:
+            # extract 的 topic_appeal 是 0-10，映射到 0-1
+            topic_appeal = _parse_01(float(_ta_raw) / 10.0, 0.5)
+        else:
+            topic_appeal = _parse_01(mood.get("topic_appeal", state.get("topic_appeal")), 0.5)
 
         # evidence：你现在没有来源 => 传 None
         inp = Inputs(

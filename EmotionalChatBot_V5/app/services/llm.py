@@ -139,19 +139,6 @@ class ServiceTierLLM:
         finally:
             self._log_elapsed((time.perf_counter() - t0) * 1000.0, node_override=node_capture)
 
-    async def agenerate(self, input: Any, **kwargs) -> Any:
-        """Forward agenerate() for batch generation with n parameter."""
-        node_capture = get_current_node() or "?"
-        kw = self._inject(kwargs)
-        t0 = time.perf_counter()
-        try:
-            if hasattr(self._inner, "agenerate") and callable(getattr(self._inner, "agenerate")):
-                return await self._inner.agenerate(input, **kw)
-            # Fallback to ainvoke if agenerate not available
-            return await self.ainvoke(input, **kw)
-        finally:
-            self._log_elapsed((time.perf_counter() - t0) * 1000.0, node_override=node_capture)
-
     def bind(self, **kwargs: Any) -> "ServiceTierLLM":
         """返回带绑定参数的包装，使 bound 对象仍支持 with_structured_output，避免 reply_planner 等回退到 raw 解析。"""
         bound = self._inner.bind(**kwargs) if hasattr(self._inner, "bind") else self._inner
@@ -317,31 +304,6 @@ class _TimedInvoker:
                     f"dt_ms={dt_ms:.1f} messages={size['messages']} chars={size['chars']}"
                 )
 
-    async def agenerate(self, input: Any, **kwargs) -> Any:
-        """Forward agenerate() for batch generation with n parameter."""
-        enabled = _truthy(os.getenv("LTSR_LLM_PERF"))
-        min_ms_raw = os.getenv("LTSR_LLM_PERF_MIN_MS", "").strip()
-        try:
-            min_ms = float(min_ms_raw) if min_ms_raw else 0.0
-        except Exception:
-            min_ms = 0.0
-
-        size = _approx_input_size(input)
-        t0 = time.perf_counter()
-        try:
-            if hasattr(self._inner, "agenerate") and callable(getattr(self._inner, "agenerate")):
-                return await self._inner.agenerate(input, **kwargs)
-            # Fallback to ainvoke if agenerate not available
-            return await self.ainvoke(input, **kwargs)
-        finally:
-            dt_ms = (time.perf_counter() - t0) * 1000.0
-            if enabled and dt_ms >= min_ms:
-                model_name = getattr(self._inner, "model_name", None) or getattr(self._inner, "model", None) or "unknown"
-                print(
-                    f"[LLM_PERF] {self._label} model={model_name} "
-                    f"dt_ms={dt_ms:.1f} messages={size['messages']} chars={size['chars']}"
-                )
-
 
 class TimedLLM:
     """
@@ -364,13 +326,6 @@ class TimedLLM:
 
     async def ainvoke(self, input: Any, **kwargs) -> Any:
         return await _TimedInvoker(self._inner, label="ainvoke").ainvoke(input, **kwargs)
-
-    async def agenerate(self, input: Any, **kwargs) -> Any:
-        """Forward agenerate() for batch generation with n parameter."""
-        if hasattr(self._inner, "agenerate") and callable(getattr(self._inner, "agenerate")):
-            return await _TimedInvoker(self._inner, label="agenerate").agenerate(input, **kwargs)
-        # Fallback to ainvoke if agenerate not available
-        return await self.ainvoke(input, **kwargs)
 
     def with_structured_output(self, schema: Type[T], **kwargs) -> Any:
         structured = self._inner.with_structured_output(schema, **kwargs)
@@ -501,34 +456,6 @@ class InstrumentedLLM:
             if _call_log_enabled():
                 print(
                     f"[LLM_CALL] node={node} role={self._role} kind=ainvoke "
-                    f"model={self._model} dt_ms={dt_ms:.1f}"
-                )
-
-    async def agenerate(self, input: Any, **kwargs) -> Any:
-        """Forward agenerate() for batch generation with n parameter."""
-        t0 = time.perf_counter()
-        try:
-            tier = _service_tier_for_call(model=str(self._model), base_url=str(self._base_url))
-            if tier and "service_tier" not in kwargs:
-                kwargs = dict(kwargs)
-                kwargs["service_tier"] = tier
-            if hasattr(self._inner, "agenerate") and callable(getattr(self._inner, "agenerate")):
-                return await self._inner.agenerate(input, **kwargs)
-            # Fallback to ainvoke if agenerate not available
-            result = await self.ainvoke(input, **kwargs)
-            # Wrap single result into LLMResult format for compatibility
-            from langchain_core.outputs import ChatGeneration, ChatResult
-            if hasattr(result, "content"):
-                return ChatResult(generations=[[ChatGeneration(message=result)]])
-            return ChatResult(generations=[[ChatGeneration(message=result)]])
-        finally:
-            dt_ms = (time.perf_counter() - t0) * 1000.0
-            _record_llm_call(role=self._role, base_url=self._base_url, model=str(self._model), kind="agenerate", dt_ms=dt_ms)
-            node = get_current_node() or "?"
-            _dump_llm_call(node=node, role=self._role, kind="agenerate", model=str(self._model), dt_ms=dt_ms, input=input)
-            if _call_log_enabled():
-                print(
-                    f"[LLM_CALL] node={node} role={self._role} kind=agenerate "
                     f"model={self._model} dt_ms={dt_ms:.1f}"
                 )
 
@@ -673,11 +600,10 @@ def get_llm(
     api_key: Optional[str] = None,
     temperature: float = 0.3,
     base_url: Optional[str] = None,
-    top_p: Optional[float] = None,
 ) -> BaseChatModel:
     """
     获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。
-    相同 (role, model_name, base_url, temperature, top_p) 会复用缓存实例。
+    相同 (role, model_name, base_url, temperature) 会复用缓存实例。
 
     支持按角色路由多模型（role: main/fast/judge），并支持预设：
     - LTSR_LLM_PRESET=openai
@@ -689,7 +615,6 @@ def get_llm(
     - LTSR_LLM_<ROLE>_BASE_URL
     - LTSR_LLM_<ROLE>_MODEL
     - LTSR_LLM_<ROLE>_TEMPERATURE
-    - LTSR_LLM_<ROLE>_TOP_P
     """
 
     r = (role or "main").strip().lower()
@@ -702,7 +627,6 @@ def get_llm(
     role_base_url = _env(r, "BASE_URL")
     role_model = _env(r, "MODEL")
     role_temp = _env(r, "TEMPERATURE")
-    role_top_p = _env(r, "TOP_P")
 
     preset = (os.getenv("LTSR_LLM_PRESET") or "").strip().lower() or "openai"
 
@@ -747,14 +671,7 @@ def get_llm(
     elif preset_temp is not None:
         temperature = float(preset_temp)
 
-    # Resolve top_p
-    if role_top_p:
-        try:
-            top_p = float(role_top_p)
-        except Exception:
-            pass
-
-    cache_key: tuple[Any, ...] = (r, model_name, base_url or "", temperature, top_p or 0.0)
+    cache_key: tuple[Any, ...] = (r, model_name, base_url or "", temperature)
     if cache_key in _LLM_CACHE:
         return _LLM_CACHE[cache_key]
 
@@ -768,8 +685,6 @@ def get_llm(
         }
         if not _is_reasoning_model:
             kwargs["temperature"] = temperature
-        if top_p is not None and not _is_reasoning_model:
-            kwargs["top_p"] = top_p
         # reasoning 模型：显式传 verbosity / reasoning_effort（LangChain 要求显式参数，不要塞进 model_kwargs）
         if _is_reasoning_model:
             kwargs["verbosity"] = "low"
@@ -822,7 +737,7 @@ def get_llm(
             wrapped = TimedLLM(wrapped)
         _LLM_CACHE[cache_key] = wrapped
         return wrapped
-    llm = MockLLM(model=model_name, temperature=temperature, top_p=top_p)
+    llm = MockLLM(model=model_name, temperature=temperature)
     wrapped2: Any = ServiceTierLLM(llm, base_url=base_url or "", model=model_name)
     if _stats_enabled():
         wrapped2 = InstrumentedLLM(wrapped2, role=r, base_url=base_url or "", model=model_name)
@@ -837,7 +752,6 @@ class MockLLM(BaseChatModel):
 
     model: str = "mock"
     temperature: float = 0.3
-    top_p: Optional[float] = None
 
     @property
     def _llm_type(self) -> str:

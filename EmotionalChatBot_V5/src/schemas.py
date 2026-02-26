@@ -59,17 +59,15 @@ class RelationshipAnalysis(BaseModel):
 class DetectionOutput(BaseModel):
     model_config = _pydantic_extra_forbid
 
-    """Detection 节点 LLM 输出：0-10 整数 + subtext。"""
+    """Detection 节点 LLM 输出：4 维客观量（去掉 topic_appeal 和 subtext，这两个由 extract 吸收）。"""
 
     hostility_level: int = Field(0, ge=0, le=10, description="0-10")
     engagement_level: int = Field(0, ge=0, le=10, description="0-10")
-    topic_appeal: int = Field(0, ge=0, le=10, description="0-10")
     stage_pacing: Literal["正常", "过分亲密", "过分生疏"] = Field(
         "正常",
         description="关系节奏：正常=与当前阶段匹配；过分亲密=交浅言深；过分生疏=突然冷淡/回避。",
     )
     urgency: int = Field(0, ge=0, le=10, description="0-10")
-    subtext: str = Field("", description="用户潜台词/意图简述")
 
 
 # ---------------------------------------------------------------------------
@@ -80,14 +78,9 @@ class DetectionOutput(BaseModel):
 class InnerMonologueOutput(BaseModel):
     model_config = _pydantic_extra_forbid
 
-    """Inner monologue 节点 LLM 输出。"""
+    """Inner monologue 节点 LLM 输出：只输出纯文本独白（结构化提取由 extract 节点完成）。"""
 
-    monologue: str = Field("", description="内心独白文本")
-    selected_profile_keys: List[str] = Field(default_factory=list, description="从 profile 中选中的键名")
-    selected_content_move_ids: List[int] = Field(
-        default_factory=list,
-        description="当轮可执行的 content move id，最多 4 个，对应 content_moves.yaml 中 pure_content_transformations 的 id",
-    )
+    monologue: str = Field("", description="内心独白文本，600-1200字符，只写感受/态度/意愿，不做分类或选择")
 
 
 
@@ -265,6 +258,57 @@ class MemoryManagerOutput(BaseModel):
     new_topics: List[str] = Field(default_factory=list)
     # 仅当用户性别未知时，可根据本轮对话推断并填写（男/女/其他）；否则留空
     inferred_user_gender: Optional[str] = Field(default=None, description="If user gender is unknown, infer from conversation; otherwise leave empty.")
+
+
+# ---------------------------------------------------------------------------
+# Monologue Extract（新架构：extract 节点）
+# ---------------------------------------------------------------------------
+
+
+class MonologueExtractOutput(BaseModel):
+    model_config = _pydantic_extra_forbid
+
+    """从内心独白中结构化提取信号，同时完成 profile_keys 选择和 move_ids 选择。"""
+
+    emotion_tag: str = Field("", description="当前情绪标签，如 心疼/烦躁/期待/无聊/开心 等")
+    attitude: str = Field("", description="对用户的态度倾向，如 主动配合/被动应付/想转移话题/好奇/享受 等")
+    momentum_delta: float = Field(0.0, ge=-1.0, le=1.0, description="冲量变化量 -1.0~+1.0，正=想继续，负=想结束")
+    topic_appeal: float = Field(5.0, ge=0.0, le=10.0, description="话题吸引力 0-10（替换旧 detection.topic_appeal）")
+    subtext_guess: str = Field("", description="对用户潜台词的猜测，无则空字符串")
+    selected_profile_keys: List[str] = Field(default_factory=list, description="当前最相关的用户画像键名，0-5个")
+    selected_content_move_ids: List[int] = Field(
+        default_factory=list,
+        description="当轮选中的 content move id，2-4个，对应 content_moves.yaml 中 pure_content_transformations 的 id",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Judge（新架构：judge 节点）
+# ---------------------------------------------------------------------------
+
+
+class JudgeOutput(BaseModel):
+    model_config = _pydantic_extra_forbid
+
+    """Judge 节点 LLM 输出：从所有候选中选出最符合内心独白的那条。"""
+
+    winner_index: int = Field(..., ge=0, description="generation_candidates 列表中最优候选的索引")
+    justification: str = Field("", description="简短说明为什么选这条（对照独白的态度/情绪）")
+
+
+# ---------------------------------------------------------------------------
+# Safety（新架构：safety 节点）
+# ---------------------------------------------------------------------------
+
+
+class SafetyOutput(BaseModel):
+    model_config = _pydantic_extra_forbid
+
+    """Safety 节点 LLM 输出：是否触发安全策略。"""
+
+    triggered: bool = Field(False, description="是否触发安全层（注入/脱角色/高危诉求）")
+    strategy_id: Optional[str] = Field(None, description="命中的策略 id，未触发为 null")
+    reason: str = Field("", description="触发原因简述")
 
 
 # ---------------------------------------------------------------------------

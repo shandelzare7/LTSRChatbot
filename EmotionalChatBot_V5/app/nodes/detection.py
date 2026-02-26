@@ -1,11 +1,10 @@
 """
-Detection 节点：仅对当轮用户消息输出 6 个量。
+Detection 节点：对当轮用户消息输出 4 个客观量（不依赖角色/Bot 视角）。
 - hostility_level: 0-10 敌意/攻击性（扣分项）
 - engagement_level: 0-10 投入度/字数/信息量（基础动量）
-- topic_appeal: 0-10 话题对 Bot 的吸引力（新东西、好玩的东西、或 Bot 喜欢的东西→高；老生常谈/无聊→低；加分项/自我本位）
-- stage_pacing: 正常 | 过分亲密 | 过分生疏（关系节奏，用于策略越界判定）
+- stage_pacing: 正常 | 过分亲密 | 过分生疏（关系节奏，用于安全层判定）
 - urgency: 0-10 紧急程度（求助/危机/需即时回应→高；闲聊/可延后→低）
-- subtext: 附加给大模型的上帝视角说明
+注：topic_appeal 和 subtext 已移入 extract 节点（由独白后结构化提取）
 """
 from __future__ import annotations
 
@@ -34,10 +33,8 @@ def _default_detection() -> Dict[str, Any]:
     return {
         "hostility_level": 0,
         "engagement_level": 5,
-        "topic_appeal": 5,
         "stage_pacing": "正常",
         "urgency": 5,
-        "subtext": "",
     }
 
 
@@ -73,22 +70,21 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         if len(latest_user_text) > 800:
             latest_user_text = latest_user_text[:800]
 
-        system_content = f"""你是高情商的语义理解专家。请仅对「当轮最新用户消息」输出以下 6 个量（格式由系统约束）。
+        system_content = f"""你是客观语义分析专家。请仅对「当轮最新用户消息」输出以下 4 个客观量（不依赖 Bot 人设，只看用户行为）。
 
-当前关系阶段：{stage_id}（判定 stage_pacing 时请对照此阶段，判断用户这句话是否与该阶段匹配。）
+当前关系阶段：{stage_id}（判定 stage_pacing 时请对照此阶段）
 
 规则：
 - 只针对当轮这条用户消息计分，历史仅作语境。
 - hostility_level：敌意/攻击/轻蔑/施压越高分数越高。
 - engagement_level：字数多、信息量足、接话、追问→高；敷衍、嗯啊哦、想结束→低。
-- topic_appeal：新信息；从 Bot 视角看这话题/这句话是否吸引人、想接。新东西、好玩的东西、或 Bot 喜欢的东西→高(7-10)；老生常谈、无聊、与己无关→低(0-3)；一般(4-6)。自我本位。
 - stage_pacing：关系节奏，三选一。正常=与当前关系阶段（{stage_id}）匹配、无越界；过分亲密=交浅言深、过早暧昧或过度自我暴露；过分生疏=突然冷淡、回避、敷衍、想结束。询问姓名/年龄/职业等基础信息属正常破冰，填「正常」。
 - urgency：紧急程度。求助/崩溃/危险/等回复→高(7-10)；闲聊/随便说说→低(0-3)；正常(4-6)。
-- subtext：一句中文，点出潜台词或真实意图，无则空字符串。
+（注：topic_appeal 和 subtext 已由 extract 节点处理，此处不输出）
 """
 
         task_msg = HumanMessage(
-            content=f"请对下面这句「当轮最新用户消息」按规则输出 6 个量。\n\n当轮最新用户消息：\n{latest_user_text or '(空)'}"
+            content=f"请对下面这句「当轮最新用户消息」按规则输出 4 个量。\n\n当轮最新用户消息：\n{latest_user_text or '(空)'}"
         )
         messages = [SystemMessage(content=system_content), task_msg]
 
@@ -118,12 +114,9 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
                 if isinstance(result, dict):
                     out["hostility_level"] = _clip_int(result.get("hostility_level"), 0, 10)
                     out["engagement_level"] = _clip_int(result.get("engagement_level"), 0, 10)
-                    out["topic_appeal"] = _clip_int(result.get("topic_appeal"), 0, 10)
                     sp = str(result.get("stage_pacing") or "正常").strip()
                     out["stage_pacing"] = sp if sp in _STAGE_PACING_VALID else "正常"
                     out["urgency"] = _clip_int(result.get("urgency"), 0, 10)
-                    sub = result.get("subtext")
-                    out["subtext"] = str(sub).strip() if sub else ""
                     log_llm_response(
                         "Detection",
                         msg if msg is not None else "(structured_output)",
@@ -134,7 +127,7 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 
         print(
             f"[Detection] hostility={out['hostility_level']}, engagement={out['engagement_level']}, "
-            f"topic_appeal={out['topic_appeal']}, stage_pacing={out['stage_pacing']}, urgency={out['urgency']}"
+            f"stage_pacing={out['stage_pacing']}, urgency={out['urgency']}"
         )
         return {"detection": out}
 

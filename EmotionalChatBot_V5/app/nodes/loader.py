@@ -10,7 +10,6 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from app.state import AgentState
 
 from app.lats.prompt_utils import sanitize_memory_text, filter_retrieved_memories
-from app.nodes.task_planner import get_session_basic_info_pending_task_ids
 from utils.external_text import sanitize_external_text, detect_internal_leak
 from utils.prompt_helpers import knapp_baseline_momentum
 from utils.busy_schedule import get_busy_fallback_from_schedule
@@ -18,6 +17,24 @@ from utils.yaml_loader import load_momentum_formula_config
 
 # 每轮开始 conversation_momentum 的下限（与 config/momentum_formula.yaml 一致）
 MOMENTUM_FLOOR = float(load_momentum_formula_config().get("momentum_floor", 0.4))
+
+# basic_info 字段 → 对应问询任务 id（从 task_planner 迁移）
+_BASIC_INFO_FIELDS = [
+    ("name",       "ask_user_name",       "本轮或近期回复中务必明确询问对方的姓名或称呼"),
+    ("age",        "ask_user_age",        "本轮或近期回复中务必明确询问对方的年龄"),
+    ("occupation", "ask_user_occupation", "本轮或近期回复中务必明确询问对方的职业"),
+    ("location",   "ask_user_location",   "本轮或近期回复中明确询问对方所在城市/地区"),
+]
+
+
+def get_session_basic_info_pending_task_ids(user_basic_info: Dict[str, Any]) -> List[str]:
+    """根据 user_basic_info 缺失项，返回本 session 待办的问询任务 id 列表。"""
+    info = user_basic_info or {}
+    return [
+        task_id
+        for field, task_id, _ in _BASIC_INFO_FIELDS
+        if not (info.get(field) or "").strip()
+    ]
 
 # 距上次消息超过此时长视为新 Session，按 Knapp 阶段重新初始化 conversation_momentum
 COLD_START_THRESHOLD_SEC = 4 * 3600  # 4 小时
@@ -273,8 +290,27 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             merged_buffer = _ensure_messages_have_timestamp(merged_buffer, state.get("current_time"))
             summary = db_data.get("conversation_summary") or state.get("conversation_summary") or ""
 
-            # 上下文化 query：当前问题 + 近期摘要槽位（强稳定召回）
-            ctx_query = f"{user_input}\n\n[近期摘要]\n{summary}".strip()
+            # 上下文化 query：用户基本信息 + 当前问题 + 近期摘要（多维度召回）
+            user_basic = db_data.get("user_basic_info") or {}
+            user_profile_hints = []
+            if user_basic.get("name"):
+                user_profile_hints.append(f"名字：{user_basic['name']}")
+            if user_basic.get("occupation"):
+                user_profile_hints.append(f"职业：{user_basic['occupation']}")
+            if user_basic.get("age"):
+                user_profile_hints.append(f"年龄：{user_basic['age']}")
+            if user_basic.get("location"):
+                user_profile_hints.append(f"地区：{user_basic['location']}")
+
+            ctx_query_parts = [
+                "[用户基本信息]",
+                " | ".join(user_profile_hints) if user_profile_hints else "（暂无基本信息）",
+                "[当前消息]",
+                user_input,
+                "[最近对话摘要]",
+                summary if summary else "（暂无摘要）",
+            ]
+            ctx_query = "\n".join(ctx_query_parts).strip()
 
             retrieved: List[str] = []
             try:
@@ -365,7 +401,28 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             merged_buffer = _merge_and_dedup_buffers(list(history), list(chat_buffer))
             merged_buffer = _ensure_messages_have_timestamp(merged_buffer, state.get("current_time"))
             summary = local_data.get("conversation_summary") or state.get("conversation_summary") or ""
-            ctx_query = f"{user_input}\n\n[近期摘要]\n{summary}".strip()
+
+            # 上下文化 query：用户基本信息 + 当前问题 + 近期摘要（多维度召回）
+            user_basic = local_data.get("user_basic_info") or {}
+            user_profile_hints = []
+            if user_basic.get("name"):
+                user_profile_hints.append(f"名字：{user_basic['name']}")
+            if user_basic.get("occupation"):
+                user_profile_hints.append(f"职业：{user_basic['occupation']}")
+            if user_basic.get("age"):
+                user_profile_hints.append(f"年龄：{user_basic['age']}")
+            if user_basic.get("location"):
+                user_profile_hints.append(f"地区：{user_basic['location']}")
+
+            ctx_query_parts = [
+                "[用户基本信息]",
+                " | ".join(user_profile_hints) if user_profile_hints else "（暂无基本信息）",
+                "[当前消息]",
+                user_input,
+                "[最近对话摘要]",
+                summary if summary else "（暂无摘要）",
+            ]
+            ctx_query = "\n".join(ctx_query_parts).strip()
             retrieved: List[str] = []
             try:
                 notes = store.search_notes(str(user_id), str(bot_id), ctx_query, limit=6)
