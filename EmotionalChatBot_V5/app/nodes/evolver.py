@@ -435,7 +435,6 @@ def _detect_completed_tasks_and_replenish(state: Dict[str, Any]) -> Dict[str, An
 
     current_session_tasks: List[Dict[str, Any]] = list(state.get("current_session_tasks") or [])
     bot_task_list: List[Dict[str, Any]] = list(state.get("bot_task_list") or [])
-    tasks_for_lats = state.get("tasks_for_lats") or []
 
     completed_ids, attempted_ids = _get_task_completion_from_state(state)
 
@@ -557,27 +556,6 @@ def _detect_completed_tasks_and_replenish(state: Dict[str, Any]) -> Dict[str, An
                 f"[Evolver] completed(DB)={len(completed_ids)} bumped={bumped} "
                 f"backlog_pool={backlog_in_pool}->{sum(1 for t in current_session_tasks if str(t.get('task_type') or '').strip() == 'backlog')}, "
                 f"trimmed_backlog={trimmed_backlog}, added_backlog={added_backlog}, session_tasks={len(current_session_tasks)}"
-            )
-    except Exception:
-        pass
-
-    try:
-        urgent_in_lats = [
-            t
-            for t in (tasks_for_lats or [])
-            if isinstance(t, dict) and (t.get("task_type") == "urgent" or t.get("is_urgent"))
-        ]
-        if urgent_in_lats:
-            urgent_ids = {str(t.get("id") or "") for t in urgent_in_lats}
-            urgent_completed = urgent_ids & completed_ids
-            urgent_not_done = urgent_ids - completed_ids
-            print(
-                f"[URGENT TASK REPORT] ========================================\n"
-                f"[URGENT TASK REPORT]  Total urgent tasks: {len(urgent_in_lats)}\n"
-                f"[URGENT TASK REPORT]  Completed (written to DB): {sorted(urgent_completed) if urgent_completed else '(none)'}\n"
-                f"[URGENT TASK REPORT]  Not completed: {sorted(urgent_not_done) if urgent_not_done else '(none)'}\n"
-                f"[URGENT TASK REPORT]  Descriptions: {[str(t.get('description', '') or '')[:60] for t in urgent_in_lats]}\n"
-                f"[URGENT TASK REPORT] ========================================"
             )
     except Exception:
         pass

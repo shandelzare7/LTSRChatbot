@@ -94,16 +94,19 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
     completed_task_ids = set(state.get("completed_task_ids") or [])
     active_tasks = [t for t in pending_tasks if t not in completed_task_ids]
     _TASK_HINT = {
-        "ask_user_name":       "还不知道对方叫什么，如果对话自然，可以找个合适的时机问问",
-        "ask_user_age":        "还不知道对方年龄，如果话题合适可以自然带出",
-        "ask_user_occupation": "还不知道对方做什么工作",
+        "ask_user_name":       "还不知道对方叫什么——今天聊的时候找个时机问一下，很自然地插进话里就好",
+        "ask_user_age":        "还不知道对方年龄，话题合适的话带出来",
+        "ask_user_occupation": "还不知道对方做什么工作，感兴趣就问",
         "ask_user_location":   "还不知道对方在哪个城市",
     }
     task_block = ""
     if active_tasks:
         hints = [_TASK_HINT[t] for t in active_tasks if t in _TASK_HINT]
         if hints:
-            task_block = "## 你心里记着但还不了解的事\n" + "\n".join(f"- {h}" for h in hints)
+            turn_count = int(state.get("turn_count_in_session") or 0)
+            # 前几轮用更强烈的标题，让 bot 真正意识到这是今天的目标
+            header = "## 你今天想搞清楚的事（趁这次聊找机会自然带出）" if turn_count <= 8 else "## 你心里记着但还不了解的事"
+            task_block = header + "\n" + "\n".join(f"- {h}" for h in hints[:2])
 
     # Detection 客观信号
     detection = state.get("detection") or {}

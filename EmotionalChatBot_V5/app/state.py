@@ -324,16 +324,18 @@ class AgentState(TypedDict, total=False):
 
     关键字段写入者/时机（调用方勿假定键一定存在，建议 .get() 或入口校验）：
     - loader: user_input, chat_buffer, bot_basic_info, mood_state, current_stage, relationship_state, bot_task_list, current_session_tasks, ...
+    - safety: safety_triggered, safety_strategy_id
     - detection: detection
-    - inner_monologue: inner_monologue, selected_profile_keys, ...
-    - strategy_routers: router_high_stakes, router_emotional_game, router_form_rhythm
-    - strategy_resolver: current_strategy_id, current_strategy, skip_reply, force_fast_route, conversation_momentum
+    - state_prep: state_text
+    - inner_monologue: inner_monologue
+    - extract: monologue_extract
+    - state_update: conversation_momentum, mood_state
     - style: style, llm_instructions
-    - task_planner: tasks_for_lats, task_budget_max, no_reply
-    - lats_search: reply_plan, requirements（由 style 等编译）, ...
-    - processor: humanized_output
-    - evolver: relationship_state, mood_state, attempted_task_ids, completed_task_ids, ...
-    - memory_manager: memory_context, retrieved_memories, ...
+    - generate: generation_candidates
+    - judge: final_response, judge_result
+    - processor: final_response (humanized)
+    - evolver: relationship_state, mood_state, current_session_tasks, bot_task_list
+    - memory_manager: memory_context, retrieved_memories, completed_task_ids, ...
     """
 
     # --- Input Context ---
@@ -387,11 +389,7 @@ class AgentState(TypedDict, total=False):
     # 当前会话要处理的任务子集，通常 0-3 条；由 save_turn 写入 assets（DB/local），loader 恢复
     current_session_tasks: List[Task]
 
-    # 旧 TaskPlanner 字段（已废弃，新架构不再使用 task_planner 节点）
-    tasks_for_lats: List[Dict[str, Any]]
-    task_budget_max: int
-
-    # --- Task settlement (由 Evolver 根据 final_response 判定后写入) ---
+    # --- Task settlement (由 memory_manager 根据「已写入 DB」判定后写入) ---
     attempted_task_ids: Optional[List[str]]
     completed_task_ids: Optional[List[str]]
 
