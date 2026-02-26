@@ -280,6 +280,10 @@ class MonologueExtractOutput(BaseModel):
         default_factory=list,
         description="当轮选中的 content move id，2-4个，对应 content_moves.yaml 中 pure_content_transformations 的 id",
     )
+    inferred_gender: Optional[str] = Field(
+        None,
+        description="从对话上下文推断的用户性别（男/女/其他）；性别已知时输出 null",
+    )
 
 
 # ---------------------------------------------------------------------------

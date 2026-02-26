@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -104,7 +104,14 @@ def _default_extract() -> Dict[str, Any]:
         "subtext_guess": "",
         "selected_profile_keys": [],
         "selected_content_move_ids": [1, 2, 5, 7],
+        "inferred_gender": None,
     }
+
+
+def _gender_unknown(state: AgentState) -> bool:
+    """True 当且仅当 user_basic_info.gender 为空（需要推断）。"""
+    g = str((state.get("user_basic_info") or {}).get("gender") or "").strip()
+    return not g
 
 
 def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[str, Any]:
@@ -135,6 +142,19 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
     profile_keys = sorted(inferred_profile.keys()) if isinstance(inferred_profile, dict) else []
     profile_keys_str = ", ".join(profile_keys) if profile_keys else "（暂无）"
 
+    need_gender = _gender_unknown(state)
+    gender_field = (
+        '\n  "inferred_gender": null,  // 从对话/独白中推断用户性别（"男"/"女"/"其他"），无法判断则 null'
+        if need_gender else
+        '\n  "inferred_gender": null,  // 性别已知，保持 null'
+    )
+    gender_instruction = (
+        "\n\n## 用户性别推断（本次需要）\n"
+        "用户性别尚未记录。请综合独白内容、用户措辞、称呼方式等线索，推断用户性别（男/女/其他），"
+        "填入 inferred_gender；若完全无法判断则填 null。"
+        if need_gender else ""
+    )
+
     system_content = f"""你是分析助手，请从下面的「内心独白」中提取结构化信息，严格输出 JSON。
 
 ## 可选 content move（2-4个）
@@ -142,7 +162,7 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 
 ## 可选 profile key（0-5个）
 [{profile_keys_str}]
-
+{gender_instruction}
 ## 输出格式（仅输出此 JSON，不要其他内容）
 {{
   "emotion_tag": "情绪标签，一两个词，如 心疼/烦躁/期待/无聊/开心/纠结",
@@ -151,7 +171,7 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
   "topic_appeal": 5.0,    // 话题吸引力 0-10
   "subtext_guess": "对用户潜台词的一句猜测，无则空字符串",
   "selected_profile_keys": [],  // 0-5个存在的 profile key
-  "selected_content_move_ids": [1, 2]  // 2-4个 move id，按适合程度排序
+  "selected_content_move_ids": [1, 2]{gender_field}
 }}"""
 
     user_content = f"内心独白：\n{monologue}"
@@ -233,6 +253,13 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
         }
         log_llm_response("Extract", "(parsed)", parsed_result=result_for_log)
 
+        # inferred_gender：只在性别未知时才采用（防止覆盖已知性别）
+        inferred_gender: Optional[str] = None
+        if need_gender:
+            raw_g = str(data.get("inferred_gender") or "").strip()
+            if raw_g in ("男", "女", "其他"):
+                inferred_gender = raw_g
+
         return {
             "emotion_tag": emotion_tag,
             "attitude": attitude,
@@ -241,6 +268,7 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
             "subtext_guess": subtext_guess,
             "selected_profile_keys": selected_keys,
             "selected_content_move_ids": selected_ids,
+            "inferred_gender": inferred_gender,
         }
 
     except Exception as e:

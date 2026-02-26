@@ -1181,6 +1181,7 @@ class DBManager:
                 }
 
                 skip_user_write = bool(state.get("skip_user_message_write"))
+                skip_bot_write = bool(state.get("skip_bot_message_write"))
                 if user_input and (not skip_user_write):
                     session.add(
                         Message(
@@ -1192,32 +1193,33 @@ class DBManager:
                         )
                     )
                 final_segments = state.get("final_segments")
-                if final_segments and isinstance(final_segments, list):
-                    for idx, content in enumerate(final_segments):
-                        text = str(content or "").strip()
-                        if not text:
-                            continue
-                        seg_meta = dict(meta_ai)
-                        seg_meta["segment_index"] = idx
+                if not skip_bot_write:
+                    if final_segments and isinstance(final_segments, list):
+                        for idx, content in enumerate(final_segments):
+                            text = str(content or "").strip()
+                            if not text:
+                                continue
+                            seg_meta = dict(meta_ai)
+                            seg_meta["segment_index"] = idx
+                            session.add(
+                                Message(
+                                    user_id=user.id,
+                                    role="ai",
+                                    content=text,
+                                    meta=seg_meta,
+                                    created_at=ai_created_at,
+                                )
+                            )
+                    elif final_response:
                         session.add(
                             Message(
                                 user_id=user.id,
                                 role="ai",
-                                content=text,
-                                meta=seg_meta,
+                                content=final_response,
+                                meta=meta_ai,
                                 created_at=ai_created_at,
                             )
                         )
-                elif final_response:
-                    session.add(
-                        Message(
-                            user_id=user.id,
-                            role="ai",
-                            content=final_response,
-                            meta=meta_ai,
-                            created_at=ai_created_at,
-                        )
-                    )
 
                 user.current_stage = str(state.get("current_stage") or user.current_stage or "initiating")
                 # 关系维度：避免“部分字段写入”把其它维度抹掉；统一到 0-1 量纲（关系值统一 0-1；若 incoming 为旧 0-100 则兼容归一化）+ 单轮跳变截断

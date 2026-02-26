@@ -998,6 +998,23 @@ async def chat(
                 if isinstance(result, dict):
                     result["ai_sent_at"] = ai_sent_at
 
+                # 同步写入 bot 回复（切分后、发送给前端之前，确保历史记录完整）
+                if db:
+                    try:
+                        _stage = (result.get("current_stage") if isinstance(result, dict) else None) or (state.get("current_stage") if isinstance(state, dict) else None)
+                        for _idx, _seg in enumerate(segments):
+                            _text = str(_seg.get("content", "") or "").strip()
+                            if _text:
+                                await db.append_message(
+                                    user_id, bot_id,
+                                    role="ai",
+                                    content=_text,
+                                    created_at=ai_sent_at,
+                                    meta={"source": "web", "session_id": session_id, "segment_index": _idx, "current_stage": _stage},
+                                )
+                    except Exception:
+                        pass
+
                 # Tail settlement: skip writing user message (already persisted individually above)
                 if _truthy(os.getenv("WEB_FAST_RETURN", "1")):
                     tail_state = dict(state)
@@ -1005,6 +1022,7 @@ async def chat(
                         tail_state.update(result)
                     tail_state["ai_sent_at"] = ai_sent_at
                     tail_state["skip_user_message_write"] = True
+                    tail_state["skip_bot_message_write"] = True  # already written above
                     tail_state["reply_duration_seconds_list"] = new_reply_duration_list
                     tail_state["relationship_state"] = {
                         **(tail_state.get("relationship_state") or {}),

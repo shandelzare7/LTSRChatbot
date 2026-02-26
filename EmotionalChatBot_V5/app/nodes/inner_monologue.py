@@ -85,6 +85,26 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
         mem_lines = [f"- {m[:150]}" for m in retrieved_memories[:5]]
         mem_block = "## 被唤起的记忆\n" + "\n".join(mem_lines)
 
+    # 用户代词（根据已知性别）
+    user_gender = str((state.get("user_basic_info") or {}).get("gender") or "").strip()
+    user_pronoun = "他" if user_gender == "男" else ("她" if user_gender == "女" else "对方")
+
+    # 未完成的基础信息问询任务
+    pending_tasks = list((state.get("relationship_assets") or {}).get("session_basic_info_pending_task_ids") or [])
+    completed_task_ids = set(state.get("completed_task_ids") or [])
+    active_tasks = [t for t in pending_tasks if t not in completed_task_ids]
+    _TASK_HINT = {
+        "ask_user_name":       "还不知道对方叫什么，如果对话自然，可以找个合适的时机问问",
+        "ask_user_age":        "还不知道对方年龄，如果话题合适可以自然带出",
+        "ask_user_occupation": "还不知道对方做什么工作",
+        "ask_user_location":   "还不知道对方在哪个城市",
+    }
+    task_block = ""
+    if active_tasks:
+        hints = [_TASK_HINT[t] for t in active_tasks if t in _TASK_HINT]
+        if hints:
+            task_block = "## 你心里记着但还不了解的事\n" + "\n".join(f"- {h}" for h in hints)
+
     # Detection 客观信号
     detection = state.get("detection") or {}
     det_block = ""
@@ -94,7 +114,7 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
         urgency = detection.get("urgency", 5)
         stage_pacing = detection.get("stage_pacing", "正常")
         det_block = (
-            f"## 他说这句话的语境\n"
+            f"## {user_pronoun}说这句话的语境\n"
             f"- 敌意程度：{hostility}/10（0无，10很强）\n"
             f"- 信息量/投入度：{engagement}/10（0冷淡，10很活跃）\n"
             f"- 紧迫感：{urgency}/10（0可延后，10很紧急）\n"
@@ -115,6 +135,7 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
     return {
         "bot_name": bot_name,
         "user_name": user_name,
+        "user_pronoun": user_pronoun,
         "latest_user_text": latest_user_text,
         "recent_dialogue": recent_dialogue_context,
         "persona": safe_text(str(state.get("bot_persona") or ""))[:600],
@@ -122,6 +143,7 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
         "detection": det_block,
         "current_state": current_state_block,
         "user_profile_summary": _build_user_profile_summary(state),
+        "task_block": task_block,
     }
 
 
@@ -158,6 +180,9 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
         bot_name = ctx["bot_name"]
         user_name = ctx["user_name"]
 
+        user_pronoun = ctx["user_pronoun"]
+        task_block = ctx.get("task_block", "")
+
         # 新式提示词：重点是"被触发的感受"而不是"下一步怎么办"
         system_prompt = f"""你是 {bot_name}。
 
@@ -174,7 +199,7 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 ## 关于 {user_name}
 {ctx['user_profile_summary']}
 
-## 最近的对话
+{task_block + chr(10) if task_block else ""}## 最近的对话
 {ctx['recent_dialogue']}
 
 ---
@@ -182,16 +207,16 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 ## 你现在的任务
 写出你（{bot_name}）在这一刻的内心独白。
 
-不是分析他说了什么，不是规划你该怎么回。
-就是你看到他的消息时，脑子里涌上来的真实想法。
+不是分析{user_pronoun}说了什么，不是规划你该怎么回。
+就是你看到{user_pronoun}的消息时，脑子里涌上来的真实想法。
 
 你会想到什么？
 - 这句话戳到了你什么，还是根本没触及？
-- 你有没有想起他之前做过的什么事？
-- 你对他这句话的真实反应是什么——开心、警惕、烦躁、委屈、无所谓？
-- 你猜他为什么这么说？
-- 你想靠近他还是想推开他？
-- 有没有什么小欲望在蠢蠢欲动（比如，其实想立刻回他但在装矜持，或者其实烦了装得若无其事）？
+- 你有没有想起{user_pronoun}之前做过的什么事？
+- 你对{user_pronoun}这句话的真实反应是什么——开心、警惕、烦躁、委屈、无所谓？
+- 你猜{user_pronoun}为什么这么说？
+- 你想靠近{user_pronoun}还是想推开{user_pronoun}？
+- 有没有什么小欲望在蠢蠢欲动（比如，其实想立刻回{user_pronoun}但在装矜持，或者其实烦了装得若无其事）？
 
 允许你：
 - 跑题、反复纠缠在一个感受上
@@ -200,7 +225,7 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 - 一会儿理性一会儿纯情绪
 
 不要：
-- 分析他的意图（除非你真的在猜测）
+- 分析{user_pronoun}的意图（除非你真的在猜测）
 - 规划你的回复方式或措辞
 - 列清单或分条目
 - 输出 JSON 或其他结构化格式
@@ -208,7 +233,7 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 就是意识流。你的思绪。此刻。
 """
 
-        user_prompt = f"""他（{user_name}）刚刚对你说：
+        user_prompt = f"""{user_pronoun}（{user_name}）刚刚对你说：
 
 "{ctx['latest_user_text']}"
 

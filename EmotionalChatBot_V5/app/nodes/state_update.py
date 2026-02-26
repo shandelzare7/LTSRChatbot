@@ -167,9 +167,19 @@ def create_state_update_node() -> Callable[[AgentState], Dict[str, Any]]:
                 except (TypeError, ValueError):
                     pass
 
-        return {
+        out: Dict[str, Any] = {
             "conversation_momentum": new_momentum,
             "mood_state": mood,
         }
+
+        # 4. 性别推断写入：若 extract 推断出性别且 user_basic_info.gender 仍为空，写回
+        inferred_gender = str(extract.get("inferred_gender") or "").strip()
+        if inferred_gender in ("男", "女", "其他"):
+            user_basic_info = dict(state.get("user_basic_info") or {})
+            if not str(user_basic_info.get("gender") or "").strip():
+                user_basic_info["gender"] = inferred_gender
+                out["user_basic_info"] = user_basic_info
+
+        return out
 
     return state_update_node
