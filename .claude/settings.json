@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add app/nodes/evolver.py devtools/bot_to_bot_chat.py)"
+    ]
+  }
+}
