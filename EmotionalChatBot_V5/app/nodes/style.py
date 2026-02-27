@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Literal, Optional
 
 from app.state import AgentState
 from app.lats.prompt_utils import format_style_as_param_list
+
+logger = logging.getLogger(__name__)
 
 ExprMode = Literal[0, 1, 2, 3]
 # 0=LITERAL_DIRECT, 1=LITERAL_INDIRECT, 2=FIGURATIVE, 3=IRONIC_LIGHT
@@ -540,6 +543,19 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
 
         style_dict = compute_style_keys(inp)
         llm_instructions = format_style_as_param_list(style_dict)
+        logger.info(
+            "[Style] FORMALITY=%.2f POLITENESS=%.2f WARMTH=%.2f CERTAINTY=%.2f "
+            "EXPRESSION_MODE=%d CHAT_MARKERS=%.2f | momentum=%.2f topic_appeal=%.2f busy=%.2f",
+            style_dict.get("FORMALITY", 0),
+            style_dict.get("POLITENESS", 0),
+            style_dict.get("WARMTH", 0),
+            style_dict.get("CERTAINTY", 0),
+            style_dict.get("EXPRESSION_MODE", 0),
+            style_dict.get("CHAT_MARKERS", 0),
+            momentum,
+            topic_appeal,
+            busy,
+        )
         return {"style": style_dict, "llm_instructions": llm_instructions}
 
     return style_node

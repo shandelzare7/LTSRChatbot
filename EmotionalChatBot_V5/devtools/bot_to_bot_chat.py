@@ -1364,4 +1364,16 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    import argparse as _argparse
+    _ap = _argparse.ArgumentParser(add_help=False)
+    _ap.add_argument("--bot-a-id", default="")
+    _ap.add_argument("--bot-b-id", default="")
+    _ap.add_argument("--rounds", type=int, default=0)
+    _known, _ = _ap.parse_known_args()
+    if _known.bot_a_id:
+        os.environ["BOT2BOT_BOT_A_ID"] = _known.bot_a_id
+    if _known.bot_b_id:
+        os.environ["BOT2BOT_BOT_B_ID"] = _known.bot_b_id
+    if _known.rounds > 0:
+        os.environ["BOT2BOT_ROUNDS_PER_RUN"] = str(_known.rounds)
     asyncio.run(main())

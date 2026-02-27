@@ -18,6 +18,44 @@ from utils.yaml_loader import load_momentum_formula_config
 # 每轮开始 conversation_momentum 的下限（与 config/momentum_formula.yaml 一致）
 MOMENTUM_FLOOR = float(load_momentum_formula_config().get("momentum_floor", 0.4))
 
+
+def _load_daily_context(bot_id: str = "") -> dict:
+    """从 config/daily_topics.yaml 加载今日话题和 bot 生活事件，日期不匹配时返回空。
+    返回 {"topics": List[str], "bot_recent": List[str]}。
+    若 daily_topics.yaml 含 bot_recent_by_bot_id 字段，则按 bot_id 精确匹配；否则降级用 bot_recent。
+    """
+    try:
+        from utils.yaml_loader import get_project_root
+        import yaml
+        path = get_project_root() / "config" / "daily_topics.yaml"
+        if not path.exists():
+            return {"topics": [], "bot_recent": []}
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        file_date = str(data.get("date") or "").strip()
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if file_date != today:
+            return {"topics": [], "bot_recent": []}
+        topics = data.get("topics") or []
+        # 优先按 bot_id 查 bot_recent_by_bot_id，无则降级用 bot_recent
+        bot_recent_default = data.get("bot_recent") or []
+        bot_recent_map = data.get("bot_recent_by_bot_id") or {}
+        if bot_id and str(bot_id) in bot_recent_map:
+            bot_recent = bot_recent_map[str(bot_id)] or []
+        else:
+            bot_recent = bot_recent_default
+        return {
+            "topics": [str(t).strip() for t in topics if str(t).strip()][:8],
+            "bot_recent": [str(t).strip() for t in bot_recent if str(t).strip()][:8],
+        }
+    except Exception:
+        return {"topics": [], "bot_recent": []}
+
+
+def _load_daily_topics() -> List[str]:
+    """向后兼容包装：仅返回 topics 列表。"""
+    return _load_daily_context()["topics"]
+
 # basic_info 字段 → 对应问询任务 id（从 task_planner 迁移）
 _BASIC_INFO_FIELDS = [
     ("name",       "ask_user_name",       "本轮或近期回复中务必明确询问对方的姓名或称呼"),
@@ -256,7 +294,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             t = kwargs.get("timestamp") or ""
             return f" [{t}]" if t else ""
 
-        def _format_chat(buf: List[BaseMessage], limit: int = 15) -> str:
+        def _format_chat(buf: List[BaseMessage], limit: int = 30) -> str:
             lines = [
                 f"{'User' if _role(m) == 'user' else 'Bot'}{_ts(m)}: {getattr(m, 'content', str(m))}"
                 for m in (buf or [])[-limit:]
@@ -382,7 +420,11 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "user_profile": db_data.get("user_inferred_profile") or {},
                 "memories": db_data.get("conversation_summary") or "",
                 "turn_count_in_session": turn_count,
+                "daily_topics": _load_daily_topics(),
             }
+            _ctx = _load_daily_context(bot_id=str(bot_id))
+            out["daily_topics"] = _ctx["topics"]
+            out["bot_recent_activities"] = _ctx["bot_recent"]
             if new_session:
                 ra = dict(out.get("relationship_assets") or {})
                 ra["session_basic_info_pending_task_ids"] = get_session_basic_info_pending_task_ids(
@@ -489,7 +531,11 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                 "user_profile": local_data.get("user_inferred_profile") or {},
                 "memories": local_data.get("conversation_summary") or "",
                 "turn_count_in_session": turn_count,
+                "daily_topics": _load_daily_topics(),
             }
+            _ctx2 = _load_daily_context(bot_id=str(bot_id))
+            out["daily_topics"] = _ctx2["topics"]
+            out["bot_recent_activities"] = _ctx2["bot_recent"]
             if new_session:
                 ra = dict(out.get("relationship_assets") or {})
                 ra["session_basic_info_pending_task_ids"] = get_session_basic_info_pending_task_ids(

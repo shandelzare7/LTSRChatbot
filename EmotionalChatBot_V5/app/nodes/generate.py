@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from app.lats.prompt_utils import build_system_memory_block, format_style_as_param_list, safe_text
+from app.lats.prompt_utils import format_style_as_param_list, safe_text
 from app.state import AgentState
 from utils.detailed_logging import log_prompt_and_params
 from utils.tracing import trace_if_enabled
@@ -46,35 +46,6 @@ def _momentum_to_direction(momentum: float) -> str:
     else:
         return "终结 [-2]：给出陈述性结论，内容简短，语气趋于冷淡，不延展话题"
 
-
-def _big_five_to_constraints(state: AgentState) -> str:
-    """将极端 Big Five 值转为具体行为约束（确定性映射，非人设描述）。
-
-    只在维度明显偏极端（低于 0.35 或高于 0.65）时注入，避免对中间值过度干预。
-    """
-    bf = state.get("bot_big_five") or {}
-    try:
-        A = float(bf.get("agreeableness", 0.5))
-        E = float(bf.get("extraversion", 0.5))
-        O = float(bf.get("openness", 0.5))
-        N = float(bf.get("neuroticism", 0.5))
-    except (TypeError, ValueError):
-        return ""
-
-    constraints: List[str] = []
-    if A < 0.35:
-        constraints.append("不要完全认同对方的每句话，可以轻描淡写、带点保留，甚至不接这个话题")
-    if E < 0.35:
-        constraints.append("话少简短是你的常态，不要主动抛出多个追问")
-    if O < 0.35:
-        constraints.append("用具体日常的词语，不要用比喻或意象堆叠")
-    if N > 0.65:
-        constraints.append("允许直接流露情绪波动，不需要维持表面平稳")
-
-    if not constraints:
-        return ""
-    lines = "\n".join(f"- {c}" for c in constraints)
-    return f"## 人格行为约束（优先级高于风格参数）\n{lines}"
 
 
 def _normalize_pure_content_transformations(raw: Any) -> List[Dict[str, Any]]:
@@ -121,7 +92,6 @@ def _build_messages_for_route(
     move_desc: Optional[str],
     move_name: Optional[str],
     dialogue_context: str,
-    memory_block: str,
     style_text: str,
     monologue: str,
     bot_name: str,
@@ -148,23 +118,28 @@ def _build_messages_for_route(
 
     # 计算动态字数限制（根据 momentum）
     momentum = float(state.get("conversation_momentum") or 0.5)
-    max_chars = int(20 + 20 * momentum)  # 基础 20 + momentum 增幅
-    min_chars = max(1, int(10 * momentum))  # 最少保留基础
+    # 微信聊天合理范围：低动量真短，高动量真长
+    # momentum=0.2→5-40, 0.4→10-65, 0.5→15-82, 0.7→20-110, 1.0→25-150
+    max_chars = int(15 + 135 * momentum)
+    min_chars = max(3, int(5 + 20 * momentum))
 
-    # 从 monologue_extract 读取情绪/态度信号（增强生成方向）
-    extract = state.get("monologue_extract") or {}
-    emotion_tag = str(extract.get("emotion_tag") or "").strip()
-    attitude = str(extract.get("attitude") or "").strip()
     direction = _momentum_to_direction(momentum)
+    direction_block = f"## 当前对话意愿（信息密度）\n{direction}\n"
 
-    direction_block = f"""## 当前对话意愿指令（必须体现在回复中）
-- **信息密度**：{direction}
-- **回复态度**：{attitude or "正常接话"}（来自独白，体现在语气和措辞上）
-- **当前情绪**：{emotion_tag or "平静"}（让这个情绪自然渗透到措辞里，不要直白说出情绪词）
-"""
-
-    personality_constraints = _big_five_to_constraints(state)
-    personality_block = f"\n{personality_constraints}\n" if personality_constraints else ""
+    # 外部素材块：bot 生活事件 + 资讯话题（如话题合适，可自然带入，不强制）
+    daily_topics_list = list(state.get("daily_topics") or [])
+    bot_recent_list = list(state.get("bot_recent_activities") or [])
+    external_context_block = ""
+    if bot_recent_list or daily_topics_list:
+        parts: list[str] = ["\n## 你最近的生活 & 知道的事（话题合适时可自然带入，不必强行）"]
+        if bot_recent_list:
+            parts.append("【你最近的事】")
+            parts.extend(f"- {t}" for t in bot_recent_list[:5])
+        if daily_topics_list:
+            parts.append("【你听到/看到的】")
+            parts.extend(f"- {t}" for t in daily_topics_list[:5])
+        external_context_block = "\n".join(parts) + "\n"
+    daily_topics_block = external_context_block  # 保持变量名兼容
 
     system_content = f"""你是 {bot_name}，一个拟人化的聊天伙伴。你正在和 {user_name} 对话。
 {persona_text}
@@ -175,9 +150,7 @@ def _build_messages_for_route(
 {direction_block}
 ## 写作风格参数
 {style_text}
-{personality_block}
-## 记忆
-{memory_block}
+{daily_topics_block}
 {move_block}
 ## 回复规则
 - 第一人称，你就是这个人在发微信，说话口语自然，不要暴露是AI
@@ -259,7 +232,6 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
         user_name = user_name_raw if user_name_raw else "对方"
 
         dialogue_context = _build_dialogue_context(state)
-        memory_block = build_system_memory_block(state)
         style_dict = state.get("style") or {}
         style_text = format_style_as_param_list(style_dict) or "（默认风格）"
 
@@ -273,7 +245,7 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
             move_name = move_info.get("name", f"move_{mid}")
             move_desc = move_info.get("desc", "")
             msgs = _build_messages_for_route(
-                state, move_desc, move_name, dialogue_context, memory_block, style_text, monologue, bot_name, user_name
+                state, move_desc, move_name, dialogue_context, style_text, monologue, bot_name, user_name
             )
             label = f"move_{mid}"
             route_infos.append((label, mid, move_name, move_desc, msgs))
@@ -281,7 +253,7 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
 
         # FREE 路（无 move 约束）
         free_msgs = _build_messages_for_route(
-            state, None, None, dialogue_context, memory_block, style_text, monologue, bot_name, user_name
+            state, None, None, dialogue_context, style_text, monologue, bot_name, user_name
         )
         route_infos.append(("free", None, "FREE", "", free_msgs))
         tasks.append(_generate_route(llm_gen, free_msgs, None, "free"))

@@ -48,7 +48,7 @@ def _format_candidates(candidates: List[Dict[str, Any]]) -> str:
         if len(text) > JUDGE_MAX_CANDIDATE_CHARS:
             text = text[:JUDGE_MAX_CANDIDATE_CHARS] + "…"
         route = c.get("route", "?")
-        lines.append(f"[{i}] ({route}) {text}")
+        lines.append(f"[{i}] {text}")
     return "\n".join(lines) if lines else "（无候选）"
 
 
@@ -92,6 +92,12 @@ def create_judge_node(llm_judge: Any) -> Callable[[AgentState], Dict[str, Any]]:
         candidates_text = _format_candidates(valid_candidates)
         n = len(valid_candidates)
 
+        # 外部素材摘要（一行，让 judge 知道哪些话题是"合理来源"）
+        _bot_recent = list(state.get("bot_recent_activities") or [])
+        _topics = list(state.get("daily_topics") or [])
+        _ctx_items = [t[:30] for t in (_bot_recent[:3] + _topics[:2]) if t]
+        external_ctx_line = "、".join(_ctx_items) if _ctx_items else ""
+
         system_content = f"""你是回复质量评审官。你的任务是从 {n} 条候选回复中，选出最符合角色当前内心独白的那条。
 
 评判标准：
@@ -101,16 +107,19 @@ def create_judge_node(llm_judge: Any) -> Callable[[AgentState], Dict[str, Any]]:
 注意：
 - 不要选最长的
 - 不要选最礼貌的
-- 要选最「人味」、最贴近独白心境的
+- **不要因为某条更有分析感、解释性或深度就选它**——分析腔 ≠ 贴近独白
+- 要选最「人味」、最贴近独白此刻情绪和态度的
+- **如果某条回复自然引入了角色的日常话题或生活动态（见下方"可用素材"），且整体情绪基调与独白一致，这是正常聊天行为，不算偏离独白——可正向评价；但若是用来回避用户的核心问题，则不加分**
 - 输出 winner_index（候选列表中的下标 0..{n-1}）和简短 justification
 """
 
+        ctx_line = f"\n## 可用日常素材（角色可能引入，供参考）\n{external_ctx_line}\n" if external_ctx_line else ""
         user_content = f"""## 当前用户消息
 {user_input or '（空）'}
 
 ## 最近对话（参考语境）
 {dialogue_snippet}
-
+{ctx_line}
 ## 角色内心独白（评判核心依据）
 {monologue}
 

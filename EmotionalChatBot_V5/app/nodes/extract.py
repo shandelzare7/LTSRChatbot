@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 
 SELECTED_CONTENT_MOVE_IDS_MAX = 4
 SELECTED_CONTENT_MOVE_IDS_MIN = 2
-# 优先深入型 move（1=向下细化, 5=机制溯源），延后发散型（2=向上概括, 7=状态评价）
-FALLBACK_CM_PRIORITY = [1, 5, 4, 3, 6, 2, 7, 8]
+# 兜底顺序：轻重交替，避免连续锁死在深挖型
+FALLBACK_CM_PRIORITY = [1, 7, 3, 2, 5, 8, 4, 6]
 CM_ACTION_MAX_CHARS = 160
 
 
@@ -162,8 +162,9 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 {moves_block}
 
 **选 move 规则**：
-- 优先选能让对话**往深里走**的 move（如"向下细化""机制溯源"），避免总选"向上概括""状态评价"这类表层发散型。
-- 当 topic_appeal >= 7 时，至少选 1 个深入型 move（id=1 或 id=5）。
+- 选 2-4 个**互补**的 move，深挖型（id=1,5,6）和轻短型（id=2,7,8）至少各有 1 个，避免全是同一方向。
+- 每次根据独白内容和话题氛围**主动换用**不同 move，不要每轮都选同一组。
+- 不要连续多轮选 id=1（向下细化）和 id=5（机制溯源），优先给其他 move 上场机会。
 - 所有 id 必须来自上方列表，不要编造。
 
 ## 可选 profile key（0-5个）

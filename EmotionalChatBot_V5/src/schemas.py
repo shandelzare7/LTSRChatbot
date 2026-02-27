@@ -254,10 +254,14 @@ class MemoryManagerOutput(BaseModel):
     basic_info_updates: BasicInfoFields = Field(default_factory=BasicInfoFields)
     basic_info_confidence: BasicInfoConfidence = Field(default_factory=BasicInfoConfidence)
     basic_info_evidence: BasicInfoFields = Field(default_factory=BasicInfoFields)
-    new_inferred_entries: List[InferredEntry] = Field(default_factory=list, description="少而精的画像条目")
+    new_inferred_entries: List[InferredEntry] = Field(default_factory=list, description="用户画像条目：偏好/习惯/职业特征/个人情况等")
     new_topics: List[str] = Field(default_factory=list)
     # 仅当用户性别未知时，可根据本轮对话推断并填写（男/女/其他）；否则留空
     inferred_user_gender: Optional[str] = Field(default=None, description="If user gender is unknown, infer from conversation; otherwise leave empty.")
+    # 仅在会话边界（新会话第一轮，有旧摘要）时填写：对上一个 session 的最大自我披露深度评估（1-5）；其他情况留 null
+    spt_depth_last_session: Optional[int] = Field(default=None, ge=1, le=5, description="Max SPT depth of previous session (1-5); only fill at session boundary")
+    # 仅在会话边界时填写：上一会话的精华摘要（500-1000字），比 new_summary 更侧重保留关键情感节点/承诺/事实；其他情况留 null
+    session_summary: Optional[str] = Field(default=None, description="Rich session-level summary of previous session (500-1000 chars); only fill at session boundary")
 
 
 # ---------------------------------------------------------------------------

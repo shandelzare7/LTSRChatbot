@@ -536,6 +536,10 @@ class DBManager:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [r for _, r in scored[: int(limit)]]
 
+    # session_archive / milestone 全量扫描，不受 scan_limit 截断
+    _PRIORITY_NOTE_TYPES = ("session_archive", "milestone")
+    _NOTE_BONUS: Dict[str, float] = {"session_archive": 0.8, "milestone": 0.7}
+
     async def search_notes(
         self,
         *,
@@ -544,7 +548,10 @@ class DBManager:
         limit: int = 6,
         scan_limit: int = 400,
     ) -> List[Dict[str, Any]]:
-        """从 Store B 召回（同上：扫描近期 + term-match + importance 加权）。"""
+        """从 Store B 召回。
+        session_archive / milestone 类型全量扫描（不受 scan_limit 截断），其余扫描最近 scan_limit 行。
+        bonus 权重：session_archive=0.8，milestone=0.7，其他=0.5。
+        """
         await self.ensure_memory_schema()
         rid = _to_uuid_or_none(relationship_id)
         if not rid:
@@ -553,22 +560,41 @@ class DBManager:
         if not terms:
             return []
 
+        _cols = (
+            DerivedNote.id,
+            DerivedNote.created_at,
+            DerivedNote.note_type,
+            DerivedNote.content,
+            DerivedNote.importance,
+            DerivedNote.source_pointer,
+            DerivedNote.transcript_id,
+        )
+
         async with self.Session() as session:
-            q = (
-                select(
-                    DerivedNote.id,
-                    DerivedNote.created_at,
-                    DerivedNote.note_type,
-                    DerivedNote.content,
-                    DerivedNote.importance,
-                    DerivedNote.source_pointer,
-                    DerivedNote.transcript_id,
+            # 优先类型：全量扫描（历史 session_archive / milestone 不会因 LIMIT 丢失）
+            q_priority = (
+                select(*_cols)
+                .where(
+                    DerivedNote.user_id == rid,
+                    DerivedNote.note_type.in_(list(self._PRIORITY_NOTE_TYPES)),
                 )
-                .where(DerivedNote.user_id == rid)
+                .order_by(DerivedNote.created_at.desc())
+            )
+            priority_rows = list((await session.execute(q_priority)).all())
+
+            # 普通类型：仅扫描最近 scan_limit 行
+            q_recent = (
+                select(*_cols)
+                .where(
+                    DerivedNote.user_id == rid,
+                    DerivedNote.note_type.not_in(list(self._PRIORITY_NOTE_TYPES)),
+                )
                 .order_by(DerivedNote.created_at.desc())
                 .limit(int(scan_limit))
             )
-            rows = list((await session.execute(q)).all())
+            recent_rows = list((await session.execute(q_recent)).all())
+
+        rows = priority_rows + recent_rows
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         for (nid, created_at, note_type, content, importance, source_pointer, transcript_id) in rows:
@@ -576,10 +602,10 @@ class DBManager:
             if s <= 0:
                 continue
             imp = float(importance) if importance is not None else 0.0
+            bonus = self._NOTE_BONUS.get(str(note_type or ""), 0.5)
             scored.append(
                 (
-                    # notes 给一点稳定性加成
-                    s + imp + 0.5,
+                    s + imp + bonus,
                     {
                         "store": "B",
                         "id": str(nid),
@@ -708,7 +734,7 @@ class DBManager:
                     select(Message.role, Message.content, Message.created_at)
                     .where(Message.user_id == user.id)
                     .order_by(Message.created_at.desc(), role_order.desc(), Message.id.desc())
-                    .limit(20)
+                    .limit(60)
                 )
                 rows = list((await session.execute(q)).all())
                 rows.reverse()

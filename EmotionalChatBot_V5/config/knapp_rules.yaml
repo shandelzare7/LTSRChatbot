@@ -1,6 +1,14 @@
 # ==============================================================================
 # Knapp's Relationship Stage Rules (6-Dim + SPT + Profile)
-# Redesign: 切换依据 = 6维 + SPT depth/breadth + user profile 充实度
+# v2.0 修订：修复各阶段分数梯度错误，补充 differentiating.up_entry
+#
+# 默认关系初值：closeness=0.30, trust=0.30, liking=0.30,
+#               respect=0.30, attractiveness=0.30, power=0.50
+#
+# 增速估算（RATE_MULTIPLIER=5.0）：
+#   experimenting (up_mult=0.22)：delta=+2 → +0.013/轮；cs≥0.6 后减半
+#   intensifying  (up_mult=0.13)：delta=+2 → +0.008/轮；cs≥0.6 后减半
+#   integrating   (up_mult=0.014)：delta=+2 → +0.001/轮；极慢
 # ==============================================================================
 
 settings:
@@ -8,7 +16,7 @@ settings:
   jump_delta_threshold: 0.25
   # Hysteresis: 防止阶段抖动
   growth_confirm_turns: 2  # 满足升级条件连续 2 轮才晋升
-  decay_confirm_turns: 3   # 满足降级条件连续 3 轮才降级（除非 critical_signals 直接触发）
+  decay_confirm_turns: 3   # 满足降级条件连续 3 轮才降级（除非 jump 直接触发）
 
 stages:
   # ---------- Coming Together ----------
@@ -17,43 +25,52 @@ stages:
     next_up: experimenting
     next_down: terminating
     up_entry:
-      min_scores: { closeness: 0.12, trust: 0.08, liking: 0.18 }
+      # 阈值故意低于初始默认值(0.30)：initiating 是快速过渡阶段，
+      # 实际门控靠 min_user_turns / min_topic_breadth / min_profile_fields
+      min_scores: { closeness: 0.20, trust: 0.15, liking: 0.22 }
       min_spt_depth: 1
       min_topic_breadth: 2
       min_profile_fields: 1
       min_user_turns: 3
     up_min_scores:
-      min_scores: { respect: 0.08 }
+      min_scores: { respect: 0.10 }
     decay_triggers:
-      max_scores: { closeness: 0.0 }
+      max_scores: { closeness: 0.02 }  # 近零才触发：极端敌意才退入 terminating
 
   experimenting:
     order: 2
     next_up: intensifying
     next_down: initiating
     up_entry:
-      min_scores: { closeness: 0.12, trust: 0.08, liking: 0.18 }
-      min_spt_depth: 1
-      min_topic_breadth: 2
-      min_profile_fields: 1
+      # 高于初始默认值(0.30)：需要真实正向互动才能进入 intensifying
+      # experimenting(up_mult=0.22)：delta=+2 ≈ +0.013/轮
+      # closeness 从 0.30 涨到 0.42 ≈ 9 轮持续正向互动（混合互动则需更长）
+      min_scores: { closeness: 0.42, trust: 0.38, liking: 0.42 }
+      min_spt_depth: 2        # 用户已分享具体个人信息（SPT 第 2 层）
+      min_topic_breadth: 4    # 已涵盖 4 个不同话题域
+      min_profile_fields: 3   # 已知至少 3 条用户信息
     up_min_scores:
-      min_scores: { respect: 0.08 }
+      min_scores: { respect: 0.20 }
     decay_triggers:
-      max_scores: { liking: 0.05, trust: 0.05 }
+      max_scores: { liking: 0.08, trust: 0.08 }  # 明显厌恶/不信任才退回
 
   intensifying:
     order: 3
     next_up: integrating
     next_down: experimenting
     up_entry:
-      min_scores: { closeness: 0.40, trust: 0.32, attractiveness: 0.32, liking: 0.28 }
-      min_spt_depth: 2
-      min_topic_breadth: 3
-      min_profile_fields: 3
+      # 需显著高于 experimenting.up_entry 阈值
+      # intensifying(up_mult=0.13)：delta=+2 ≈ +0.008/轮
+      # closeness 从 0.42 涨到 0.60 ≈ 23 轮持续正向互动
+      min_scores: { closeness: 0.60, trust: 0.56, attractiveness: 0.48, liking: 0.55 }
+      min_spt_depth: 3        # 用户有规律地分享观点 / 情感体验
+      min_topic_breadth: 5
+      min_profile_fields: 5
     up_min_scores:
-      min_scores: { attractiveness: 0.28, respect: 0.12 }
+      min_scores: { respect: 0.22 }
     decay_triggers:
-      max_scores: { closeness: 0.30, trust: 0.28 }
+      # 略低于 experimenting.up_entry：跌破则退回 experimenting
+      max_scores: { closeness: 0.37, trust: 0.33 }
       spt_behavior: "depth_reduction"
 
   integrating:
@@ -61,14 +78,14 @@ stages:
     next_up: bonding
     next_down: differentiating
     up_entry:
-      min_scores: { closeness: 0.72, trust: 0.68, liking: 0.68, respect: 0.45 }
-      min_spt_depth: 3
-      min_profile_fields: 5
+      min_scores: { closeness: 0.74, trust: 0.70, liking: 0.70, respect: 0.48 }
+      min_spt_depth: 4
+      min_profile_fields: 6
     up_min_scores:
       check_power_balance: true
-      min_scores: { respect: 0.48 }
+      min_scores: { respect: 0.50 }
     decay_triggers:
-      max_scores: { trust: 0.50 }
+      max_scores: { trust: 0.52 }  # 低于 intensifying.up_entry 基准则退回 differentiating
       spt_behavior: "depth_reduction"
 
   bonding:
@@ -76,9 +93,10 @@ stages:
     next_up: null
     next_down: differentiating
     decay_triggers:
+      max_scores: { trust: 0.55 }  # 信任严重受损直接触发衰退（不依赖 closeness 条件）
       conditional_drop:
         condition: "closeness > 0.70"
-        triggers: { respect: 0.50, attractiveness: 0.40, liking: 0.50 }
+        triggers: { respect: 0.52, attractiveness: 0.42, liking: 0.52 }
         min_triggered: 2  # 三项里至少满足 2 项才触发衰退
 
   # ---------- Coming Apart ----------
@@ -86,6 +104,11 @@ stages:
     order: 6
     next_up: integrating
     next_down: circumscribing
+    up_entry:  # 原无 up_entry → 每轮自动尝试升级（bug 已修复）；补充恢复条件
+      # 修复关系需要分数接近 integrating 水平才能回归
+      min_scores: { closeness: 0.68, trust: 0.64, liking: 0.64, respect: 0.42 }
+      min_spt_depth: 2
+      min_profile_fields: 4
     decay_triggers:
       max_scores: { trust: 0.45 }
       spt_behavior: "depth_reduction"

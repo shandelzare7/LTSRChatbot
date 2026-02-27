@@ -237,27 +237,47 @@ class LocalStoreManager:
         return [r for _, r in scored[: int(limit)]]
 
     def search_notes(self, user_id: str, bot_id: str, query: str, *, limit: int = 6, scan_limit: int = 400) -> List[Dict[str, Any]]:
-        """本地 Store B 召回：扫描近期行并做 term-match 排序。"""
+        """本地 Store B 召回：扫描近期行并做 term-match 排序。
+        session_archive 类型的 note 不受 scan_limit 限制（全量扫描），确保历史会话摘要始终可召回。
+        """
         p = self._paths(user_id, bot_id)
         if not p.derived_notes_jsonl.exists():
             return []
         terms = self._tokenize_query(query)
         if not terms:
             return []
-        lines = p.derived_notes_jsonl.read_text(encoding="utf-8").splitlines()
-        rows: List[Dict[str, Any]] = []
-        for ln in lines[-int(scan_limit):]:
+        all_lines = p.derived_notes_jsonl.read_text(encoding="utf-8").splitlines()
+
+        # session_archive / milestone notes 全量扫描；普通 notes 仅扫描最近 scan_limit 行
+        _PRIORITY_NOTE_TYPES = ("session_archive", "milestone")
+        priority_rows: List[Dict[str, Any]] = []
+        recent_rows: List[Dict[str, Any]] = []
+        for ln in all_lines:
             try:
-                rows.append(json.loads(ln))
+                r = json.loads(ln)
             except Exception:
                 continue
+            if str(r.get("note_type") or "") in _PRIORITY_NOTE_TYPES:
+                priority_rows.append(r)
+            else:
+                recent_rows.append(r)
+        rows = priority_rows + recent_rows[-int(scan_limit):]
+
         scored: List[Tuple[float, Dict[str, Any]]] = []
         for r in rows:
             s = self._score_text(str(r.get("content") or ""), terms)
             if s <= 0:
                 continue
             imp = float(r.get("importance") or 0.0)
-            scored.append((s + imp + 0.5, {"store": "B", **r}))
+            note_type = str(r.get("note_type") or "")
+            # session_archive 最高加权；milestone 次之；其余默认
+            if note_type == "session_archive":
+                bonus = 0.8
+            elif note_type == "milestone":
+                bonus = 0.7
+            else:
+                bonus = 0.5
+            scored.append((s + imp + bonus, {"store": "B", **r}))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [r for _, r in scored[: int(limit)]]
 
@@ -287,11 +307,11 @@ class LocalStoreManager:
             }
             p.relationship_json.write_text(json.dumps(rel, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        # last 20 messages (old -> new)
+        # last 60 messages (old -> new)：AI 回复拆分多段，20 条很快被占满
         chat_rows: List[Dict[str, Any]] = []
         if p.messages_jsonl.exists():
             lines = p.messages_jsonl.read_text(encoding="utf-8").splitlines()
-            for ln in lines[-20:]:
+            for ln in lines[-60:]:
                 try:
                     chat_rows.append(json.loads(ln))
                 except Exception:

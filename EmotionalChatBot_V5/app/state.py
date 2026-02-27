@@ -402,6 +402,8 @@ class AgentState(TypedDict, total=False):
     chat_buffer: List[BaseMessage]
     # 长期记忆摘要
     conversation_summary: str
+    # 上一会话精华摘要（memory_manager 在会话边界生成，供跨 session 回忆）
+    session_summary: Optional[str]
     # RAG 检索到的相关记忆 (事实 + 关键事件)
     retrieved_memories: List[str]
     # 检索是否成功（失败时下游 prompt 只用 summary，不拼旧 retrieved）
@@ -425,6 +427,10 @@ class AgentState(TypedDict, total=False):
     # 安全层输出
     safety_triggered: Optional[bool]
     safety_strategy_id: Optional[str]
+    # 每日话题注入（loader 从 config/daily_topics.yaml 读取，date 匹配当天才填充）
+    daily_topics: Optional[List[str]]
+    # bot 最近的生活事件（同文件 bot_recent 字段，供 generate/judge 引入话题）
+    bot_recent_activities: Optional[List[str]]
     # 旧字段（已废弃，保留仅供兼容旧日志/序列化）
     selected_profile_keys: Optional[List[str]]
     selected_content_move_ids: Optional[List[int]]

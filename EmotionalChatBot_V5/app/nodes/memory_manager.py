@@ -114,6 +114,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         user_input = str(state.get("user_input") or "")
         bot_text = str(state.get("final_response") or state.get("draft_response") or "").strip()
         prev_summary = str(state.get("conversation_summary") or "").strip()
+        turn_count_in_session = int(state.get("turn_count_in_session") or 0)
 
         session_id = state.get("session_id")
         thread_id = state.get("thread_id")
@@ -175,9 +176,11 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 - name：不得把情绪短语/评价/动词当姓名（如「很开心」「会尽全力」「令人兴奋」等）；不确定一律不填。
 - 任何 evidence 若不在 user_input 中逐字出现，该字段整项视为无效，updates/confidence 也勿填。
 
-【Inferred Profile（保守）】
-- new_inferred_entries 用于沉淀“稳定、可复用”的偏好/约束/长期目标/习惯等（0~5 条）。
-- 不要把一时情绪、客套、泛泛表达当作画像条目；宁可少，不要凑数。
+【Inferred Profile】
+- new_inferred_entries 用于提取用户的长期偏好/习惯/职业特征/个人情况/兴趣爱好等（1-3 条为佳）。
+- 提取标准：用户说出喜欢/不喜欢某事物；提到日常习惯或作息；提到兴趣/专业领域；提到长期目标/担忧。只要话中有清楚的个人特质信息，就应提取。
+- 不要提取：一时情绪（”今天好烦”）、对话中的客套话（”谢谢”）、对 bot 的评价、已在 basic_info 记录的内容。
+- key 用简洁属性名（如”爱好”、”作息习惯”、”职业方向”），value 1-2 句简洁描述，不超过 40 字。
 
 【话题历史检测（Topic History）】
 你需要判断本轮对话是否引入了与现有话题历史不同的新话题。
@@ -188,6 +191,27 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 - 避免重复：如果话题与已有话题相似或只是已有话题的细分，不要添加
 - 话题应该是概括性的主题词（如“工作”、“电影”、“旅行”），而不是具体细节
 - 如果本轮没有新话题，返回空数组 []"""
+
+        # 会话边界时，附加 SPT 评估指令（基于旧摘要评估上一会话最大自我披露深度）
+        is_session_boundary = turn_count_in_session == 0 and bool(prev_summary)
+        if is_session_boundary:
+            sys_prompt += """
+
+【自我披露深度（SPT）— 仅限会话边界，根据【旧摘要】评估】
+这是新会话的第一轮，请根据旧摘要评估上一个 session 中用户自我披露的最大深度，填入 spt_depth_last_session（1-5）：
+1 = 仅寒暄/闲聊（"你好"、"最近还行"等表面问候）
+2 = 报告具体事实（"我今天去超市了"、"我在北京工作"）
+3 = 分享观点/态度（"我觉得挺有意思的"、"我不太喜欢..."）
+4 = 表达情感/情绪（"最近有点焦虑"、"那件事让我很开心"）
+5 = 深层自我披露（重要人生决策、核心价值观、隐私/秘密、深层恐惧/渴望）
+只评估用户一方的发言深度，忽略 bot 回应。无法判断时填 1。
+
+【会话精华摘要（仅限会话边界）】
+同时请基于旧摘要，填写 session_summary（500-1000字，供下次对话跨 session 回忆使用）：
+- 必须保留：用户明确透露的具体事实、情感转折节点、承诺/约定、深层自我披露
+- 不要写：表面寒暄、bot 的回复细节（除非涉及重要约定）
+- 格式：自然语言段落，无需分条列表
+- 旧摘要内容很浅（仅寒暄）时可缩短至 100-200 字"""
 
         existing_topic_history_str = ", ".join(existing_topic_history) if existing_topic_history else "（空）"
         human_prompt = f"""【旧摘要】
@@ -201,7 +225,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 【现有话题历史】
 {existing_topic_history_str}
 
-请判断本轮对话是否引入了新话题。如果有，在 new_topics 中返回新话题列表。new_summary 建议 80~220 字。
+请判断本轮对话是否引入了新话题。如果有，在 new_topics 中返回新话题列表。new_summary 建议 150~600 字，保留足够细节，但避免逐字复述。
 
 （输出格式由系统约束。）"""
 
@@ -230,6 +254,11 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 
         # 2) 解析 LLM 结果（摘要 + 元数据 + notes）
         new_summary = str(data.get("new_summary") or prev_summary or "").strip()
+
+        # 方案C：会话边界时解析精华摘要
+        session_summary_out = ""
+        if is_session_boundary:
+            session_summary_out = str(data.get("session_summary") or "").strip()
 
         meta = data.get("transcript_meta") or {}
         if not isinstance(meta, dict):
@@ -266,6 +295,21 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             cleaned_notes.append(
                 {"note_type": note_type, "content": content, "importance": imp if imp is not None else 0.5}
             )
+
+        # 方案B：高重要性轮次生成里程碑 note（原文级别存档，防止滚动摘要压缩丢失细节）
+        if importance is not None and importance >= 0.8:
+            now_date = (now[:10] if len(now) >= 10 else now) or ""
+            u_snippet = (user_input or "")[:120].strip()
+            b_snippet = (bot_text or "")[:80].strip()
+            milestone_text = f"[里程碑 {now_date}] U: {u_snippet}"
+            if b_snippet:
+                milestone_text += f" / B: {b_snippet}"
+            cleaned_notes.append({
+                "note_type": "milestone",
+                "content": milestone_text.strip(),
+                "importance": importance,
+            })
+            logger.debug("[MemoryManager] milestone note added (importance=%.2f)", importance)
 
         # 解析新话题
         new_topics_raw = data.get("new_topics") or []
@@ -512,6 +556,50 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             except Exception:
                 logger.exception("[MemoryManager] LocalStore 写入失败")
 
+        # 会话边界归档：新会话第一轮（turn_count=0）且有上一个会话的摘要 → 将旧摘要存为 session_archive note
+        if turn_count_in_session == 0 and prev_summary:
+            # 从 now 中提取日期部分（YYYY-MM-DD），无法解析时降级使用原始字符串
+            archive_date = (now[:10] if len(now) >= 10 else now) or "unknown"
+            # 方案C：优先使用 session_summary（更丰富），无则降级用 prev_summary
+            archive_body = session_summary_out if session_summary_out else prev_summary
+            archive_content = f"[{archive_date} 会话存档] {archive_body}"
+            _archive_note = {
+                "note_type": "session_archive",
+                "content": archive_content,
+                "importance": 0.9,
+            }
+            _db_for_archive = _get_db_manager()
+            if _db_for_archive and relationship_id:
+                try:
+                    # 创建一个"锚点" transcript 以满足 FK 约束，不含实际对话内容
+                    _anchor_tid = await _db_for_archive.append_transcript(
+                        relationship_id=str(relationship_id),
+                        user_text="",
+                        bot_text="",
+                        topic="session_archive",
+                        importance=0.9,
+                        short_context=f"会话存档 {archive_date}",
+                    )
+                    _archive_note["source_pointer"] = f"transcript:{_anchor_tid}"
+                    await _db_for_archive.append_notes(
+                        relationship_id=str(relationship_id),
+                        transcript_id=_anchor_tid,
+                        notes=[_archive_note],
+                    )
+                    logger.info("[MemoryManager] session_archive written for date=%s", archive_date)
+                except Exception:
+                    logger.exception("[MemoryManager] session_archive DB 写入失败")
+            else:
+                try:
+                    from app.core.local_store import LocalStoreManager
+                    _store = LocalStoreManager()
+                    _archive_note.setdefault("source_pointer", "session_archive")
+                    _archive_note["created_at"] = now
+                    _store.append_derived_notes(user_id, bot_id, [_archive_note])
+                    logger.info("[MemoryManager] session_archive written (local) for date=%s", archive_date)
+                except Exception:
+                    logger.exception("[MemoryManager] session_archive LocalStore 写入失败")
+
         # Debug breadcrumb
         if wrote_basic_keys or wrote_profile_keys:
             logger.info(
@@ -520,7 +608,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
                 wrote_profile_keys or "(none)",
             )
 
-        # 更新 relationship_assets：topic_history 和 breadth_score
+        # 更新 relationship_assets：topic_history / breadth_score / max_spt_depth
         updated_assets = dict(existing_assets)
         if new_topics:
             combined_topics = existing_topic_history + new_topics
@@ -534,6 +622,21 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             if "breadth_score" not in updated_assets:
                 updated_assets["breadth_score"] = len(set(existing_topic_history))
 
+        # SPT 深度更新：仅在会话边界时，基于上一 session 摘要评估并更新 max_spt_depth
+        if is_session_boundary:
+            spt_depth_raw = data.get("spt_depth_last_session")
+            if spt_depth_raw is not None:
+                try:
+                    spt_depth_new = max(1, min(5, int(spt_depth_raw)))
+                    current_max_spt = int(updated_assets.get("max_spt_depth") or 1)
+                    if spt_depth_new > current_max_spt:
+                        updated_assets["max_spt_depth"] = spt_depth_new
+                        logger.info("[MemoryManager] max_spt_depth updated: %d -> %d", current_max_spt, spt_depth_new)
+                    else:
+                        logger.info("[MemoryManager] max_spt_depth unchanged: current=%d, this_session=%d", current_max_spt, spt_depth_new)
+                except (TypeError, ValueError):
+                    pass
+
         logger.info("[MemoryManager] done")
         out: Dict[str, Any] = {
             "conversation_summary": new_summary,
@@ -544,6 +647,10 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         # 始终回写完整合并结果，保证 save_turn 拿到的是最新 state，避免未写入轮次丢失已有数据
         out["user_basic_info"] = updated_basic
         out["user_inferred_profile"] = updated_profile
+
+        # 方案C：会话边界时回写 session_summary（供下游 save_turn 持久化，下次 session 通过 RAG 召回）
+        if session_summary_out:
+            out["session_summary"] = session_summary_out
 
         # 基本信息紧急任务完成判定：若 user 的 basic_info 已有对应字段，则视为该任务已完成（性别仅靠 memory_manager 推断，无问性别任务）
         _BASIC_FIELD_TO_TASK_ID = [

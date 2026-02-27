@@ -131,16 +131,23 @@ class KnappStageManager:
 
     def _count_user_turns(self, state: Dict[str, Any]) -> int:
         """
-        估算用户轮次：优先从 chat_buffer 中统计 human/user 消息条数。
-        目的：避免 initiating->experimenting 过早升级（至少 3 轮用户输入）。
+        估算用户轮次：优先用 turn_count_in_session（本会话已完成轮次 +1 表示当前轮）。
+        不用 chat_buffer 计数，因为 AI 回复拆分成多段气泡写入 DB，会严重压缩可见的历史窗口。
         """
+        turn_count = state.get("turn_count_in_session")
+        if turn_count is not None:
+            try:
+                # turn_count_in_session = 已完成轮数（0-based），当前轮为 +1
+                return max(1, int(turn_count) + 1)
+            except (TypeError, ValueError):
+                pass
+        # 兜底：从 chat_buffer 数 human 条数
         buf = state.get("chat_buffer") or []
-        n = 0
-        for m in buf:
-            t = getattr(m, "type", "") or ""
-            if "human" in str(t).lower() or "user" in str(t).lower():
-                n += 1
-        # 若本轮 user_input 尚未进入 buffer，也算一轮
+        n = sum(
+            1 for m in buf
+            if "human" in str(getattr(m, "type", "") or "").lower()
+            or "user" in str(getattr(m, "type", "") or "").lower()
+        )
         if str(state.get("user_input") or "").strip():
             n = max(n, 1)
         return int(n)
