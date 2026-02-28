@@ -44,6 +44,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Local archive (obsolete code/notes; do not push)
+_archive/
+
 # Local artifacts (do not commit)
 render_logs_download/
 render_web_chat_latest_*.zip
