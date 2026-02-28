@@ -148,7 +148,7 @@ async def run_console_chat_async(
         # 无 DB 时清理本地 local_data（可用环境变量关闭）
         if clear_all:
             try:
-                from app.core.local_store import LocalStoreManager
+                from app.core import LocalStoreManager
                 store = LocalStoreManager()
                 ok = store.clear_relationship(user_id, bot_id)
                 if ok:

@@ -46,7 +46,7 @@ def main() -> int:
 
     if not args.db_only:
         try:
-            from app.core.local_store import LocalStoreManager
+            from app.core import LocalStoreManager
 
             store = LocalStoreManager()
             cleared_local = store.clear_relationship(user_id, bot_id)
@@ -56,7 +56,7 @@ def main() -> int:
     if not args.local_only:
         if os.getenv("DATABASE_URL"):
             try:
-                from app.core.database import DBManager
+                from app.core import DBManager
 
                 db = DBManager.from_env()
                 counts = _run_async(db.clear_all_memory_for(user_id, bot_id, reset_profile=True))

@@ -16,7 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from utils.tracing import trace_if_enabled
 from utils.detailed_logging import log_prompt_and_params, log_llm_response
 from utils.llm_json import parse_json_from_llm
-from app.lats.prompt_utils import safe_text
+from app.prompts.prompt_utils import safe_text
 from app.state import AgentState
 from src.schemas import DetectionOutput
 

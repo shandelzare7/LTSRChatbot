@@ -24,7 +24,7 @@ except Exception:
     pass
 
 from sqlalchemy import select
-from app.core.database import DBManager, Bot, User
+from app.core import DBManager, Bot, User
 
 
 # 要查询的姓名（Bot.name 或 User.basic_info.name）

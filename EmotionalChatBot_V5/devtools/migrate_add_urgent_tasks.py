@@ -26,7 +26,7 @@ from sqlalchemy import text
 
 
 async def run_migration():
-    from app.core.database import _create_async_engine_from_database_url
+    from app.core import _create_async_engine_from_database_url
 
     url = os.getenv("DATABASE_URL")
     if not url:

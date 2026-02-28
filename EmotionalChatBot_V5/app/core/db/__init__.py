@@ -1,12 +1,5 @@
-# Re-export db and bot for backward compatibility: from app.core import DBManager, Bot, ...
-from app.core.bot import (
-    generate_bot_profile,
-    generate_sidewrite_and_backlog,
-    generate_user_profile,
-    get_random_relationship_template,
-    get_relationship_template_by_name,
-)
-from app.core.db import (
+# Data layer: database (async SQLAlchemy) and local_store (file-based).
+from app.core.db.database import (
     Base,
     Bot,
     BotModel,
@@ -14,7 +7,6 @@ from app.core.db import (
     ChatLogModel,
     DBManager,
     DerivedNote,
-    LocalStoreManager,
     Message,
     Memory,
     RelationshipModel,
@@ -26,6 +18,7 @@ from app.core.db import (
     _create_async_engine_from_database_url,
     init_db,
 )
+from app.core.db.local_store import LocalStoreManager
 
 __all__ = [
     "Base",
@@ -46,9 +39,4 @@ __all__ = [
     "WebChatLog",
     "_create_async_engine_from_database_url",
     "init_db",
-    "generate_bot_profile",
-    "generate_sidewrite_and_backlog",
-    "generate_user_profile",
-    "get_random_relationship_template",
-    "get_relationship_template_by_name",
 ]

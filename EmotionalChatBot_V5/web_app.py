@@ -35,7 +35,7 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from app.graph import build_graph
-from app.core.database import DBManager, Bot, User, Message, WebChatLog
+from app.core import DBManager, Bot, User, Message, WebChatLog
 from app.services.llm import LLMAPIError
 from app.web.session import (
     create_session,
@@ -1088,7 +1088,7 @@ async def chat(
                         if db:
                             await db.update_reply_duration_list(user_id, bot_id, new_reply_duration_list)
                         else:
-                            from app.core.local_store import LocalStoreManager
+                            from app.core import LocalStoreManager
                             store = LocalStoreManager()
                             store.update_reply_duration_list(user_id, bot_id, new_reply_duration_list)
                     except Exception:
@@ -1236,7 +1236,7 @@ async def reset_session(
 
         # 2) Fallback: local store (no DATABASE_URL)
         try:
-            from app.core.local_store import LocalStoreManager
+            from app.core import LocalStoreManager
 
             store = LocalStoreManager()
             ok = store.clear_relationship(user_id, bot_id)

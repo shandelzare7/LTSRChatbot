@@ -84,7 +84,8 @@ class DetectionOutput(BaseModel):
 
 
 class InnerMonologueOutput(BaseModel):
-    model_config = _pydantic_extra_forbid
+    # 允许 LLM 多返回 reasoning/target_mode_id 等，仅取 monologue，避免 extra forbid 报错
+    model_config = ConfigDict(extra="ignore")
 
     """Inner monologue 节点 LLM 输出：只输出纯文本独白（结构化提取由 extract 节点完成）。"""
 
@@ -278,7 +279,8 @@ class MemoryManagerOutput(BaseModel):
 
 
 class MonologueExtractOutput(BaseModel):
-    model_config = _pydantic_extra_forbid
+    # 允许 LLM 多返回 reasoning/target_mode_id 等，仅取约定字段，避免 extra forbid 报错
+    model_config = ConfigDict(extra="ignore")
 
     """从内心独白中结构化提取信号，同时完成 profile_keys 选择和 move_ids 选择。"""
 
@@ -304,11 +306,12 @@ class MonologueExtractOutput(BaseModel):
 
 
 class JudgeOutput(BaseModel):
-    model_config = _pydantic_extra_forbid
+    # 允许 LLM 多返回 reasoning 等，且缺 winner_index 时兜底 0，减少 fallback 噪音
+    model_config = ConfigDict(extra="ignore")
 
     """Judge 节点 LLM 输出：从所有候选中选出最符合内心独白的那条。"""
 
-    winner_index: int = Field(..., ge=0, description="generation_candidates 列表中最优候选的索引")
+    winner_index: int = Field(0, ge=0, description="generation_candidates 列表中最优候选的索引")
     justification: str = Field("", description="简短说明为什么选这条（对照独白的态度/情绪）")
 
 

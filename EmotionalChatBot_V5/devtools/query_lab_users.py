@@ -23,8 +23,8 @@ async def main() -> None:
         print("ERROR: 请设置 RENDER_DATABASE_URL 或 DATABASE_URL")
         sys.exit(1)
 
-    from app.core.database import DBManager, User, _create_async_engine_from_database_url
-    from app.core.database import Bot
+    from app.core import DBManager, User, _create_async_engine_from_database_url
+    from app.core import Bot
     from sqlalchemy import select
 
     engine = _create_async_engine_from_database_url(url)

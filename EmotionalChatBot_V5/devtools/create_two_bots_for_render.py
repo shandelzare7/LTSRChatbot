@@ -38,8 +38,8 @@ except Exception:
     pass
 
 from sqlalchemy import select
-from app.core.database import Bot, DBManager
-from app.core.database import _create_async_engine_from_database_url
+from app.core import Bot, DBManager
+from app.core import _create_async_engine_from_database_url
 
 
 async def create_bot_via_llm(llm, bot_name: str, bot_description: str):
@@ -58,7 +58,7 @@ async def main() -> None:
         sys.exit(1)
 
     from app.services.llm import get_llm
-    from app.core.bot_creation_llm import generate_sidewrite_and_backlog
+    from app.core import generate_sidewrite_and_backlog
 
     print("=" * 60)
     print("使用新方式创建两个 Bot（人设 + 人物侧写 + 个性任务库）")

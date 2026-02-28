@@ -280,7 +280,7 @@ async def _load_bot_profile_from_db(bot_id: str, db_url: str) -> Optional[Dict[s
         import uuid as _uuid
         from sqlalchemy.ext.asyncio import async_sessionmaker
         from sqlalchemy import select, or_
-        from app.core.database import _create_async_engine_from_database_url, Bot
+        from app.core import _create_async_engine_from_database_url, Bot
 
         engine = _create_async_engine_from_database_url(db_url)
         Session = async_sessionmaker(engine, expire_on_commit=False)
@@ -346,7 +346,7 @@ def load_bot_profile(bot_id: str, user_id: str = "default_user", db_url: str = "
 
     # 次优：LocalStore
     try:
-        from app.core.local_store import LocalStoreManager
+        from app.core import LocalStoreManager
         store = LocalStoreManager()
         data = store.load_state(user_id, bot_id)
         if data:

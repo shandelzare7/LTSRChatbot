@@ -7,7 +7,7 @@
 | **momentum_formula.yaml** | strategy_resolver, utils.yaml_loader.load_momentum_formula_config | 冲量公式（fatigue、EMA 等）；与 STRATEGY_PRIORITY_13 / momentum 五态 配合使用。 |
 | **stages.yaml** | stage_manager, utils.yaml_loader.load_stage_by_id, strategy_resolver (STAGE_TO_IDI), requirements | Knapp 阶段元数据；阶段 id 与代码中 stage_index / stage_id 约定一致。 |
 | **strategies.yaml** | strategy_resolver (STRATEGY_PRIORITY_13 与 get_strategy_by_id), strategy_routers (HIGH_STAKES_IDS 等) | 策略 id、knapp_stages、min_momentum 等；增删 id 需同步改 strategy_routers 的 id 集合与 strategy_resolver 的 13 级优先级。 |
-| **content_moves.yaml** | app.lats.reply_planner.plan_reply_27_via_content_moves, app.nodes.inner_monologue, utils.yaml_loader.load_pure_content_transformations / load_content_moves | LATS 15 候选：`pure_content_transformations` 至少 8 条 move（id/name/content_operation）；inner_monologue 选 4 个 id，reply_planner 5 路并行（1 FREE + 4 move），每路 3 档共 15 候选。应纳入版本控制并与 reply_planner 约定保持一致。 |
+| **content_moves.yaml** | app.nodes.pipeline.inner_monologue, app.nodes.pipeline.generate, utils.yaml_loader.load_pure_content_transformations / load_content_moves | Content Moves：`pure_content_transformations` 至少 8 条 move（id/name/content_operation）；inner_monologue 选 4 个 id，generate 多路并行（1 FREE + 4 move），每路 n 档候选。应纳入版本控制并与节点约定保持一致。 |
 | **knapp_rules.yaml** | stage_manager 等 | Knapp 阶段规则与行为约束。 |
 | **daily_tasks.yaml** | task_planner / 任务池 | 每日任务池。 |
 | **settings.yaml** | 全局配置入口 | 项目级开关与默认值。 |

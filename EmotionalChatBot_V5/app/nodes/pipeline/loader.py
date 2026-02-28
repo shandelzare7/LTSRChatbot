@@ -14,7 +14,7 @@ _TZ_CST = timezone(timedelta(hours=8))  # UTC+8 中国标准时间
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from app.state import AgentState
 
-from app.lats.prompt_utils import sanitize_memory_text, filter_retrieved_memories
+from app.prompts.prompt_utils import sanitize_memory_text, filter_retrieved_memories
 from utils.external_text import sanitize_external_text, detect_internal_leak
 from utils.prompt_helpers import knapp_baseline_momentum
 from utils.busy_schedule import get_busy_fallback_from_schedule
@@ -263,7 +263,7 @@ def _get_db_manager():
     if not os.getenv("DATABASE_URL"):
         return None
     try:
-        from app.core.database import DBManager
+        from app.core import DBManager
 
         _DB_MANAGER = DBManager.from_env()
         return _DB_MANAGER
@@ -449,7 +449,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             return out
 
         try:
-            from app.core.local_store import LocalStoreManager
+            from app.core import LocalStoreManager
             store = LocalStoreManager()
             bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"
             local_data: Dict[str, Any] = store.load_state(str(user_id), str(bot_id))

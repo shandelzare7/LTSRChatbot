@@ -31,7 +31,7 @@ except Exception:
 
 from sqlalchemy import select
 
-from app.core.database import DBManager, User
+from app.core import DBManager, User
 
 
 def _norm01(v: Any) -> float:

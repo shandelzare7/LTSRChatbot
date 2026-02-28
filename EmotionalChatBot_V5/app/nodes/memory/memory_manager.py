@@ -56,7 +56,7 @@ def _get_db_manager():
     if not os.getenv("DATABASE_URL"):
         return None
     try:
-        from app.core.database import DBManager
+        from app.core import DBManager
 
         _DB_MANAGER = DBManager.from_env()
         return _DB_MANAGER
@@ -511,7 +511,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
         else:
             # local store 模式
             try:
-                from app.core.local_store import LocalStoreManager
+                from app.core import LocalStoreManager
 
                 store = LocalStoreManager()
                 transcript_id = str(uuid.uuid4())
@@ -591,7 +591,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
                     logger.exception("[MemoryManager] session_archive DB 写入失败")
             else:
                 try:
-                    from app.core.local_store import LocalStoreManager
+                    from app.core import LocalStoreManager
                     _store = LocalStoreManager()
                     _archive_note.setdefault("source_pointer", "session_archive")
                     _archive_note["created_at"] = now

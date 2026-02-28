@@ -15,7 +15,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from app.lats.prompt_utils import safe_text
+from app.prompts.prompt_utils import safe_text
 from app.state import AgentState
 from src.schemas import SafetyOutput, StrategyRouterOutput
 from utils.detailed_logging import log_prompt_and_params

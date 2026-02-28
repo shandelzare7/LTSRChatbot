@@ -26,8 +26,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from utils.yaml_loader import get_project_root
-from app.core.profile_factory import generate_bot_profile, generate_user_profile
-from app.core.relationship_templates import get_random_relationship_template
+from app.core.bot.profile_factory import generate_bot_profile, generate_user_profile
+from app.core.bot.relationship_templates import get_random_relationship_template
 
 
 def _now_iso() -> str:

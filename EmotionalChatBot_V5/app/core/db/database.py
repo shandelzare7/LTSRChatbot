@@ -37,8 +37,8 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from app.core.profile_factory import generate_bot_profile, generate_user_profile
-from app.core.relationship_templates import get_random_relationship_template
+from app.core.bot.profile_factory import generate_bot_profile, generate_user_profile
+from app.core.bot.relationship_templates import get_random_relationship_template
 
 
 def _create_async_engine_from_database_url(database_url: str) -> AsyncEngine:
@@ -880,7 +880,7 @@ class DBManager:
                     if not task_rows and getattr(bot, "backlog_tasks", None) and isinstance(bot.backlog_tasks, list):
                         # 过滤“系统性/助手味”任务，避免进入 bot_tasks 表与下游 LATS
                         try:
-                            from app.core.bot_creation_llm import _is_systemic_backlog_task  # type: ignore
+                            from app.core.bot.bot_creation_llm import _is_systemic_backlog_task  # type: ignore
                         except Exception:
                             _is_systemic_backlog_task = None  # type: ignore
                         for t in bot.backlog_tasks:
@@ -1498,3 +1498,11 @@ class DBManager:
                     )
                 )
 
+
+# Legacy sync API aliases for db_service (sync layer; runtime may fail if used).
+BotModel = Bot
+UserModel = User
+ChatLogModel = Message
+RelationshipModel = None  # No Relationship table in current schema
+SessionLocal = None
+init_db = lambda: None

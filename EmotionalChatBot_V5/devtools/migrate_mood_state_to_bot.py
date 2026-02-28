@@ -29,7 +29,7 @@ PADB_DEFAULT = '{"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0}'
 
 
 async def run_migration():
-    from app.core.database import _create_async_engine_from_database_url, Base
+    from app.core import _create_async_engine_from_database_url, Base
     url = os.getenv("DATABASE_URL")
     if not url:
         print("DATABASE_URL 未设置")

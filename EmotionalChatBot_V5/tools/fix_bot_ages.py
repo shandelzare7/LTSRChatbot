@@ -22,9 +22,9 @@ try:
 except Exception:
     pass
 
-from app.core.database import DBManager
+from app.core import DBManager
 from sqlalchemy import select
-from app.core.database import Bot
+from app.core import Bot
 
 
 async def fix_bot_ages():

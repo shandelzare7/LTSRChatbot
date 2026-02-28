@@ -27,7 +27,7 @@ except Exception:
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import WebChatLog, _create_async_engine_from_database_url
+from app.core import WebChatLog, _create_async_engine_from_database_url
 
 
 def safe_filename(s: str, max_len: int = 120) -> str:

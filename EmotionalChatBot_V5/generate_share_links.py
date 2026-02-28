@@ -17,7 +17,7 @@ try:
 except Exception:
     pass
 
-from app.core.database import DBManager, Bot
+from app.core import DBManager, Bot
 from sqlalchemy import select
 
 

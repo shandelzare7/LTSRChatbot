@@ -22,9 +22,9 @@ try:
 except Exception:
     pass
 
-from app.core.database import DBManager
+from app.core import DBManager
 from sqlalchemy import select, update
-from app.core.database import User
+from app.core import User
 
 
 async def update_all_relationship_defaults():

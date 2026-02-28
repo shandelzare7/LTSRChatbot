@@ -139,7 +139,7 @@ async def main() -> None:
     os.environ["DATABASE_URL"] = new_url
 
     try:
-        from app.core.database import Bot, DBManager, Memory, Message, User
+        from app.core import Bot, DBManager, Memory, Message, User
         from sqlalchemy import select
 
         db = DBManager.from_env()

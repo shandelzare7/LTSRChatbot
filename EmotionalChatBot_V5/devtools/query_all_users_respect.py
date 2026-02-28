@@ -26,7 +26,7 @@ except Exception:
     pass
 
 from sqlalchemy import select
-from app.core.database import (
+from app.core import (
     DBManager,
     User,
     Bot,

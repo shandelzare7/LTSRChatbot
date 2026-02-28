@@ -21,7 +21,7 @@ def _get_db_manager():
     if not os.getenv("DATABASE_URL"):
         return None
     try:
-        from app.core.database import DBManager
+        from app.core import DBManager
 
         _DB_MANAGER = DBManager.from_env()
         return _DB_MANAGER
@@ -51,7 +51,7 @@ def create_memory_writer_node(memory_service: "MemoryBase") -> Callable[[AgentSt
 
         # local store (default)
         try:
-            from app.core.local_store import LocalStoreManager
+            from app.core import LocalStoreManager
 
             store = LocalStoreManager()
             bot_id = state.get("bot_id") or (state.get("bot_basic_info") or {}).get("name") or "default_bot"

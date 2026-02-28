@@ -40,8 +40,8 @@ except Exception:
 from sqlalchemy import select, distinct, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import DBManager, Message, User, _create_async_engine_from_database_url
-from app.nodes.stage_manager import KnappStageManager
+from app.core import DBManager, Message, User, _create_async_engine_from_database_url
+from app.nodes import KnappStageManager
 
 
 # 配置日志

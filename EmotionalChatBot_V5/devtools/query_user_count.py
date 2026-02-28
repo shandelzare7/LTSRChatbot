@@ -31,9 +31,9 @@ async def main():
     else:
         print(f"连接数据库: (URL格式已隐藏)")
 
-    from app.core.database import DBManager, _create_async_engine_from_database_url
+    from app.core import DBManager, _create_async_engine_from_database_url
     from sqlalchemy import select, func
-    from app.core.database import User
+    from app.core import User
 
     engine = _create_async_engine_from_database_url(render_url)
     db = DBManager(engine)

@@ -25,7 +25,7 @@ except Exception:
     pass
 
 from sqlalchemy import select
-from app.core.database import Bot, DBManager, _create_async_engine_from_database_url
+from app.core import Bot, DBManager, _create_async_engine_from_database_url
 
 
 # 7 个 bot 的真实履历与行为侧写（替换 persona.lore.origin）

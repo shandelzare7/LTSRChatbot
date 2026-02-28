@@ -14,7 +14,7 @@ from typing import Any, Callable, List, Dict, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from app.lats.prompt_utils import safe_text
+from app.prompts.prompt_utils import safe_text
 from utils.tracing import trace_if_enabled
 from utils.state_to_text import convert_state_to_context_text
 from datetime import datetime, timezone

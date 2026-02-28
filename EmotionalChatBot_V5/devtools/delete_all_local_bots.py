@@ -25,7 +25,7 @@ except Exception:
     pass
 
 from sqlalchemy import delete, select
-from app.core.database import Bot, DBManager, _create_async_engine_from_database_url
+from app.core import Bot, DBManager, _create_async_engine_from_database_url
 
 
 async def main() -> None:

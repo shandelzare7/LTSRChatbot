@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from app.lats.prompt_utils import format_style_as_param_list, safe_text
+from app.prompts.prompt_utils import format_style_as_param_list, safe_text
 from app.state import AgentState
 from utils.detailed_logging import log_prompt_and_params
 from utils.time_context import _parse_ts, _to_local

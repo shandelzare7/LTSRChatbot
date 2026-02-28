@@ -873,8 +873,8 @@ class _StructuredMock:
         self.llm = llm
         self.schema = schema
 
-    def invoke(self, prompt: Any) -> T:
-        # 支持传入 messages(list[BaseMessage]) 或字符串
+    def invoke(self, prompt: Any, **kwargs: Any) -> T:
+        # 支持传入 messages(list[BaseMessage]) 或字符串；kwargs（如 service_tier）由链传入，忽略即可
         msg = self.llm.invoke(prompt)
         content = getattr(msg, "content", str(msg))
         # 尝试从 content 里解析出 target_mode_id / reasoning

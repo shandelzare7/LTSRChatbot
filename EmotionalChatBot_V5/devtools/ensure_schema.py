@@ -33,7 +33,7 @@ try:
 except Exception:
     pass
 
-from app.core.database import Bot, DBManager  # noqa: E402
+from app.core import Bot, DBManager  # noqa: E402
 
 
 def _split_sql_statements(sql: str) -> list[str]:

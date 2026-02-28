@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from app.lats.prompt_utils import safe_text
+from app.prompts.prompt_utils import safe_text
 from app.state import AgentState
 from utils.detailed_logging import log_prompt_and_params, log_llm_response
 from utils.tracing import trace_if_enabled

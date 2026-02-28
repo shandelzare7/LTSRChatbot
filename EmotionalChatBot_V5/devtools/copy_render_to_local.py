@@ -28,7 +28,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import (
+from app.core import (
     _create_async_engine_from_database_url,
     Bot,
     User,

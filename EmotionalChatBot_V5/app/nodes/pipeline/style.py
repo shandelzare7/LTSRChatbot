@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Literal, Optional
 
 from app.state import AgentState
-from app.lats.prompt_utils import format_style_as_param_list
+from app.prompts.prompt_utils import format_style_as_param_list
 
 logger = logging.getLogger(__name__)
 

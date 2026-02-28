@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.core.database import (
+from app.core import (
     BotModel,
     ChatLogModel,
     RelationshipModel,

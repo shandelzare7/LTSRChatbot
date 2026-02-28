@@ -127,8 +127,8 @@ try:
 except Exception:
     pass
 
-from app.core.database import Bot, DBManager, User
-from app.core.relationship_templates import get_relationship_template_by_name
+from app.core import Bot, DBManager, User
+from app.core import get_relationship_template_by_name
 from app.graph import build_graph
 from app.services.llm import get_llm, get_llm_stats, reset_llm_stats, set_current_node, reset_current_node
 from main import _make_initial_state
@@ -373,7 +373,7 @@ Bot 描述：{bot_description}
         
         if not isinstance(data, dict):
             log_line_func(f"  ⚠ LLM 返回格式错误，使用默认人设")
-            from app.core.profile_factory import generate_bot_profile
+            from app.core import generate_bot_profile
             return generate_bot_profile(bot_name)
         
         basic_info = data.get("basic_info", {})
@@ -434,7 +434,7 @@ Bot 描述：{bot_description}
         
     except Exception as e:
         log_line_func(f"  ⚠ LLM 生成失败 ({e})，使用默认人设")
-        from app.core.profile_factory import generate_bot_profile
+        from app.core import generate_bot_profile
         return generate_bot_profile(bot_name)
 
 
@@ -630,7 +630,7 @@ async def main() -> None:
     if create_new_bots:
         # 新建 User 关系维度参考：app/core/relationship_templates.py（RELATIONSHIP_TEMPLATES）
         log_line("创建两个新 Bot；空 User 的关系维度参考 app/core/relationship_templates.py")
-        from app.core.bot_creation_llm import generate_sidewrite_and_backlog
+        from app.core import generate_sidewrite_and_backlog
         llm = get_llm(role="fast")  # 创建 bot 等脚本统一用 gpt-4o-mini，不用 gpt-4o
         bot_a_id = str(uuid.uuid4())
         bot_b_id = str(uuid.uuid4())

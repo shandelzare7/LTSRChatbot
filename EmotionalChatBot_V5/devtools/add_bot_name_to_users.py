@@ -21,7 +21,7 @@ except Exception:
     pass
 
 from sqlalchemy import text
-from app.core.database import DBManager
+from app.core import DBManager
 
 
 async def main() -> None:

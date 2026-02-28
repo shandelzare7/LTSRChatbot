@@ -36,7 +36,7 @@ try:
 except Exception:
     pass
 
-from app.core.database import Bot, DBManager, Memory, Message, User
+from app.core import Bot, DBManager, Memory, Message, User
 
 
 def _split_sql_statements(sql: str) -> list[str]:

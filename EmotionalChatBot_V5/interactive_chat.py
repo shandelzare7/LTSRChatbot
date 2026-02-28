@@ -27,7 +27,7 @@ except Exception:
 from langchain_core.messages import HumanMessage
 from sqlalchemy import select
 
-from app.core.database import Bot, DBManager, User
+from app.core import Bot, DBManager, User
 from app.graph import build_graph
 from main import _make_initial_state, _open_session_log, FileOnlyWriter, TeeWriter
 
@@ -103,8 +103,8 @@ async def get_or_create_user_by_name(db: DBManager, name: str, bot_id: str) -> t
                     print(f"  用户信息: {basic_info}")
                 return external_id, existing_user
             else:
-                from app.core.profile_factory import generate_user_profile
-                from app.core.relationship_templates import get_random_relationship_template
+                from app.core import generate_user_profile
+                from app.core import get_random_relationship_template
                 user_basic_info, user_inferred = generate_user_profile(external_id)
                 # 随机选择一个关系维度模板
                 relationship_template = get_random_relationship_template()

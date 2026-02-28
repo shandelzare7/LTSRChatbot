@@ -21,7 +21,7 @@ except Exception:
     pass
 
 from sqlalchemy import text
-from app.core.database import DBManager
+from app.core import DBManager
 
 VIEW_SQL = """
 CREATE OR REPLACE VIEW users_with_bot_names AS

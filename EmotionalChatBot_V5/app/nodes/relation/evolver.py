@@ -20,6 +20,7 @@ evolver.py
 from __future__ import annotations
 
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List
@@ -31,6 +32,8 @@ from src.schemas import RelationshipAnalysis
 from src.prompts.relationship import build_analyzer_prompt
 from utils.llm_json import parse_json_from_llm
 from utils.tracing import trace_if_enabled
+
+logger = logging.getLogger(__name__)
 
 
 REL_DIMS = ("closeness", "trust", "liking", "respect", "attractiveness", "power")
@@ -265,7 +268,7 @@ def create_relationship_analyzer_node(llm_invoker: Any) -> Callable[[AgentState]
 
             if data is None:
                 preview = (raw[:200] + "…") if len(raw) > 200 else raw
-                print(f"[Relationship Analyzer] parse error (raw empty or invalid JSON), preview: {preview!r}")
+                logger.debug("[Relationship Analyzer] parse fallback (raw empty or invalid JSON), preview: %s", preview[:80])
                 data = {
                     "thought_process": "Fallback: unable to parse model output; assume neutral.",
                     "detected_signals": [],

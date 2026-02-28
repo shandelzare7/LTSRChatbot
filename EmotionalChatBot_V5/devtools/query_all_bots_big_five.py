@@ -24,7 +24,7 @@ except Exception:
     pass
 
 from sqlalchemy import select
-from app.core.database import (
+from app.core import (
     DBManager,
     Bot,
     _create_async_engine_from_database_url,
