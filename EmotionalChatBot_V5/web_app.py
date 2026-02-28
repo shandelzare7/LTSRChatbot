@@ -1178,7 +1178,35 @@ async def chat(
                             }
                         )
 
-            inflight["fast_task"] = asyncio.create_task(_run_one(req_id))
+            async def _run_one_with_retry(req_id_local: str):
+                _MAX_RETRIES = 2
+                _last_error = None
+                for _attempt in range(1, _MAX_RETRIES + 1):
+                    async with inflight["lock"]:
+                        if inflight.get("latest_req_id") != req_id_local:
+                            return
+                    try:
+                        await _run_one(req_id_local)
+                        return
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as _exc:
+                        _last_error = _exc
+                        print(f"[WEB_RETRY] attempt {_attempt}/{_MAX_RETRIES} failed: {type(_exc).__name__}: {_exc}")
+                        if _attempt < _MAX_RETRIES:
+                            await asyncio.sleep(1.0)
+                            continue
+
+                async with inflight["lock"]:
+                    if inflight.get("latest_req_id") != req_id_local:
+                        return
+                    inflight["pending_user_msgs"] = []
+                    w = inflight.get("waiter")
+                    if w is not None and (not w.done()):
+                        error_msg = f"{type(_last_error).__name__}: {_last_error}" if _last_error else "未知错误"
+                        w.set_result({"status": "error", "detail": error_msg})
+
+            inflight["fast_task"] = asyncio.create_task(_run_one_with_retry(req_id))
 
         # 3) Wait for reply or superseded
         out = await waiter

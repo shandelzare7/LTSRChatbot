@@ -90,6 +90,37 @@ def _build_dialogue_context(state: AgentState) -> str:
     return "\n".join(lines) if lines else "（无历史对话）"
 
 
+_TASK_HINT = {
+    "ask_user_name":       "对方叫什么名字",
+    "ask_user_age":        "对方多大",
+    "ask_user_occupation": "对方做什么工作",
+    "ask_user_location":   "对方在哪个城市",
+}
+
+
+def _build_basic_info_task_block(state: AgentState) -> str:
+    """构建 free 路由专用的基础信息问询提示。前期温和，后期强硬。"""
+    pending = list(
+        (state.get("relationship_assets") or {}).get("session_basic_info_pending_task_ids") or []
+    )
+    completed = set(state.get("completed_task_ids") or [])
+    active = [t for t in pending if t not in completed and t in _TASK_HINT]
+    if not active:
+        return ""
+
+    turn = int(state.get("turn_count_in_session") or 0)
+    items = [_TASK_HINT[t] for t in active[:2]]
+
+    if turn >= 8:
+        header = "## 你还不知道的事（已经聊了很久了，这轮回复里必须自然地问出来）"
+    elif turn >= 4:
+        header = "## 你还不知道的事（找个自然的时机顺便问一下）"
+    else:
+        header = "## 你还不知道的事（不急，聊天中合适了再带出来）"
+
+    return header + "\n" + "\n".join(f"- {h}" for h in items) + "\n"
+
+
 def _build_messages_for_route(
     state: AgentState,
     move_desc: Optional[str],
@@ -99,6 +130,7 @@ def _build_messages_for_route(
     monologue: str,
     bot_name: str,
     user_name: str,
+    task_hint: str = "",
 ) -> List[Any]:
     """为单路生成构建 messages 列表。"""
     user_input = (state.get("user_input") or "").strip()[:LATEST_USER_TEXT_MAX]
@@ -178,8 +210,7 @@ def _build_messages_for_route(
 ## 写作风格参数
 {style_text}
 {daily_topics_block}
-{move_block}
-## 回复规则
+{move_block}{task_hint}## 回复规则
 - 第一人称，你就是这个人在社交软件上聊天，说话口语自然，不要暴露是AI
 - 回复要和内心独白的情绪/态度保持一致，**信息密度指令优先于其他规则**
 - 不要使用"作为AI"、"根据您的请求"等客服套话
@@ -289,9 +320,11 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
             route_infos.append((label, mid, move_name, move_desc, msgs))
             tasks.append(_generate_route(llm_gen, msgs, mid, label, max_tokens=_max_tokens))
 
-        # FREE 路（无 move 约束）
+        # FREE 路（无 move 约束，附带基础信息问询任务提示）
+        _task_hint = _build_basic_info_task_block(state)
         free_msgs = _build_messages_for_route(
-            state, None, None, dialogue_context, style_text, monologue, bot_name, user_name
+            state, None, None, dialogue_context, style_text, monologue, bot_name, user_name,
+            task_hint=_task_hint,
         )
         route_infos.append(("free", None, "FREE", "", free_msgs))
         tasks.append(_generate_route(llm_gen, free_msgs, None, "free", max_tokens=_max_tokens))

@@ -445,6 +445,10 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                     out.get("user_basic_info") or {}
                 )
                 out["relationship_assets"] = ra
+                print(f"[Loader] new_session=True, basic_info_tasks={ra['session_basic_info_pending_task_ids']}")
+            else:
+                _existing_tasks = (out.get("relationship_assets") or {}).get("session_basic_info_pending_task_ids")
+                print(f"[Loader] new_session=False, existing_basic_info_tasks={_existing_tasks}")
             _apply_busy_fallback_to_output(out, state)
             return out
 
@@ -556,6 +560,10 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                     out.get("user_basic_info") or {}
                 )
                 out["relationship_assets"] = ra
+                print(f"[Loader/Local] new_session=True, basic_info_tasks={ra['session_basic_info_pending_task_ids']}")
+            else:
+                _existing_tasks = (out.get("relationship_assets") or {}).get("session_basic_info_pending_task_ids")
+                print(f"[Loader/Local] new_session=False, existing_basic_info_tasks={_existing_tasks}")
             _apply_busy_fallback_to_output(out, state)
             return out
         except Exception:
