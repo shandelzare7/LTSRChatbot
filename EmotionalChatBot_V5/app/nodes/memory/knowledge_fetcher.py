@@ -11,7 +11,9 @@ Knowledge Fetcher 节点：当 detection 判断 knowledge_gap=True 时触发，
 from __future__ import annotations
 
 import os
+import re
 import time
+from datetime import datetime, timezone
 from typing import Callable
 
 from app.state import AgentState
@@ -19,6 +21,16 @@ from app.state import AgentState
 
 _MAX_SNIPPET_CHARS = 200   # 每条搜索结果截断长度
 _MAX_RESULTS = 3            # 最多保留几条结果
+
+_TIME_QUALIFIERS = re.compile(r"(最新|现任|当前|今年|\d{4})")
+
+
+def _ensure_time_qualifier(keywords: str) -> str:
+    """如果搜索关键词不包含任何时间限定词，自动追加当前年份。"""
+    if _TIME_QUALIFIERS.search(keywords):
+        return keywords
+    year = datetime.now(timezone.utc).year
+    return f"{keywords} {year}最新"
 
 
 def _search_duckduckgo(keywords: str) -> str:
@@ -82,6 +94,8 @@ def create_knowledge_fetcher_node() -> Callable[[AgentState], dict]:
 
         if not knowledge_gap or not search_keywords:
             return {"retrieved_external_knowledge": ""}
+
+        search_keywords = _ensure_time_qualifier(search_keywords)
 
         t0_search = time.perf_counter()
         print(f"[KnowledgeFetcher] 触发搜索：{search_keywords!r}")

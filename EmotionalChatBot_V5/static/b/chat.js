@@ -312,8 +312,14 @@ async function selectBot(botId) {
             body: JSON.stringify({ bot_id: botId, source: source }),
         });
         if (!response.ok) {
-            const err = await response.json();
-            alert('初始化会话失败: ' + (err.detail || '未知错误'));
+            var detail = '未知错误';
+            try {
+                var err = await response.json();
+                detail = err.detail || err.message || 'HTTP ' + response.status;
+            } catch (_) {
+                detail = 'HTTP ' + response.status + ': ' + response.statusText;
+            }
+            alert('初始化会话失败: ' + detail);
             return;
         }
         const data = await response.json();
@@ -322,7 +328,8 @@ async function selectBot(botId) {
         }
     } catch (e) {
         console.error('选择bot失败:', e);
-        alert('选择bot失败，请重试');
+        var msg = e instanceof Error ? (e.name + ': ' + e.message) : String(e);
+        alert('选择bot失败: ' + msg);
     }
 }
 
@@ -342,8 +349,14 @@ async function resumeByUserId() {
             body: JSON.stringify({ user_db_id: userId }),
         });
         if (!response.ok) {
-            const err = await response.json();
-            alert('恢复会话失败: ' + (err.detail || '未知错误'));
+            var detail = '未知错误';
+            try {
+                var err = await response.json();
+                detail = err.detail || err.message || 'HTTP ' + response.status;
+            } catch (_) {
+                detail = 'HTTP ' + response.status + ': ' + response.statusText;
+            }
+            alert('恢复会话失败: ' + detail);
             return;
         }
         const data = await response.json();
@@ -352,7 +365,8 @@ async function resumeByUserId() {
         }
     } catch (e) {
         console.error('恢复会话失败:', e);
-        alert('恢复会话失败，请重试');
+        var msg = e instanceof Error ? (e.name + ': ' + e.message) : String(e);
+        alert('恢复会话失败: ' + msg);
     }
 }
 
@@ -499,10 +513,12 @@ function initChat() {
                 if (!response.ok) {
                     return response.json().then(function (err) {
                         if (err && (err.status === 'superseded' || (typeof err.detail === 'string' && err.detail.indexOf('superseded') !== -1))) return;
-                        throw new Error(err.detail || 'HTTP ' + response.status);
+                        var detail = err.detail || err.message || 'HTTP ' + response.status;
+                        addMessage('bot', '服务器错误 (' + response.status + '): ' + detail);
+                        return;
                     }).catch(function (e) {
                         if (e.message && e.message.indexOf('superseded') !== -1) return;
-                        addMessage('bot', '服务器错误: ' + (e.message || response.status));
+                        addMessage('bot', '服务器错误 (' + response.status + '): ' + (e.message || response.statusText || response.status));
                     });
                 }
                 return response.json();
@@ -540,12 +556,23 @@ function initChat() {
                         maybeNotifyBotMessage(data.reply).catch(function () {});
                     }
                 } else {
-                    addMessage('bot', '回复失败');
+                    var failDetail = (data && (data.detail || data.message)) ? String(data.detail || data.message) : '';
+                    addMessage('bot', failDetail ? '回复失败: ' + failDetail : '回复失败');
                 }
             })
             .catch(function (error) {
                 console.error('发送消息失败:', error);
-                addMessage('bot', '网络错误，请重试');
+                var errorMsg = '';
+                if (error instanceof TypeError && error.message && error.message.indexOf('fetch') !== -1) {
+                    errorMsg = '网络连接失败: ' + error.message;
+                } else if (error instanceof Error) {
+                    errorMsg = error.name + ': ' + error.message;
+                } else if (typeof error === 'string') {
+                    errorMsg = error;
+                } else {
+                    errorMsg = (error && error.message) ? String(error.message) : ('错误: ' + JSON.stringify(error));
+                }
+                addMessage('bot', (errorMsg || '未知错误') + '。请重试');
             })
             .finally(function () {
                 messageInput.focus();

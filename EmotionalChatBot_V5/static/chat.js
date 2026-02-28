@@ -419,8 +419,14 @@ async function selectBot(botId) {
         });
         
         if (!response.ok) {
-            const error = await response.json();
-            alert('初始化会话失败: ' + (error.detail || '未知错误'));
+            let detail = '未知错误';
+            try {
+                const err = await response.json();
+                detail = err.detail || err.message || `HTTP ${response.status}`;
+            } catch (_) {
+                detail = `HTTP ${response.status}: ${response.statusText}`;
+            }
+            alert('初始化会话失败: ' + detail);
             return;
         }
         
@@ -430,7 +436,8 @@ async function selectBot(botId) {
         }
     } catch (error) {
         console.error('选择bot失败:', error);
-        alert('选择bot失败，请重试');
+        const msg = error instanceof Error ? (error.name + ': ' + error.message) : String(error);
+        alert('选择bot失败: ' + msg);
     }
 }
 
@@ -451,8 +458,14 @@ async function resumeByUserId() {
             body: JSON.stringify({ user_db_id: userId }),
         });
         if (!response.ok) {
-            const error = await response.json();
-            alert('恢复会话失败: ' + (error.detail || '未知错误'));
+            let detail = '未知错误';
+            try {
+                const err = await response.json();
+                detail = err.detail || err.message || `HTTP ${response.status}`;
+            } catch (_) {
+                detail = `HTTP ${response.status}: ${response.statusText}`;
+            }
+            alert('恢复会话失败: ' + detail);
             return;
         }
         const data = await response.json();
@@ -461,7 +474,8 @@ async function resumeByUserId() {
         }
     } catch (error) {
         console.error('恢复会话失败:', error);
-        alert('恢复会话失败，请重试');
+        const msg = error instanceof Error ? (error.name + ': ' + error.message) : String(error);
+        alert('恢复会话失败: ' + msg);
     }
 }
 
@@ -611,23 +625,20 @@ function initChat() {
                 body: JSON.stringify({ message: message }),
             });
             
-            if (!response.ok) {
-                let errorDetail = '未知错误';
-                try {
-                    const error = await response.json();
-                    // Superseded is a normal flow when user sends again quickly.
-                    if (error && error.status === 'superseded') return;
-                    if (error && typeof error.detail === 'string' && error.detail.includes('superseded')) return;
-                    errorDetail = error.detail || `HTTP ${response.status}: ${response.statusText}`;
-                } catch (parseError) {
-                    // 如果无法解析 JSON，使用状态码和状态文本
-                    errorDetail = `HTTP ${response.status}: ${response.statusText}`;
-                    console.error('无法解析错误响应:', parseError);
-                }
-                console.error('服务器错误:', response.status, errorDetail);
-                addMessage('bot', `服务器错误 (${response.status}): ${errorDetail}`);
-                return;
+        if (!response.ok) {
+            let errorDetail = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                const error = await response.json();
+                if (error && error.status === 'superseded') return;
+                if (error && typeof error.detail === 'string' && error.detail.includes('superseded')) return;
+                errorDetail = error.detail || error.message || errorDetail;
+            } catch (parseError) {
+                console.error('无法解析错误响应:', parseError);
             }
+            console.error('服务器错误:', response.status, errorDetail);
+            addMessage('bot', `服务器错误 (${response.status}): ${errorDetail}`);
+            return;
+        }
             
             const data = await response.json();
             // Superseded is NOT a failure: ignore this response.
@@ -681,25 +692,23 @@ function initChat() {
                     maybeNotifyBotMessage(data.reply).catch(() => {});
                 }
             } else {
-                addMessage('bot', '回复失败');
+                const failDetail = (data && (data.detail || data.message)) ? String(data.detail || data.message) : '';
+                addMessage('bot', failDetail ? `回复失败: ${failDetail}` : '回复失败');
             }
         } catch (error) {
             console.error('发送消息失败:', error);
-            // 显示详细的错误信息
-            let errorMsg = '网络错误';
-            if (error instanceof TypeError && error.message.includes('fetch')) {
+            let errorMsg = '';
+            if (error instanceof TypeError && error.message && error.message.includes('fetch')) {
                 errorMsg = `网络连接失败: ${error.message}`;
             } else if (error instanceof Error) {
-                errorMsg = `错误: ${error.name} - ${error.message}`;
-                if (error.stack) {
-                    console.error('错误堆栈:', error.stack);
-                }
+                errorMsg = `${error.name}: ${error.message}`;
+                if (error.stack) console.error('错误堆栈:', error.stack);
             } else if (typeof error === 'string') {
-                errorMsg = `错误: ${error}`;
+                errorMsg = error;
             } else {
-                errorMsg = `网络错误: ${JSON.stringify(error)}`;
+                errorMsg = error && typeof error === 'object' && error.message ? String(error.message) : `错误: ${JSON.stringify(error)}`;
             }
-            addMessage('bot', errorMsg + '，请重试');
+            addMessage('bot', (errorMsg || '未知错误') + '。请重试');
         } finally {
             messageInput.focus();
         }

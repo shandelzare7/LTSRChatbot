@@ -219,7 +219,11 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
     ext_knowledge = (state.get("retrieved_external_knowledge") or "").strip()
     ext_knowledge_block = ""
     if ext_knowledge:
-        ext_knowledge_block = f"## 你刚好知道的背景（来自搜索）\n{ext_knowledge}"
+        ext_knowledge_block = (
+            f"## 你刚查到的最新信息（优先于你的旧记忆）\n"
+            f"⚠️ 以下是刚刚实时搜索到的结果，代表当前最新事实。如果你脑海中的印象与搜索结果不同，**以搜索结果为准**。\n"
+            f"{ext_knowledge}"
+        )
 
     # Detection 客观信号
     detection = state.get("detection") or {}
