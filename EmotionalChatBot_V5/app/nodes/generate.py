@@ -17,8 +17,11 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from app.lats.prompt_utils import format_style_as_param_list, safe_text
 from app.state import AgentState
 from utils.detailed_logging import log_prompt_and_params
+from utils.time_context import _parse_ts, _to_local
 from utils.tracing import trace_if_enabled
 from utils.yaml_loader import load_pure_content_transformations
+
+_WEEKDAY_ZH = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 logger = logging.getLogger(__name__)
 
@@ -155,10 +158,21 @@ def _build_messages_for_route(
         external_context_block = "\n".join(parts) + "\n"
     daily_topics_block = external_context_block  # 保持变量名兼容
 
+    # 当前日期与星期（回答「今天星期几」等事实问题时必须使用此项，不要猜测）
+    time_fact_block = ""
+    try:
+        now = _parse_ts(state.get("current_time"))
+        if now is not None:
+            local_now = _to_local(now)
+            wd = _WEEKDAY_ZH[local_now.weekday()]
+            time_fact_block = f"## 当前日期与星期\n{local_now.year}年{local_now.month}月{local_now.day}日 {wd}\n\n"
+    except Exception:
+        pass
+
     system_content = f"""你是 {bot_name}。你正在和 {user_name} 对话。
 {persona_text}
 
-## 你的内心活动（情绪/态度/意愿）——用于调节回复基调，不是要说出口的内容
+{time_fact_block}## 你的内心活动（情绪/态度/意愿）——用于调节回复基调，不是要说出口的内容
 {monologue}
 
 {direction_block}

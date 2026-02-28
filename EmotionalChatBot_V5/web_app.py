@@ -3,6 +3,7 @@ FastAPI Web Application for EmotionalChatBot V5.0
 支持通过 Web 界面与 Chatbot 对话
 """
 import os
+import random
 import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -1010,12 +1011,14 @@ async def chat(
                     if not segments_raw and reply:
                         segments_raw = [reply]
                     segments = []
+                    # 默认 typing 延迟：2–4 秒随机（仅用于回退路径，processor 产出仍用其自身 delay）
+                    _default_delay = round(random.uniform(2.0, 4.0), 2)
                     for i, seg in enumerate(segments_raw):
                         if isinstance(seg, str):
-                            # 字符串：转换为对象，第一条 delay=0（前端会立即显示），后续使用默认 delay
+                            # 字符串：转换为对象，第一条 delay=0（前端会立即显示），后续使用 2–4 秒随机
                             segments.append({
                                 "content": seg,
-                                "delay": 0.0 if i == 0 else 2.8,  # 第一条 delay=0（前端不应用），后续默认 2.8 秒
+                                "delay": 0.0 if i == 0 else _default_delay,
                                 "action": "typing"
                             })
                         elif isinstance(seg, dict) and "content" in seg:
@@ -1025,7 +1028,7 @@ async def chat(
                             # 其他格式，转换为字符串
                             segments.append({
                                 "content": str(seg),
-                                "delay": 0.0 if i == 0 else 2.8,
+                                "delay": 0.0 if i == 0 else _default_delay,
                                 "action": "typing"
                             })
                     # 过滤掉 content 为空的 segment，避免前端显示空气泡

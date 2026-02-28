@@ -646,10 +646,11 @@ function initChat() {
                     maybeNotifyBotMessage(firstContent).catch(() => {});
                     
                     // 后续消息：WebUI 只应用“打字延迟”。
-                    // - action === "typing": 应用 delay（若无则用默认）
+                    // - action === "typing": 应用 delay（若无则用 2–4 秒随机）
                     // - action === "idle": 不等待，立即显示（不应用宏观拟人化延迟）
                     let cumulativeDelayMs = 0;
-                    const DEFAULT_TYPING_DELAY_MS = 1200; // 如果后端没有提供 delay，使用默认值（更明显的打字感）
+                    // 后端未提供 delay 时的默认：2–4 秒随机
+                    const getDefaultTypingDelayMs = () => Math.round(2000 + Math.random() * 2000);
                     
                     for (let i = 1; i < segments.length; i++) {
                         const seg = segments[i];
@@ -661,7 +662,7 @@ function initChat() {
                             if (typeof seg === 'object' && seg !== null && typeof seg.delay === 'number') {
                                 delayMs = Math.max(0, seg.delay * 1000);
                             } else {
-                                delayMs = DEFAULT_TYPING_DELAY_MS;
+                                delayMs = getDefaultTypingDelayMs();
                             }
                         } else {
                             // idle: do not wait

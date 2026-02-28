@@ -515,13 +515,14 @@ function initChat() {
                         var firstContent = segmentToDisplayString(firstSeg);
                         addMessage('bot', firstContent, { timestamp: data.ai_created_at || new Date().toISOString() });
                         maybeNotifyBotMessage(firstContent).catch(function () {});
-                        var DEFAULT_TYPING_DELAY_MS = 3800;
+                        // 后端未提供 delay 时默认 2–4 秒随机
+                        var getDefaultTypingDelayMs = function () { return Math.round(2000 + Math.random() * 2000); };
                         var cumulativeDelayMs = 0;
                         for (var i = 1; i < segments.length; i++) {
                             var seg = segments[i];
                             var content = segmentToDisplayString(seg);
                             var action = (seg && typeof seg === 'object' && seg.action) ? seg.action : 'typing';
-                            var delayMs = action === 'typing' ? (typeof seg.delay === 'number' ? Math.max(0, seg.delay * 1000) : DEFAULT_TYPING_DELAY_MS) : 0;
+                            var delayMs = action === 'typing' ? (typeof seg.delay === 'number' ? Math.max(0, seg.delay * 1000) : getDefaultTypingDelayMs()) : 0;
                             cumulativeDelayMs += delayMs;
                             (function (c, t) {
                                 setTimeout(function () {
