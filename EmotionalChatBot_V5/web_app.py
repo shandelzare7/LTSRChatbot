@@ -3,7 +3,6 @@ FastAPI Web Application for EmotionalChatBot V5.0
 支持通过 Web 界面与 Chatbot 对话
 """
 import os
-import random
 import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -988,8 +987,7 @@ async def chat(
                 # 本轮回复耗时（秒），追加到 reply_duration_seconds_list 供下一轮 strategy_resolver 判定是否走 fast
                 new_reply_duration_list = (result.get("reply_duration_seconds_list") or []) + [t_graph_ms / 1000.0]
 
-                # 优先使用 processor 产出的 humanized_output.segments（包含 delay/action），web 层不篡改 delay。
-                # 归一化：保证每条 segment 的 content 为字符串，避免前端显示 [object Object]。
+                # 流水线必有 processor，直接使用 humanized_output.segments（含 delay/action）。
                 def _normalize_segment(s):
                     if isinstance(s, str):
                         return {"content": s, "delay": 0.0, "action": "typing"}
@@ -999,42 +997,10 @@ async def chat(
 
                 humanized = result.get("humanized_output") or {}
                 segments_with_delay = humanized.get("segments") or []
-                if segments_with_delay and isinstance(segments_with_delay, list) and len(segments_with_delay) > 0:
-                    segments = [_normalize_segment(s) for s in segments_with_delay]
-                    # 过滤掉 content 为空的 segment，避免前端显示空气泡
-                    segments = [s for s in segments if (s.get("content") or "").strip()]
-                    if not segments and reply:
-                        segments = [{"content": str(reply).strip(), "delay": 0.0, "action": "typing"}]
-                else:
-                    # 回退：使用 final_segments（字符串数组），转换为带默认 delay 的对象数组
-                    segments_raw = result.get("final_segments") or []
-                    if not segments_raw and reply:
-                        segments_raw = [reply]
-                    segments = []
-                    # 默认 typing 延迟：2–4 秒随机（仅用于回退路径，processor 产出仍用其自身 delay）
-                    _default_delay = round(random.uniform(2.0, 4.0), 2)
-                    for i, seg in enumerate(segments_raw):
-                        if isinstance(seg, str):
-                            # 字符串：转换为对象，第一条 delay=0（前端会立即显示），后续使用 2–4 秒随机
-                            segments.append({
-                                "content": seg,
-                                "delay": 0.0 if i == 0 else _default_delay,
-                                "action": "typing"
-                            })
-                        elif isinstance(seg, dict) and "content" in seg:
-                            # 已经是对象格式，归一化 content 为字符串后使用
-                            segments.append(_normalize_segment(seg))
-                        else:
-                            # 其他格式，转换为字符串
-                            segments.append({
-                                "content": str(seg),
-                                "delay": 0.0 if i == 0 else _default_delay,
-                                "action": "typing"
-                            })
-                    # 过滤掉 content 为空的 segment，避免前端显示空气泡
-                    segments = [s for s in segments if (s.get("content") or "").strip()]
-                    if not segments and reply:
-                        segments = [{"content": str(reply).strip(), "delay": 0.0, "action": "typing"}]
+                segments = [_normalize_segment(s) for s in segments_with_delay]
+                segments = [s for s in segments if (s.get("content") or "").strip()]
+                if not segments and reply:
+                    segments = [{"content": str(reply).strip(), "delay": 0.0, "action": "typing"}]
 
                 ai_sent_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
                 if isinstance(result, dict):
