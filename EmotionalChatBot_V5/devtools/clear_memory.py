@@ -6,10 +6,10 @@ clear_memory.py
 - 本地 local_data：删除 rel__{bot_id}__{user_id} 目录（messages/transcripts/notes/summary 全清空）
 
 用法示例：
-  python tools/clear_memory.py --user_id local_user_5128d1c1 --bot_id 4d803b5a-cb30-4d14-89eb-88d259564610
+  python devtools/clear_memory.py --user_id local_user_5128d1c1 --bot_id 4d803b5a-cb30-4d14-89eb-88d259564610
 
 如果只想清本地：
-  python tools/clear_memory.py --user_id ... --bot_id ... --local_only
+  python devtools/clear_memory.py --user_id ... --bot_id ... --local_only
 """
 
 from __future__ import annotations

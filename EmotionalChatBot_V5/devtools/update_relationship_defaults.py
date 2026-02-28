@@ -2,7 +2,7 @@
 更新所有现有用户的关系维度默认值为 0.3（power 保持 0.5）
 
 用法：
-    python tools/update_relationship_defaults.py
+    python devtools/update_relationship_defaults.py
 """
 from __future__ import annotations
 

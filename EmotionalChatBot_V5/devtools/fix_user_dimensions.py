@@ -7,7 +7,7 @@ fix_user_dimensions.py
 - 钳位到 [0,1]
 
 用法：
-  python tools/fix_user_dimensions.py
+  python devtools/fix_user_dimensions.py
 """
 
 from __future__ import annotations
