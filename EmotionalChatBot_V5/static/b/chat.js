@@ -568,5 +568,14 @@ function initChat() {
             sendMessage();
         }
     });
-    messageInput.focus();
+    // 手机端：输入框获焦时把发送按钮滚入视区，避免被键盘挡住
+    messageInput.addEventListener('focus', function () {
+        if ('ontouchstart' in window) {
+            setTimeout(function () {
+                sendBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }, 300);
+        }
+    });
+    // 仅非触屏设备在加载时自动聚焦；手机端不自动 focus，否则键盘会立刻弹起并挡住发送按钮
+    if (!('ontouchstart' in window)) messageInput.focus();
 }

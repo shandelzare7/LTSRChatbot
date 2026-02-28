@@ -725,8 +725,17 @@ function initChat() {
         }
     };
 
-    // 聚焦输入框
-    messageInput.focus();
+    // 手机端：输入框获焦时（键盘弹起）把发送按钮滚入视区，避免被键盘挡住点不到
+    messageInput.addEventListener('focus', () => {
+        if ('ontouchstart' in window) {
+            setTimeout(() => {
+                sendBtn.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }, 300);
+        }
+    });
+
+    // 仅非触屏设备在加载时自动聚焦输入框；手机端不自动 focus，否则键盘会立刻弹起并挡住发送按钮
+    if (!('ontouchstart' in window)) messageInput.focus();
 }
 
 // 添加消息到聊天界面
