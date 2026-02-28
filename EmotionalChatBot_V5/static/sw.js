@@ -29,30 +29,11 @@ self.addEventListener('push', (event) => {
     const body = payload.body || '';
     const url = payload.url || '/';
 
-    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    // If any client is visible, do NOT show a system notification (avoid duplicates).
-    // Instead, message the page (could be used to show an in-app toast if desired).
-    const hasVisible = allClients.some((c) => {
-      try {
-        return c.visibilityState === 'visible';
-      } catch (e) {
-        return false;
-      }
-    });
-    if (hasVisible) {
-      for (const c of allClients) {
-        try {
-          c.postMessage({ type: 'push', payload });
-        } catch (e) {}
-      }
-      return;
-    }
-
     await self.registration.showNotification(title, {
       body,
       tag: payload.tag || 'ltsr-push',
       data: { url },
-      renotify: false,
+      renotify: true,
     });
   })());
 });

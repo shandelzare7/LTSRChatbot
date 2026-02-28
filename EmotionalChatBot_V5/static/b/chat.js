@@ -409,7 +409,11 @@ function copyShareLink() {
 async function autoRequestNotificationPermission() {
     try {
         if (!('Notification' in window)) return;
-        if (Notification.permission === 'granted' || Notification.permission === 'denied') return;
+        if (Notification.permission === 'granted') {
+            syncPushSubscriptionToServer().catch(function () {});
+            return;
+        }
+        if (Notification.permission === 'denied') return;
         setTimeout(function () {
             Notification.requestPermission()
                 .then(function (result) {

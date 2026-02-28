@@ -1135,38 +1135,38 @@ async def chat(
                 except Exception:
                     pass
 
+                # Web Push (best-effort): send once per bot turn, regardless of waiter state.
+                try:
+                    sub = await _get_push_subscription(
+                        db,
+                        session_id=session_id,
+                        user_external_id=user_id,
+                        bot_id=bot_id,
+                    )
+                    if isinstance(sub, dict) and sub:
+                        bot_name = ""
+                        try:
+                            bot_name = str((state.get("bot_basic_info") or {}).get("name") or "")  # type: ignore[union-attr]
+                        except Exception:
+                            bot_name = ""
+                        title = bot_name or "Chatbot"
+                        body = (str(segments[0].get("content", "")) if segments else str(reply or ""))[:200]
+                        await _send_web_push(subscription=sub, title=title, body=body, url="/", tag="ltsr-bot-message")
+                    else:
+                        logging.getLogger(__name__).info(
+                            "push: no subscription session_id=%r user_id=%r bot_id=%r",
+                            session_id, user_id, bot_id,
+                        )
+                except Exception as e:
+                    logging.getLogger(__name__).warning("push send failed: %s", e, exc_info=True)
+
                 # Complete waiter only if still latest
                 async with inflight["lock"]:
                     if inflight.get("latest_req_id") != req_id_local:
                         return
-                    # consume pending messages
                     inflight["pending_user_msgs"] = []
                     w = inflight.get("waiter")
                     if w is not None and (not w.done()):
-                        # Web Push (best-effort): send once per bot turn. 用 session_id 查，若无则用 (user_id, bot_id) 查（Render 重启后 session 会变）
-                        try:
-                            sub = await _get_push_subscription(
-                                db,
-                                session_id=session_id,
-                                user_external_id=user_id,
-                                bot_id=bot_id,
-                            )
-                            if isinstance(sub, dict) and sub:
-                                bot_name = ""
-                                try:
-                                    bot_name = str((state.get("bot_basic_info") or {}).get("name") or "")  # type: ignore[union-attr]
-                                except Exception:
-                                    bot_name = ""
-                                title = bot_name or "Chatbot"
-                                body = (str(segments[0].get("content", "")) if segments else str(reply or ""))[:200]
-                                await _send_web_push(subscription=sub, title=title, body=body, url="/", tag="ltsr-bot-message")
-                            else:
-                                logging.getLogger(__name__).info(
-                                    "push: no subscription session_id=%r user_id=%r bot_id=%r",
-                                    session_id, user_id, bot_id,
-                                )
-                        except Exception as e:
-                            logging.getLogger(__name__).warning("push send failed: %s", e, exc_info=True)
                         w.set_result(
                             {
                                 "reply": reply,
