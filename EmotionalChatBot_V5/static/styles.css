@@ -457,19 +457,26 @@ body {
     .bot-list {
         grid-template-columns: 1fr;
     }
-    
+
     .chat-container {
         height: calc(100vh - 20px);
     }
-    
+
+    .chat-input-container .btn-primary {
+        min-height: 44px;
+        min-width: 56px;
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+    }
+
     .message-content {
         max-width: 85%;
     }
-    
+
     .bot-selection {
         padding: 20px;
     }
-    
+
     .bot-selection h1 {
         font-size: 24px;
     }

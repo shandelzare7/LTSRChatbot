@@ -1,0 +1,4 @@
+# 全局配置
+default_model: gpt-4o
+max_critic_retries: 3
+default_mode_id: normal_mode

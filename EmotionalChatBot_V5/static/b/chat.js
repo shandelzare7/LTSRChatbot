@@ -549,7 +549,19 @@ function initChat() {
             });
     }
 
-    sendBtn.addEventListener('click', sendMessage);
+    // 手机端用 touchend 更可靠，避免 click 不触发；桌面端用 click；防重复触发
+    var lastSendTime = 0;
+    function sendMessageWithDebounce() {
+        var now = Date.now();
+        if (now - lastSendTime < 400) return;
+        lastSendTime = now;
+        sendMessage();
+    }
+    sendBtn.addEventListener('touchend', function (e) {
+        e.preventDefault();
+        sendMessageWithDebounce();
+    }, { passive: false });
+    sendBtn.addEventListener('click', sendMessageWithDebounce);
     messageInput.addEventListener('keypress', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();

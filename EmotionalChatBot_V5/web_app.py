@@ -1666,7 +1666,7 @@ def get_chat_html(bot_id: str) -> str:
                     placeholder="输入消息..."
                     autocomplete="off"
                 />
-                <button id="send-btn" class="btn-primary">发送</button>
+                <button type="button" id="send-btn" class="btn-primary">发送</button>
             </div>
         </div>
     </div>

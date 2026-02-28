@@ -589,6 +589,11 @@ body::after {
         overflow: hidden;
         text-overflow: ellipsis;
     }
+    .chat-input .btn-send {
+        -webkit-tap-highlight-color: transparent;
+        touch-action: manipulation;
+        min-width: 56px;
+    }
 }
 
 /* 分享弹窗（B 版沿用结构，样式微调） */

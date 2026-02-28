@@ -705,15 +705,26 @@ function initChat() {
         }
     };
     
-    // 绑定事件
-    sendBtn.onclick = sendMessage;
+    // 绑定事件（手机端用 touchend 更可靠，避免 click 不触发；桌面端用 click）
+    let lastSendTime = 0;
+    const sendMessageWithDebounce = () => {
+        const now = Date.now();
+        if (now - lastSendTime < 400) return;
+        lastSendTime = now;
+        sendMessage();
+    };
+    sendBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        sendMessageWithDebounce();
+    }, { passive: false });
+    sendBtn.addEventListener('click', sendMessageWithDebounce);
     messageInput.onkeypress = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
     };
-    
+
     // 聚焦输入框
     messageInput.focus();
 }
