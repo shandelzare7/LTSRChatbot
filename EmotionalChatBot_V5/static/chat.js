@@ -120,7 +120,7 @@ async function autoRequestNotificationPermission() {
         }
         
         // 如果已经授权，直接返回
-        if (Notification.permission === 'granted') {
+        if (supportsLocal && Notification.permission === 'granted') {
             // 如果支持推送但还没订阅，尝试订阅
             if (supportsPush && !_pushEnabled()) {
                 await _trySubscribePush();
@@ -129,7 +129,7 @@ async function autoRequestNotificationPermission() {
         }
         
         // 如果被拒绝，不自动请求（避免骚扰用户）
-        if (Notification.permission === 'denied') {
+        if (supportsLocal && Notification.permission === 'denied') {
             return;
         }
         
