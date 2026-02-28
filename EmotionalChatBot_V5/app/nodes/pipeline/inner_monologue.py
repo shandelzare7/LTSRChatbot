@@ -169,7 +169,7 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
         local_now = _to_local(now)
         _, part_label = get_day_part(now)
         wd = _WEEKDAY_ZH[local_now.weekday()]
-        time_str = f"现在是{local_now.month}月{local_now.day}日 {wd}{part_label}（约{local_now.hour}:{local_now.minute:02d}）"
+        time_str = f"现在是{local_now.year}年{local_now.month}月{local_now.day}日 {wd}{part_label}（约{local_now.hour}:{local_now.minute:02d}）"
         gap_sec = state.get("seconds_since_last_message")
         if gap_sec is not None and isinstance(gap_sec, (int, float)) and gap_sec >= 60:
             gap_readable = _time_gap_readable(int(gap_sec))
