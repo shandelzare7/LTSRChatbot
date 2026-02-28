@@ -102,8 +102,8 @@ def build_graph(
     llm_memory_manager = get_llm(role="fast", temperature=0.1)
     llm_fast_safety_reply = get_llm(role="main", temperature=0.55)
 
-    # Generate LLM：优先从环境变量读取 Qwen 配置（n=4 支持），退回 fast
-    _gen_model = (os.getenv("LTSR_GEN_MODEL") or "").strip() or None
+    # Generate LLM：优先从环境变量 LTSR_GEN_MODEL 读取，默认 qwen3-next-80b-a3b-instruct（n=4 支持）
+    _gen_model = (os.getenv("LTSR_GEN_MODEL") or "").strip() or "qwen3-next-80b-a3b-instruct"
     _gen_api_key = (os.getenv("LTSR_GEN_API_KEY") or "").strip() or None
     _gen_base_url = (os.getenv("LTSR_GEN_BASE_URL") or "").strip() or None
     if _gen_model and "qwen" in _gen_model.lower():

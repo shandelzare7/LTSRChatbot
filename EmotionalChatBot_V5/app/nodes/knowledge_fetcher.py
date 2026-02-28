@@ -11,6 +11,7 @@ Knowledge Fetcher 节点：当 detection 判断 knowledge_gap=True 时触发，
 from __future__ import annotations
 
 import os
+import time
 from typing import Callable
 
 from app.state import AgentState
@@ -21,11 +22,15 @@ _MAX_RESULTS = 3            # 最多保留几条结果
 
 
 def _search_duckduckgo(keywords: str) -> str:
-    """使用 duckduckgo-search 搜索，返回拼接摘要。"""
+    """使用 DuckDuckGo 搜索（优先 ddgs 包，否则 duckduckgo_search），返回拼接摘要。"""
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
         with DDGS() as ddgs:
-            results = list(ddgs.text(keywords, max_results=_MAX_RESULTS, region="cn-zh"))
+            # 不使用 region 或使用 wt-wt，避免 cn-zh 经常无结果
+            results = list(ddgs.text(keywords, max_results=_MAX_RESULTS))
         if not results:
             return ""
         lines = []
@@ -78,25 +83,32 @@ def create_knowledge_fetcher_node() -> Callable[[AgentState], dict]:
         if not knowledge_gap or not search_keywords:
             return {"retrieved_external_knowledge": ""}
 
+        t0_search = time.perf_counter()
         print(f"[KnowledgeFetcher] 触发搜索：{search_keywords!r}")
 
-        # 优先 Tavily，否则 DuckDuckGo
+        # 有 TAVILY_API_KEY 时用 Tavily，否则用 DuckDuckGo
+        snippet = ""
         if tavily_key:
             snippet = _search_tavily(search_keywords, tavily_key)
-        else:
+        if not snippet:
             snippet = _search_duckduckgo(search_keywords)
 
+        elapsed_search = time.perf_counter() - t0_search
         if snippet:
             result = f"【外部搜索：{search_keywords}】\n{snippet}"
-            print(f"[KnowledgeFetcher] 搜索成功，{len(snippet)} 字符")
+            print(f"[KnowledgeFetcher] 搜索成功，{len(snippet)} 字符，用时 {elapsed_search:.2f}s")
         else:
             result = ""
-            print(f"[KnowledgeFetcher] 搜索无结果")
+            print(f"[KnowledgeFetcher] 搜索无结果，用时 {elapsed_search:.2f}s")
 
-        return {
+        out = {
             "retrieved_external_knowledge": result,
             "knowledge_gap": knowledge_gap,
             "search_keywords": search_keywords,
         }
+        # 供测试/监控：搜索步骤耗时（秒）
+        if os.getenv("LTSR_SEARCH_TIMING") or os.getenv("BOT2BOT_FULL_LOGS"):
+            out["retrieved_external_knowledge_elapsed_seconds"] = elapsed_search
+        return out
 
     return knowledge_fetcher_node

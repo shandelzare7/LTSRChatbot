@@ -63,11 +63,17 @@ def parse_json_from_llm(text: str) -> Optional[Dict[str, Any]]:
     尝试从 LLM 输出中解析 JSON，并规范为含 "reply" 或 "candidates" 的 Dict。
     - 支持：纯 JSON、前后空白、markdown 代码块、首尾杂文。
     - 支持：尾部逗号、顶层为单元素数组 [{"reply":"..."}] 或多元素 [{"reply":"a"},...]。
+    - 若内容像 HTML（如 API 返回 502/503 错误页），直接返回 None，避免 JSON 解析报错。
     """
     if not text or not isinstance(text, str):
         return None
     raw = text.strip()
     if not raw:
+        return None
+    # API 返回 HTML 错误页时不要尝试解析，直接返回 None，让调用方用默认值
+    if raw.lstrip().upper().startswith("<!DOCTYPE") or (
+        len(raw) > 10 and raw.lstrip().startswith("<") and "<?xml" not in raw[:20]
+    ):
         return None
 
     # 1. 直接解析（含尾部逗号修复、顶层数组规范化）

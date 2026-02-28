@@ -195,12 +195,14 @@ async def _generate_route(
     route_label: str,
     max_tokens: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """单路异步生成，llm_gen 构建时已通过 model_kwargs n=4 传入批量参数。"""
-    effective_llm = llm_gen.bind(max_tokens=max_tokens) if max_tokens else llm_gen
+    """单路异步生成，llm_gen 构建时已通过 n=4 传入批量参数；不 bind(max_tokens) 以保留 agenerate，改在调用时传参。"""
+    extra_kw: Dict[str, Any] = {}
+    if max_tokens is not None:
+        extra_kw["max_tokens"] = max_tokens
     candidates: List[Dict[str, Any]] = []
     try:
-        if hasattr(effective_llm, "agenerate"):
-            result = await effective_llm.agenerate([messages])
+        if hasattr(llm_gen, "agenerate"):
+            result = await llm_gen.agenerate([messages], **extra_kw)
             gens = result.generations[0] if result.generations else []
             for gen in gens:
                 text = ""
@@ -210,8 +212,8 @@ async def _generate_route(
                     text = (getattr(gen.message, "content", "") or "").strip()
                 if text:
                     candidates.append({"move_id": move_id, "route": route_label, "text": text})
-        elif hasattr(effective_llm, "ainvoke"):
-            msg = await effective_llm.ainvoke(messages)
+        elif hasattr(llm_gen, "ainvoke"):
+            msg = await llm_gen.ainvoke(messages, **extra_kw)
             text = (getattr(msg, "content", "") or str(msg)).strip()
             if text:
                 candidates.append({"move_id": move_id, "route": route_label, "text": text})

@@ -13,3 +13,6 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 pywebpush>=1.14.1
+# 搜索功能（Knowledge Fetcher）：有 TAVILY_API_KEY 时用 Tavily，否则用 DuckDuckGo
+tavily>=0.3.0
+duckduckgo-search>=6.0.0

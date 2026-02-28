@@ -84,7 +84,7 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 - engagement_level：字数多、信息量足、接话、追问→高；敷衍、嗯啊哦、想结束→低。
 - stage_pacing：关系节奏，三选一。正常=与当前关系阶段（{stage_id}）匹配、无越界；过分亲密=交浅言深、过早暧昧或过度自我暴露；过分生疏=突然冷淡、回避、敷衍、想结束。询问姓名/年龄/职业等基础信息属正常破冰，填「正常」。
 - urgency：紧急程度。求助/崩溃/危险/等回复→高(7-10)；闲聊/随便说说→低(0-3)；正常(4-6)。
-- knowledge_gap：用户提到了近期事件、具体事实、专有名词（人名/产品/剧集等）或你可能不了解的内容 → true；纯情感倾诉/闲聊/追问感受 → false。
+- knowledge_gap：用户在本条消息中是在**索取可验证的事实、数据或实时/近期信息**（如某地天气、某时新闻、某物价格、某事件进展、专有名词或你不确定的内容）→ true；仅表达情绪、感受、观点或做不涉及事实的闲聊 → false。
 - search_keywords：knowledge_gap=true 时填写最适合搜索的简短关键词（中文，3-8字）；否则填空字符串。
 （注：topic_appeal 和 subtext 已由 extract 节点处理，此处不输出）
 """

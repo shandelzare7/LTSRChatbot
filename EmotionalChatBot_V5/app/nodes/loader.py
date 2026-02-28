@@ -67,13 +67,22 @@ _BASIC_INFO_FIELDS = [
 ]
 
 
+def _is_empty_basic_value(v: Any) -> bool:
+    """缺失或空字符串视为空；数字等非字符串视为已填。"""
+    if v is None:
+        return True
+    if isinstance(v, str):
+        return not v.strip()
+    return False
+
+
 def get_session_basic_info_pending_task_ids(user_basic_info: Dict[str, Any]) -> List[str]:
     """根据 user_basic_info 缺失项，返回本 session 待办的问询任务 id 列表。"""
     info = user_basic_info or {}
     return [
         task_id
         for field, task_id, _ in _BASIC_INFO_FIELDS
-        if not (info.get(field) or "").strip()
+        if _is_empty_basic_value(info.get(field))
     ]
 
 # 距上次消息超过此时长视为新 Session，按 Knapp 阶段重新初始化 conversation_momentum

@@ -35,6 +35,7 @@ from langchain_core.messages import HumanMessage
 
 from app.graph import build_graph
 from app.core.database import DBManager, Bot, User, Message, WebChatLog
+from app.services.llm import LLMAPIError
 from app.web.session import (
     create_session,
     get_session,
@@ -1177,6 +1178,9 @@ async def chat(
             # Frontend should ignore this response and wait for the newer request's result.
             return JSONResponse(status_code=200, content={"status": "superseded"})
         return out
+    except LLMAPIError as e:
+        print(f"[WEB_ERROR] LLMAPIError: {e}")
+        raise HTTPException(status_code=503, detail="服务暂时不可用，请稍后重试。")
     except Exception as e:
         import traceback
         error_detail = traceback.format_exc()
@@ -1669,13 +1673,8 @@ def get_chat_html(bot_id: str) -> str:
 # ---------- B 版界面（紫色玻璃风，带头像与 chip） ----------
 
 # 全局顶栏公告配置（id / message / cta / href / variant: glass | soft）
-_ANNOUNCE_CONFIG = {
-    "id": "announce-bot-fix",
-    "message": "已修复 bot 无故不理人的问题",
-    "cta": "",
-    "href": "#",
-    "variant": "glass",
-}
+# 置空则顶栏不展示任何公告；下次需要时按下面格式填回即可。
+_ANNOUNCE_CONFIG: dict = {}
 
 
 def _announcement_bar_root_html() -> str:

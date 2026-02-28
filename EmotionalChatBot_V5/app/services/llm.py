@@ -6,6 +6,7 @@ Profiling notes:
   step-by-step performance reports.
 """
 import asyncio
+import json
 import os
 import sys
 import time
@@ -44,6 +45,19 @@ def get_current_node() -> str:
         return str(_CURRENT_NODE.get() or "")
     except Exception:
         return ""
+
+
+class LLMAPIError(Exception):
+    """LLM 接口返回非预期内容（如 HTML 错误页）导致 structured 解析失败时抛出，便于节点 fallback 或接口层返回 503。"""
+    pass
+
+
+def _is_structured_parse_failure(exc: BaseException) -> bool:
+    """是否为「接口返回了 HTML 等非 JSON 导致 structured 解析失败」类错误。"""
+    if isinstance(exc, json.JSONDecodeError):
+        return True
+    msg = (getattr(exc, "message", None) or str(exc) or "").lower()
+    return "is not valid json" in msg or "<!doctype" in msg or "unexpected token '<'" in msg
 
 
 def _call_log_enabled() -> bool:
@@ -93,6 +107,10 @@ class ServiceTierLLM:
         self._base_url = (base_url or "").strip()
         self._model = model or (getattr(inner, "model_name", None) or getattr(inner, "model", None) or "unknown")
         self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None) or self._model
+
+    def __getattr__(self, name: str) -> Any:
+        """未显式覆写的方法/属性自动转发到 _inner（如 agenerate / astream / batch 等）。"""
+        return getattr(self._inner, name)
 
     def _inject(self, kw: dict) -> dict:
         try:
@@ -317,6 +335,10 @@ class TimedLLM:
         self._inner = inner
         self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None)
 
+    def __getattr__(self, name: str) -> Any:
+        """未显式覆写的方法/属性自动转发到 _inner（如 agenerate / astream / batch 等）。"""
+        return getattr(self._inner, name)
+
     def bind(self, **kwargs: Any) -> "TimedLLM":
         bound = self._inner.bind(**kwargs) if hasattr(self._inner, "bind") else self._inner
         return TimedLLM(bound)
@@ -415,6 +437,10 @@ class InstrumentedLLM:
         self.model_name = getattr(inner, "model_name", None) or getattr(inner, "model", None) or model
         self._model = model or self.model_name or "unknown"
 
+    def __getattr__(self, name: str) -> Any:
+        """未显式覆写的方法/属性自动转发到 _inner（如 agenerate / astream / batch 等）。"""
+        return getattr(self._inner, name)
+
     def bind(self, **kwargs: Any) -> "InstrumentedLLM":
         """保持统计包装的同时绑定温度等参数。"""
         bound = self._inner.bind(**kwargs) if hasattr(self._inner, "bind") else self._inner
@@ -477,6 +503,12 @@ class InstrumentedLLM:
                     if tier and "service_tier" not in kw:
                         kw["service_tier"] = tier
                     return self._inner_struct.invoke(input, **kw)
+                except Exception as e:
+                    if _is_structured_parse_failure(e):
+                        raise LLMAPIError(
+                            "LLM 接口返回了非 JSON（如 HTML 错误页），structured 解析失败，请稍后重试。"
+                        ) from e
+                    raise
                 finally:
                     dt_ms = (time.perf_counter() - t0) * 1000.0
                     _record_llm_call(
@@ -511,6 +543,12 @@ class InstrumentedLLM:
                     if hasattr(self._inner_struct, "ainvoke") and callable(getattr(self._inner_struct, "ainvoke")):
                         return await self._inner_struct.ainvoke(input, **kw)
                     return await asyncio.to_thread(self._inner_struct.invoke, input, **kw)
+                except Exception as e:
+                    if _is_structured_parse_failure(e):
+                        raise LLMAPIError(
+                            "LLM 接口返回了非 JSON（如 HTML 错误页），structured 解析失败，请稍后重试。"
+                        ) from e
+                    raise
                 finally:
                     dt_ms = (time.perf_counter() - t0) * 1000.0
                     _record_llm_call(
