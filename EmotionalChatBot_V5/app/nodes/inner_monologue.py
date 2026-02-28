@@ -17,6 +17,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from app.lats.prompt_utils import safe_text
 from utils.tracing import trace_if_enabled
 from utils.state_to_text import convert_state_to_context_text
+from datetime import datetime, timezone
+from utils.time_context import _parse_ts, get_day_part, _to_local, _time_gap_readable
 from src.schemas import InnerMonologueOutput
 
 from app.state import AgentState
@@ -157,6 +159,62 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
             else:
                 topic_shift_hook = "- 你心里有点想聊点别的，最近自己的一些事说不定可以带进来"
 
+    # --- 时间感知（方案B：自然第二人称，独立 block） ---
+    _WEEKDAY_ZH = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+    time_block_text = ""
+    try:
+        now = _parse_ts(state.get("current_time"))
+        if now is None:
+            now = datetime.now(timezone.utc)
+        local_now = _to_local(now)
+        _, part_label = get_day_part(now)
+        wd = _WEEKDAY_ZH[local_now.weekday()]
+        time_str = f"现在是{local_now.month}月{local_now.day}日 {wd}{part_label}（约{local_now.hour}:{local_now.minute:02d}）"
+        gap_sec = state.get("seconds_since_last_message")
+        if gap_sec is not None and isinstance(gap_sec, (int, float)) and gap_sec >= 60:
+            gap_readable = _time_gap_readable(int(gap_sec))
+            time_str += f"。你们上次聊天是{gap_readable}前"
+        time_block_text = time_str
+    except Exception:
+        pass
+
+    # 对话摘要（长期记忆，比 retrieved_memories 更宏观）
+    conversation_summary = (state.get("conversation_summary") or "").strip()
+    summary_block = ""
+    if conversation_summary:
+        summary_block = f"## 你对之前聊天的大致印象\n{conversation_summary[:500]}"
+
+    # 上次会话精华摘要（跨 session 回忆）
+    session_summary_raw = (state.get("session_summary") or "").strip()
+    session_summary_block = ""
+    if session_summary_raw:
+        session_summary_block = f"## 上次你们聊了什么\n{session_summary_raw[:500]}"
+
+    # 关系变化趋势（上一轮的关系维度变化方向）
+    rel_deltas = state.get("relationship_deltas_applied") or {}
+    rel_trend_block = ""
+    if isinstance(rel_deltas, dict):
+        _DIM_ZH = {
+            "closeness": "亲密感", "trust": "信任", "liking": "好感",
+            "respect": "尊重", "attractiveness": "吸引力", "power": "对方的主导感",
+        }
+        trend_parts: list[str] = []
+        for dim in ("closeness", "trust", "liking", "respect", "attractiveness", "power"):
+            delta = rel_deltas.get(dim)
+            if not isinstance(delta, (int, float)) or abs(delta) < 0.005:
+                continue
+            zh = _DIM_ZH.get(dim, dim)
+            if delta > 0.03:
+                trend_parts.append(f"{zh}明显上升")
+            elif delta > 0:
+                trend_parts.append(f"{zh}略有上升")
+            elif delta < -0.03:
+                trend_parts.append(f"{zh}明显下降")
+            else:
+                trend_parts.append(f"{zh}略有下降")
+        if trend_parts:
+            rel_trend_block = "## 你感觉到的关系变化\n上一轮对话后：" + "，".join(trend_parts)
+
     # 外部搜索结果（由 knowledge_fetcher 写入）
     ext_knowledge = (state.get("retrieved_external_knowledge") or "").strip()
     ext_knowledge_block = ""
@@ -198,8 +256,12 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
         "recent_dialogue": recent_dialogue_context,
         "persona": safe_text(str(state.get("bot_persona") or ""))[:600],
         "memories": mem_block,
+        "summary": summary_block,
         "detection": det_block,
         "current_state": current_state_block,
+        "time_block_text": time_block_text,
+        "session_summary_block": session_summary_block,
+        "rel_trend_block": rel_trend_block,
         "user_profile_summary": _build_user_profile_summary(state),
         "task_block": task_block,
         "topic_shift_hook": topic_shift_hook,
@@ -246,17 +308,25 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 
         # 新式提示词：重点是"被触发的感受"而不是"下一步怎么办"
         ext_knowledge_block = ctx.get("ext_knowledge_block", "")
+        time_block_text = ctx.get("time_block_text", "")
+        summary_block = ctx.get("summary", "")
+        session_summary_block = ctx.get("session_summary_block", "")
+        rel_trend_block = ctx.get("rel_trend_block", "")
+
+        time_block = f"## 时间\n{time_block_text}" if time_block_text else ""
+
         system_prompt = f"""你是 {bot_name}。
 
 ## 你这个人
 {ctx['persona']}
 
-## 你现在的状态
+{time_block}
+
 {ctx['current_state']}
 
-{ctx['detection']}
+{rel_trend_block + chr(10) if rel_trend_block else ""}{ctx['detection']}
 
-{ctx['memories']}
+{session_summary_block + chr(10) if session_summary_block else ""}{summary_block + chr(10) if summary_block else ""}{ctx['memories']}
 
 {ext_knowledge_block + chr(10) if ext_knowledge_block else ""}## 关于 {user_name}
 {ctx['user_profile_summary']}

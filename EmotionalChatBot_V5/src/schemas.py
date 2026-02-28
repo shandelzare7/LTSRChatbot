@@ -70,11 +70,11 @@ class DetectionOutput(BaseModel):
     urgency: int = Field(0, ge=0, le=10, description="0-10")
     knowledge_gap: bool = Field(
         False,
-        description="用户问事实/数据/现状/发生了什么，或提及专有名词/生僻词/不确定需查证的内容→true；仅纯情绪/观点/打招呼/闲聊→false。拿不准倾向true。",
+        description="用户问事实/数据/现状/发生了什么，或提及专有名词/生僻词/不确定需查证的内容，或涉及当前/未来可能变化的事实（价格、人事、政策、赛事、天气等）需查证→true；仅纯情绪/观点/打招呼/闲聊→false。拿不准倾向true。",
     )
     search_keywords: str = Field(
         "",
-        description="knowledge_gap=True 时从问题提炼 3–8 字关键词（中文）；否则留空。",
+        description="knowledge_gap=True 时从问题提炼 3–8 字关键词（中文），可含专有名词或时效词；否则留空。",
     )
 
 

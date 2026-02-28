@@ -66,7 +66,7 @@ from app.nodes.stage_manager import create_stage_manager_node
 from app.nodes.memory_manager import create_memory_manager_node
 from app.nodes.memory_writer import create_memory_writer_node
 from app.nodes.knowledge_fetcher import create_knowledge_fetcher_node
-from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node
+from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node, _service_tier_for_call
 from app.services.memory import MockMemory
 
 
@@ -108,9 +108,13 @@ def build_graph(
     _gen_cfg = (_llm_models.get("generate") or {}) if isinstance(_llm_models.get("generate"), dict) else {}
     _gen_model = (_gen_cfg.get("model") or "").strip() or "qwen-plus-2024-12-20"
     _gen_base_url = (_gen_cfg.get("base_url") or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # API Key 优先级：LTSR_GEN_API_KEY > 按模型推断（OpenAI 用 OPENAI_API_KEY，Qwen 用 QWEN_API_KEY）
     _gen_api_key = (os.getenv("LTSR_GEN_API_KEY") or "").strip() or None
-    if _gen_model and "qwen" in _gen_model.lower():
-        _gen_api_key = _gen_api_key or (os.getenv("QWEN_API_KEY") or "").strip() or None
+    if not _gen_api_key and _gen_model:
+        if "qwen" in _gen_model.lower():
+            _gen_api_key = (os.getenv("QWEN_API_KEY") or "").strip() or None
+        else:
+            _gen_api_key = (os.getenv("OPENAI_API_KEY") or "").strip() or None
     _gen_temperature = float(_gen_cfg.get("temperature", 1.0)) if _gen_cfg else 1.0
     _gen_top_p = float(_gen_cfg.get("top_p", 0.95)) if _gen_cfg else 0.95
     _gen_penalty = float(_gen_cfg.get("presence_penalty", 0.3)) if _gen_cfg else 0.3
@@ -125,6 +129,11 @@ def build_graph(
         presence_penalty=_gen_penalty,
         n=_gen_n,
     )
+    # 确认 Generate 走 priority：gpt-4o-mini + api.openai.com 时 get_llm/ServiceTierLLM 会注入 service_tier=priority
+    _gen_tier = _service_tier_for_call(model=_gen_model or "", base_url=_gen_base_url or "")
+    if _gen_tier:
+        import logging
+        logging.getLogger(__name__).info("[Graph] Generate model=%s service_tier=%s", _gen_model, _gen_tier)
 
     memory_service = memory_service or MockMemory()
 

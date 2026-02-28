@@ -14,10 +14,10 @@ roles:
     model: gpt-4o-mini
     base_url: https://api.openai.com/v1
 
-# 生成节点（Generate）：并行多路回复生成，单独配置，常用阿里云 Qwen
-# API Key 用 .env 的 QWEN_API_KEY 或 LTSR_GEN_API_KEY
+# 生成节点（Generate）：并行多路回复生成，单独配置
+# 用 OpenAI 时 API Key 取 .env 的 OPENAI_API_KEY 或 LTSR_GEN_API_KEY；用 Qwen 时取 QWEN_API_KEY
 generate:
-  model: qwen-plus-2024-12-20
+  model: qwen3-next-80b-a3b-instruct
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   temperature: 1.0
   top_p: 0.95
