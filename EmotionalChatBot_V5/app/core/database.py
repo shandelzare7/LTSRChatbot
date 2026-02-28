@@ -15,7 +15,7 @@ database.py (Async SQLAlchemy)
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
@@ -1227,13 +1227,15 @@ class DBManager:
                                 continue
                             seg_meta = dict(meta_ai)
                             seg_meta["segment_index"] = idx
+                            # 每条分段使用递增时间戳，避免同轮多段 created_at 相同导致 chat_buffer 排序错乱
+                            seg_created_at = ai_created_at + timedelta(seconds=idx)
                             session.add(
                                 Message(
                                     user_id=user.id,
                                     role="ai",
                                     content=text,
                                     meta=seg_meta,
-                                    created_at=ai_created_at,
+                                    created_at=seg_created_at,
                                 )
                             )
                     elif final_response:

@@ -414,7 +414,7 @@ async def _upsert_push_subscription(
     await _ensure_push_schema(db)
     sql = """
     INSERT INTO push_subscriptions(session_id, user_external_id, bot_id, subscription, updated_at)
-    VALUES (:session_id, :user_external_id, :bot_id::uuid, :sub::jsonb, NOW())
+    VALUES (:session_id, :user_external_id, CAST(:bot_id AS uuid), CAST(:sub AS jsonb), NOW())
     ON CONFLICT (session_id) DO UPDATE
       SET user_external_id=EXCLUDED.user_external_id,
           bot_id=EXCLUDED.bot_id,
@@ -447,8 +447,8 @@ async def _delete_push_subscription(
         await conn.execute(text("DELETE FROM push_subscriptions WHERE session_id=:sid"), {"sid": session_id})
         if user_external_id and bot_id:
             await conn.execute(
-                text("DELETE FROM push_subscriptions WHERE user_external_id=:uid AND bot_id=:bid::uuid"),
-                {"uid": user_external_id, "bid": bot_id},
+                text("DELETE FROM push_subscriptions WHERE user_external_id=:uid AND bot_id=CAST(:bid AS uuid)"),
+                {"uid": user_external_id, "bid": str(bot_id)},
             )
         await conn.commit()
 
@@ -487,8 +487,8 @@ async def _get_push_subscription(
         if user_external_id and bot_id:
             row = (
                 await conn.execute(
-                    text("SELECT subscription FROM push_subscriptions WHERE user_external_id=:uid AND bot_id=:bid::uuid ORDER BY updated_at DESC LIMIT 1"),
-                    {"uid": user_external_id, "bid": bot_id},
+                    text("SELECT subscription FROM push_subscriptions WHERE user_external_id=:uid AND bot_id=CAST(:bid AS uuid) ORDER BY updated_at DESC LIMIT 1"),
+                    {"uid": user_external_id, "bid": str(bot_id)},
                 )
             ).first()
             if row:
