@@ -119,12 +119,11 @@ def _build_messages_for_route(
 具体要求：{move_desc}
 """
 
-    # 计算动态字数限制（根据 momentum）
+    # 字数上限：1/2 * 对方消息长度 + 35 * momentum；下限 1，不设保底
     momentum = float(state.get("conversation_momentum") or 0.5)
-    # 社交软件聊天合理范围（中文字符数）：
-    # momentum=0.2→15-18, 0.5→25-28, 0.8→35-38, 1.0→40-45
-    max_chars = int(11 + 34 * momentum)
-    min_chars = max(2, int(max_chars * 0.3))
+    _other_len = len(user_input or "")
+    max_chars = int(_other_len * 0.5) + int(35 * momentum)
+    min_chars = 1
 
     direction = _momentum_to_direction(momentum)
     direction_block = f"## 当前对话意愿（信息密度）\n{direction}\n"
