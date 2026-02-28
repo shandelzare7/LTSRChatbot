@@ -102,27 +102,28 @@ def build_graph(
     llm_memory_manager = get_llm(role="fast", temperature=0.1)
     llm_fast_safety_reply = get_llm(role="main", temperature=0.55)
 
-    # Generate LLM：优先从环境变量 LTSR_GEN_MODEL 读取，默认 qwen3-next-80b-a3b-instruct（n=4 支持）
-    _gen_model = (os.getenv("LTSR_GEN_MODEL") or "").strip() or "qwen3-next-80b-a3b-instruct"
+    # Generate LLM：仅从 config/llm_models.yaml 的 generate 读取，改模型只改那一处；API Key 仍用 .env
+    from utils.yaml_loader import load_llm_models_config
+    _llm_models = load_llm_models_config()
+    _gen_cfg = (_llm_models.get("generate") or {}) if isinstance(_llm_models.get("generate"), dict) else {}
+    _gen_model = (_gen_cfg.get("model") or "").strip() or "qwen-plus-2024-12-20"
+    _gen_base_url = (_gen_cfg.get("base_url") or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     _gen_api_key = (os.getenv("LTSR_GEN_API_KEY") or "").strip() or None
-    _gen_base_url = (os.getenv("LTSR_GEN_BASE_URL") or "").strip() or None
     if _gen_model and "qwen" in _gen_model.lower():
         _gen_api_key = _gen_api_key or (os.getenv("QWEN_API_KEY") or "").strip() or None
-        _gen_base_url = _gen_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # 生成节点：temperature 默认下调（原 1.2 → 1.0），top_p 略上调以平衡多样性（可通过 LTSR_GEN_* 覆盖）
-    _gen_temp_raw = (os.getenv("LTSR_GEN_TEMPERATURE") or "").strip()
-    _gen_temperature = float(_gen_temp_raw) if _gen_temp_raw else 1.0
-    _gen_top_p_raw = (os.getenv("LTSR_GEN_TOP_P") or "").strip()
-    _gen_top_p = float(_gen_top_p_raw) if _gen_top_p_raw else 0.95
+    _gen_temperature = float(_gen_cfg.get("temperature", 1.0)) if _gen_cfg else 1.0
+    _gen_top_p = float(_gen_cfg.get("top_p", 0.95)) if _gen_cfg else 0.95
+    _gen_penalty = float(_gen_cfg.get("presence_penalty", 0.3)) if _gen_cfg else 0.3
+    _gen_n = int(_gen_cfg.get("n", 4)) if _gen_cfg else 4
     llm_gen = get_llm(
         role="fast",
         model=_gen_model,
         api_key=_gen_api_key,
-        base_url=_gen_base_url,
+        base_url=_gen_base_url or None,
         temperature=_gen_temperature,
         top_p=_gen_top_p,
-        presence_penalty=0.3,
-        n=4,
+        presence_penalty=_gen_penalty,
+        n=_gen_n,
     )
 
     memory_service = memory_service or MockMemory()

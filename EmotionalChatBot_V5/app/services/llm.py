@@ -18,6 +18,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
+from utils.yaml_loader import load_llm_models_config
+
 T = TypeVar("T")
 
 # ----------------------------
@@ -646,16 +648,9 @@ def get_llm(
     获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。
     相同 (role, model_name, base_url, temperature) 会复用缓存实例。
 
-    支持按角色路由多模型（role: main/fast/judge），并支持预设：
-    - LTSR_LLM_PRESET=openai
-    - LTSR_LLM_PRESET=deepseek_route_a  (main=DeepSeek, fast/judge=OpenAI)
-    - LTSR_LLM_PRESET=deepseek_route_b  (all=DeepSeek)
-
-    角色级覆盖（优先级最高）：
-    - LTSR_LLM_<ROLE>_API_KEY
-    - LTSR_LLM_<ROLE>_BASE_URL
-    - LTSR_LLM_<ROLE>_MODEL
-    - LTSR_LLM_<ROLE>_TEMPERATURE
+    模型与 base_url 优先从 config/llm_models.yaml 的 roles[role] 读取（改模型只改那一处）；
+    其次为预设 LTSR_LLM_PRESET（openai / deepseek_route_a / deepseek_route_b），再为环境变量覆盖。
+    角色级 env 覆盖（可选）：LTSR_LLM_<ROLE>_API_KEY / _BASE_URL / _MODEL / _TEMPERATURE。
     """
 
     r = (role or "main").strip().lower()
@@ -700,6 +695,18 @@ def get_llm(
         return k or None, "https://api.openai.com/v1", "gpt-4o", None
 
     preset_key, preset_base_url, preset_model, preset_temp = _resolve_by_preset()
+
+    # 统一配置：config/llm_models.yaml 中 roles[r] 的 model/base_url 覆盖 preset（改模型只改那一处）
+    _llm_cfg = load_llm_models_config()
+    _roles_cfg = (_llm_cfg.get("roles") or {}) if isinstance(_llm_cfg.get("roles"), dict) else {}
+    _role_cfg = _roles_cfg.get(r)
+    if isinstance(_role_cfg, dict) and _role_cfg:
+        _m = (_role_cfg.get("model") or "").strip()
+        _u = (_role_cfg.get("base_url") or "").strip()
+        if _m:
+            preset_model = _m
+        if _u:
+            preset_base_url = _u
 
     key = api_key or role_api_key or preset_key or (os.getenv("OPENAI_API_KEY") or "")
     model_name = model or role_model or preset_model or os.getenv("OPENAI_MODEL", "gpt-4o")

@@ -17,8 +17,9 @@ if env_path.exists():
     from dotenv import load_dotenv
     load_dotenv(env_path)
 
-# 与 graph.py 相同的 LLM 分配逻辑
+# 与 graph.py 相同：模型来自 config/llm_models.yaml，API Key 来自 .env
 from app.services.llm import get_llm
+from utils.yaml_loader import load_llm_models_config
 
 
 def _model_of(llm) -> str:
@@ -50,22 +51,24 @@ def main():
     llm_fast_safety_reply = get_llm(role="main", temperature=0.55)
     llm_judge = get_llm(role="main")
 
-    _gen_model = (os.getenv("LTSR_GEN_MODEL") or "").strip() or None
+    _llm_cfg = load_llm_models_config()
+    _gen_cfg = (_llm_cfg.get("generate") or {}) if isinstance(_llm_cfg.get("generate"), dict) else {}
+    _gen_model = (_gen_cfg.get("model") or "").strip() or "qwen-plus-2024-12-20"
+    _gen_base_url = (_gen_cfg.get("base_url") or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     _gen_api_key = (os.getenv("LTSR_GEN_API_KEY") or "").strip() or None
-    _gen_base_url = (os.getenv("LTSR_GEN_BASE_URL") or "").strip() or None
     if _gen_model and "qwen" in _gen_model.lower():
         _gen_api_key = _gen_api_key or (os.getenv("QWEN_API_KEY") or "").strip() or None
-        _gen_base_url = _gen_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    _gen_temp_raw = (os.getenv("LTSR_GEN_TEMPERATURE") or "").strip()
-    _gen_temperature = float(_gen_temp_raw) if _gen_temp_raw else 1.2
+    _gen_temperature = float(_gen_cfg.get("temperature", 1.0)) if _gen_cfg else 1.0
+    _gen_n = int(_gen_cfg.get("n", 4)) if _gen_cfg else 4
     llm_gen = get_llm(
         role="fast",
         model=_gen_model,
         api_key=_gen_api_key,
-        base_url=_gen_base_url,
+        base_url=_gen_base_url or None,
         temperature=_gen_temperature,
-        presence_penalty=0.3,
-        n=4,
+        top_p=float(_gen_cfg.get("top_p", 0.95)) if _gen_cfg else 0.95,
+        presence_penalty=float(_gen_cfg.get("presence_penalty", 0.3)) if _gen_cfg else 0.3,
+        n=_gen_n,
     )
 
     rows = [
@@ -74,7 +77,7 @@ def main():
         ("detection", llm_detection, 0.1, "-"),
         ("inner_monologue", llm_monologue, None, "默认 0.3"),
         ("extract", llm_extract, 0.1, "-"),
-        ("generate", llm_gen, _gen_temperature, "presence_penalty=0.3, n=4"),
+        ("generate", llm_gen, _gen_temperature, f"presence_penalty=0.3, n={_gen_n}"),
         ("judge", llm_judge, None, "默认 0.3"),
         ("processor", llm_processor, 0.3, "-"),
         ("evolver", llm_evolver, 0.18, "-"),
@@ -89,7 +92,7 @@ def main():
         print(f"{name:<22} {model:<28} {temp_str:<12} {other}")
     print("=" * 60)
     print("说明: 未配置 API Key 时对应节点会使用 MockLLM，模型名为 mock。")
-    print("      generate 若设置了 LTSR_GEN_MODEL 则使用该模型，否则与 fast 一致。")
+    print("      模型与 base_url 统一在 config/llm_models.yaml 修改；API Key 在 .env。")
     print("=" * 60)
 
 

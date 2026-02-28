@@ -20,8 +20,17 @@ except Exception:
 
 def main():
     key = (os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY_OPENAI") or "").strip()
-    base = (os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or "").strip() or "默认(OpenAI)"
-    model = (os.getenv("OPENAI_MODEL") or os.getenv("LTSR_LLM_MAIN_MODEL") or "").strip() or "gpt-4o"
+    # 显示用：优先 config/llm_models.yaml 的 roles.main，再 env
+    try:
+        from utils.yaml_loader import load_llm_models_config
+        _cfg = load_llm_models_config()
+        _main = (_cfg.get("roles") or {}).get("main") if isinstance(_cfg.get("roles"), dict) else {}
+        _cfg_base = (_main.get("base_url") or "").strip() if _main else ""
+        _cfg_model = (_main.get("model") or "").strip() if _main else ""
+    except Exception:
+        _cfg_base = _cfg_model = ""
+    base = (os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or _cfg_base or "").strip() or "默认(OpenAI)"
+    model = (os.getenv("OPENAI_MODEL") or os.getenv("LTSR_LLM_MAIN_MODEL") or _cfg_model or "").strip() or "gpt-4o"
 
     print("========== API Key 测试 ==========")
     print(f"  OPENAI_API_KEY: {'已设置 (' + key[:8] + '...)' if key else '未设置'}")

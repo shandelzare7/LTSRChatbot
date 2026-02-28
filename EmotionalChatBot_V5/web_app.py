@@ -389,7 +389,7 @@ async def _ensure_push_schema(db: DBManager) -> None:
     Ensure push_subscriptions table exists (idempotent).
     We key by session_id (cookie) because sessions are per-browser.
     """
-    sql = """
+    create_table = """
     CREATE TABLE IF NOT EXISTS push_subscriptions (
       session_id TEXT PRIMARY KEY,
       user_external_id TEXT,
@@ -397,11 +397,12 @@ async def _ensure_push_schema(db: DBManager) -> None:
       subscription JSONB NOT NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_bot ON push_subscriptions(user_external_id, bot_id);
-    """
+    )"""
+    create_index = """
+    CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_bot ON push_subscriptions(user_external_id, bot_id)"""
     async with db.engine.connect() as conn:
-        await conn.execute(text(sql))
+        await conn.execute(text(create_table))
+        await conn.execute(text(create_index))
         await conn.commit()
 
 
@@ -970,6 +971,10 @@ async def chat(
                 segments_with_delay = humanized.get("segments") or []
                 if segments_with_delay and isinstance(segments_with_delay, list) and len(segments_with_delay) > 0:
                     segments = [_normalize_segment(s) for s in segments_with_delay]
+                    # 过滤掉 content 为空的 segment，避免前端显示空气泡
+                    segments = [s for s in segments if (s.get("content") or "").strip()]
+                    if not segments and reply:
+                        segments = [{"content": str(reply).strip(), "delay": 0.0, "action": "typing"}]
                 else:
                     # 回退：使用 final_segments（字符串数组），转换为带默认 delay 的对象数组
                     segments_raw = result.get("final_segments") or []
@@ -994,6 +999,10 @@ async def chat(
                                 "delay": 0.0 if i == 0 else 2.8,
                                 "action": "typing"
                             })
+                    # 过滤掉 content 为空的 segment，避免前端显示空气泡
+                    segments = [s for s in segments if (s.get("content") or "").strip()]
+                    if not segments and reply:
+                        segments = [{"content": str(reply).strip(), "delay": 0.0, "action": "typing"}]
 
                 ai_sent_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
                 if isinstance(result, dict):

@@ -59,6 +59,16 @@ MIN_BUBBLE_LENGTH = 2
 MIN_SEGMENT_DELAY_SECONDS = 1.2
 
 
+def _strip_trailing_sentence_punct(text: str) -> str:
+    """去掉句尾的逗号、句号（中文/英文），避免气泡末尾出现「……枝叶，」这类问题。问号保留。"""
+    if not text or not isinstance(text, str):
+        return text
+    s = text.rstrip()
+    while s and s[-1] in "，。,.．":
+        s = s[:-1].rstrip()
+    return s
+
+
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
@@ -249,7 +259,9 @@ class HumanizationProcessor:
         不再使用正则尝试切分气泡，直接将 final_response 作为一条发出，保证流程不中断。
         """
         user_input = str(self.state.get("user_input") or "")
-        final_response = (str(self.state.get("final_response") or self.state.get("draft_response") or "")).strip()
+        final_response = _strip_trailing_sentence_punct(
+            (str(self.state.get("final_response") or self.state.get("draft_response") or "")).strip()
+        )
 
         macro_delay, macro_reason = self.calculate_macro_delay(dyn)
         is_macro = macro_delay > 0.0
@@ -362,6 +374,7 @@ def _build_processor_system_prompt(state: Dict[str, Any], dyn: Dict[str, float])
 - 原文中若有括号内的动作描写（如（戳戳脸颊）（轻轻拍你）），须删除该括号及其内容，不保留到输出气泡中；其余括号内补充说明可拆成新气泡或用“另外”等改写，不要保留括号形式
 - 切分策略：根据“碎片化倾向”、语义情感和节奏来自然拆分。倾向高就拆得多，倾向低就合在一起发，不要被具体字数限制，以语义连贯自然为准。
 - 标点处理核心规则：正常对话里，问号（？）必须保留！消息单句句尾的逗号（，）和句号（。）大概率直接去掉（直接留空结束）。
+- **句尾逗号一定去掉**：每条气泡内容不能以逗号（，）结尾，必须去掉或改写。
 - 严禁在气泡末尾强行添加“...”或“……”作为停顿，除非原文里本来就有！
 - 不要用破折号做插入语。
 """
@@ -407,7 +420,7 @@ def _humanize_via_llm(state: AgentState, llm_invoker: Any, dyn: Dict[str, float]
             c = item.get("content")
             if c is None:
                 continue
-            text = str(c).strip()
+            text = _strip_trailing_sentence_punct(str(c).strip())
             if not text:
                 continue
             d = item.get("delay")

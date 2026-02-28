@@ -814,6 +814,15 @@ async def main() -> None:
 
     log_line("\n✓ User 初始化完成\n")
 
+    # 30 轮或显式开启时对每个节点测速（LTSR_PROFILE_STEPS=1）
+    try:
+        _r = int(os.getenv("BOT2BOT_ROUNDS_PER_RUN", "0") or 0)
+    except Exception:
+        _r = 0
+    if _r >= 30 or str(os.getenv("BOT2BOT_PROFILE_STEPS", "")).strip().lower() in ("1", "true", "yes"):
+        os.environ["LTSR_PROFILE_STEPS"] = "1"
+        log_line("已开启 LTSR_PROFILE_STEPS=1（每轮记录各节点耗时）\n")
+
     # 构建 graph
     app = build_graph()
 
@@ -829,7 +838,8 @@ async def main() -> None:
         rounds_per_run = 10
     turn_times: list[float] = []  # 每轮回复耗时（秒），用于算平均
     time_to_reply_ms_list: list[float] = []  # 每轮「截止到生成回复」的毫秒数（需 LTSR_PROFILE_STEPS=1）
-    
+    node_timings_per_round: List[Dict[str, float]] = []  # 每轮各节点耗时 ms，用于最终测速汇总
+
     # 30轮测试追踪数据
     conversation_log: List[Dict[str, Any]] = []  # 完整聊天记录
     momentum_history: List[float] = []  # 冲量历史（扁平列表，用于汇总 max/min/avg）
@@ -1109,6 +1119,7 @@ async def main() -> None:
                         agg[name]["calls"] += delta_calls
                     for name, v in agg.items():
                         log_line(f"    - {name}: {v['dt_ms']:.2f}ms, llm_calls_delta={v['calls']}")
+                    node_timings_per_round.append({n: float(a["dt_ms"]) for n, a in agg.items()})
                     # 截止到生成回复：按节点首次出现顺序求和，避免并行重复计入
                     seen = set()
                     time_to_reply_ms = 0.0
@@ -1230,7 +1241,26 @@ async def main() -> None:
     log_line(f"\n2. 轮次计数统计:")
     log_line(f"   总轮次: {num_runs * rounds_per_run} 轮")
     log_line(f"   实际完成轮次: {len(momentum_history)} 轮")
-    
+
+    # 2.5 各节点测速汇总（LTSR_PROFILE_STEPS=1 时每轮已记录，此处汇总）
+    if node_timings_per_round:
+        log_line(f"\n2.5 各节点测速汇总（共 {len(node_timings_per_round)} 轮）:")
+        all_nodes: Dict[str, List[float]] = {}
+        for round_data in node_timings_per_round:
+            for name, dt_ms in round_data.items():
+                all_nodes.setdefault(name, []).append(dt_ms)
+        log_line("   节点名           | 出现轮数 | 总耗时(ms) | 平均每轮(ms)")
+        log_line("   " + "-" * 55)
+        for name in sorted(all_nodes.keys()):
+            vals = all_nodes[name]
+            n_rounds = len(vals)
+            total_ms = sum(vals)
+            avg_ms = total_ms / n_rounds if n_rounds else 0
+            log_line(f"   {name:16} | {n_rounds:8} | {total_ms:10.1f} | {avg_ms:12.1f}")
+        log_line(f"   （说明: 并行分支同轮会合并；单轮总耗时≈各节点之和）")
+    else:
+        log_line(f"\n2.5 各节点测速汇总: 无数据（需 LTSR_PROFILE_STEPS=1，如 30 轮运行已自动开启）")
+
     # 3. 冲量变化趋势
     if momentum_history:
         max_momentum = max(momentum_history)

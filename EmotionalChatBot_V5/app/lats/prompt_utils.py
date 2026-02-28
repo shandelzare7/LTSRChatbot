@@ -76,14 +76,37 @@ _STYLE_VALUE_TO_LABEL = (
     (0.16, 0.41, "low"),
     (0.0, 0.16, "extremely_low"),
 )
+# 五档中文（注入提示词用）
+_STYLE_VALUE_TO_LABEL_ZH = (
+    (0.86, 1.01, "极高"),
+    (0.61, 0.86, "高"),
+    (0.41, 0.61, "中"),
+    (0.16, 0.41, "低"),
+    (0.0, 0.16, "极低"),
+)
 
 # 新 6 维 style 的 key 顺序与 EXPRESSION_MODE 枚举
 _STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "CHAT_MARKERS", "EXPRESSION_MODE")
+# 6 维中文名（注入提示词用）
+_STYLE_6D_KEY_ZH = {
+    "FORMALITY": "正式度",
+    "POLITENESS": "礼貌度",
+    "WARMTH": "温暖度",
+    "CERTAINTY": "确定度",
+    "CHAT_MARKERS": "语气标记",
+    "EXPRESSION_MODE": "表达模式",
+}
 _EXPRESSION_MODE_LABELS = {
     0: "字面直白（直接说想法，不拐弯抹角）",
     1: "字面委婉（同样是字面意思，但措辞迂回、留余地）",
     2: "比喻/意象（用比喻、意象或隐喻表达，语言更具体感）",
     3: "轻调侃（带一点反讽或调侃，关系亲密时才用）",
+}
+_EXPRESSION_MODE_LABELS_EN = {
+    0: "literal_direct",
+    1: "literal_hedged",
+    2: "metaphor_imagery",
+    3: "light_teasing",
 }
 
 _STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
@@ -102,6 +125,22 @@ _STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
         "extremely_high": "大量表情包/缩写/颜文字/重复感叹号",
     },
 }
+_STYLE_DIM_ANCHORS_EN: Dict[str, Dict[str, str]] = {
+    "WARMTH": {
+        "extremely_low": "cold baseline, little warmth even when positive",
+        "low": "restrained, warmth only when clearly triggered",
+        "mid": "neutral baseline, affect follows context",
+        "high": "warm baseline, fluent positive affect",
+        "extremely_high": "intimate baseline, low threshold for affect",
+    },
+    "CHAT_MARKERS": {
+        "extremely_low": "no fillers/emoticons/exclamation, plain text only",
+        "low": "very few fillers, occasional 嗯 or period",
+        "mid": "moderate fillers (哈哈/嗯嗯/呀/～) and exclamation",
+        "high": "frequent fillers, emoticons, hhh/awsl",
+        "extremely_high": "heavy stickers/abbrev/emoticons/repeated !!",
+    },
+}
 
 
 def _style_value_to_label(value: float) -> str:
@@ -113,11 +152,20 @@ def _style_value_to_label(value: float) -> str:
     return "mid"
 
 
+def _style_value_to_label_zh(value: float) -> str:
+    """将 [0,1] 的数值映射为五档中文：极低、低、中、高、极高。"""
+    v = max(0.0, min(1.0, float(value)))
+    for lo, hi, label in _STYLE_VALUE_TO_LABEL_ZH:
+        if lo <= v < hi:
+            return label
+    return "中"
+
+
 def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
-    """将 style dict 格式化为文字参数列表。优先新 6 维（FORMALITY/POLITENESS/WARMTH/CERTAINTY/CHAT_MARKERS/EXPRESSION_MODE），供 reply_plan / fast_reply 注入 prompt。"""
+    """将 style dict 格式化为文字参数列表（英文），供 reply_plan / fast_reply / generate 注入 prompt。"""
     if not isinstance(style_dict, dict):
         return ""
-    # 新 6 维：任一新 key 存在则按新格式输出
+    # 新 6 维：任一新 key 存在则按新格式输出（英文）
     if any(k in style_dict for k in _STYLE_6D_ORDER):
         parts: List[str] = []
         for key in _STYLE_6D_ORDER:
@@ -127,13 +175,13 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
                 v = style_dict[key]
                 if key == "EXPRESSION_MODE":
                     mode = int(v) if v is not None else 0
-                    label = _EXPRESSION_MODE_LABELS.get(mode, "字面直白（直接说想法，不拐弯抹角）")
+                    label = _EXPRESSION_MODE_LABELS_EN.get(mode, "literal_direct")
                     parts.append(f"{key}={label}")
                 else:
-                    label = _style_value_to_label(float(v))
-                    dim_anchors = _STYLE_DIM_ANCHORS.get(key, {})
-                    anchor = dim_anchors.get(label, "")
-                    parts.append(f"{key}={label}（{anchor}）" if anchor else f"{key}={label}")
+                    label_en = _style_value_to_label(float(v))
+                    dim_anchors = _STYLE_DIM_ANCHORS_EN.get(key, {})
+                    anchor = dim_anchors.get(label_en, "")
+                    parts.append(f"{key}={label_en} ({anchor})" if anchor else f"{key}={label_en}")
             except (TypeError, ValueError):
                 continue
         return "\n".join(parts) if parts else ""

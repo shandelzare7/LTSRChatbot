@@ -225,3 +225,19 @@ def get_content_move_for_best_id(
         return (tag, action or tag)
     return ("FREE", "FREEFORM")
 
+
+def load_llm_models_config(config_path: Union[str, Path, None] = None) -> Dict[str, Any]:
+    """加载 config/llm_models.yaml，统一入口改模型。缺文件时返回 {}，调用方用现有默认。"""
+    if config_path is None:
+        root = get_project_root()
+        config_path = root / "config" / "llm_models.yaml"
+    else:
+        config_path = Path(config_path)
+    if not config_path.exists():
+        return {}
+    try:
+        data = load_yaml(config_path)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+

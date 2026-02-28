@@ -163,12 +163,17 @@ def _get_llm():
         return get_llm(role="fast")
     except Exception:
         pass
-    # 备用：直接用环境变量构建 ChatOpenAI-compatible 客户端
+    # 备用：直接用环境变量构建 ChatOpenAI-compatible 客户端（模型/base 优先从 config/llm_models.yaml 的 roles.fast 读）
     try:
         from langchain_openai import ChatOpenAI
+        from utils.yaml_loader import load_llm_models_config
+        _cfg = load_llm_models_config()
+        _fast = (_cfg.get("roles") or {}).get("fast") if isinstance(_cfg.get("roles"), dict) else {}
+        _model = (_fast.get("model") or "").strip() if _fast else ""
+        _base = (_fast.get("base_url") or "").strip() if _fast else ""
         return ChatOpenAI(
-            model=os.getenv("FAST_MODEL", "qwen-plus"),
-            base_url=os.getenv("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            model=os.getenv("FAST_MODEL", _model or "gpt-4o-mini"),
+            base_url=os.getenv("OPENAI_BASE_URL", _base or "https://api.openai.com/v1"),
             api_key=os.getenv("OPENAI_API_KEY", ""),
             temperature=0.8,
             max_tokens=800,

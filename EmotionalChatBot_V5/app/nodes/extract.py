@@ -177,13 +177,12 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 
     system_content = f"""你是分析助手，请从下面的「内心独白」中提取结构化信息，严格输出 JSON。
 
-## 可选 content move（2-4个）
+## 可选 content move
 {moves_block}
 
 **选 move 规则**：
-- 选 2-4 个**互补**的 move，深挖型（id=1,5,6）和轻短型（id=2,7,8）至少各有 1 个，避免全是同一方向。
+- 选 4 个**互补**的 move，深挖型（id=1,5,6）和轻短型（id=2,7,8）至少各有 1 个，避免全是同一方向。
 - 每次根据独白内容和话题氛围**主动换用**不同 move，不要每轮都选同一组。
-- 不要连续多轮选 id=1（向下细化）和 id=5（机制溯源），优先给其他 move 上场机会。
 - 所有 id 必须来自上方列表，不要编造。
 
 ## 可选 profile key（0-5个）
