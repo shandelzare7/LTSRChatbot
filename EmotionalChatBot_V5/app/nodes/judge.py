@@ -40,6 +40,25 @@ def _build_dialogue_snippet(state: AgentState) -> str:
     return "\n".join(lines) if lines else "（无历史对话）"
 
 
+def _extract_char_ngrams(text: str, n: int = 3) -> set:
+    """提取字符级 n-gram（适合中文短语重复检测）。"""
+    cleaned = text.replace(" ", "")
+    return {cleaned[i:i+n] for i in range(len(cleaned) - n + 1)}
+
+
+def _compute_repetition_ratio(candidate_text: str, recent_bot_texts: List[str], n: int = 3) -> float:
+    """计算候选文本与近期 bot 发言的字符 n-gram 重叠率（0-1）。"""
+    if not recent_bot_texts or not candidate_text:
+        return 0.0
+    candidate_ngrams = _extract_char_ngrams(candidate_text, n)
+    if not candidate_ngrams:
+        return 0.0
+    recent_ngrams: set = set()
+    for t in recent_bot_texts:
+        recent_ngrams |= _extract_char_ngrams(t, n)
+    return len(candidate_ngrams & recent_ngrams) / len(candidate_ngrams)
+
+
 def _format_candidates(candidates: List[Dict[str, Any]]) -> str:
     """将候选列表格式化为编号文本块。"""
     lines: List[str] = []
@@ -98,20 +117,48 @@ def create_judge_node(llm_judge: Any) -> Callable[[AgentState], Dict[str, Any]]:
         _ctx_items = [t[:30] for t in (_bot_recent[:3] + _topics[:2]) if t]
         external_ctx_line = "、".join(_ctx_items) if _ctx_items else ""
 
-        system_content = f"""你是回复质量评审官。你的任务是从 {n} 条候选回复中，选出最符合角色当前内心独白的那条。
+        # 重复短语检测：提取近期 bot 发言 + 最近一条对方（Human）发言
+        # 原因：bot-to-bot 场景中，"Human" 消息就是对方 bot 刚说的话，
+        # 需要防止当前 bot 原样复述对方的词句
+        _chat_buf = list(state.get("chat_buffer") or state.get("messages", []))
+        _recent_bot_texts = [
+            (getattr(m, "content", "") or str(m)).strip()
+            for m in _chat_buf[-8:]
+            if not _is_user_message(m)
+        ][-4:]  # 最多看最近 2 轮 bot 自己的发言
+        # 加入最近 1-2 条 Human（对方）消息，防止直接复述对方
+        _recent_human_texts = [
+            (getattr(m, "content", "") or str(m)).strip()
+            for m in _chat_buf[-4:]
+            if _is_user_message(m)
+        ][-2:]
+        _recent_bot_texts = _recent_bot_texts + _recent_human_texts
+        _repetition_warnings: List[str] = []
+        for _i, _c in enumerate(valid_candidates):
+            _ratio = _compute_repetition_ratio(_c.get("text", ""), _recent_bot_texts)
+            if _ratio > 0.45:
+                _repetition_warnings.append(f"[{_i}] 重复率 {_ratio:.0%}")
 
-评判标准：
-1. 情绪/态度与独白一致：独白里透露的情绪（如心疼、烦躁、期待）和对用户的态度，候选回复是否如实体现？
-2. 不是最"正确"或最"自然"的回复，而是最像这个角色"此刻"会说的话。
+        _rep_block = (
+            "\n\n⚠️ 重复短语警告（以下候选与近期发言存在较高短语重叠，若其他维度相近请优先选择更新颖的候选）：\n"
+            + "\n".join(_repetition_warnings)
+        ) if _repetition_warnings else ""
+
+        system_content = f"""你是回复质量评审官。你的任务是从 {n} 条候选回复中，选出最符合当前情景和上下文的那条。
+
+评判标准（优先级从高到低）：
+1. **情景契合度**：候选回复是否与用户刚说的话自然衔接？是否合理回应了对方的内容和当前对话节奏？
+2. **内容新鲜度**：候选回复是否引入了新的信息、角度或感受？避免选出复述或过度呼应刚刚已说过词句的回复。
+3. **情绪基调吻合**：候选回复的基调是否与角色的内心独白（情绪/态度/意愿）大体吻合？
 
 注意：
 - 不要选最长的
 - 不要选最礼貌的
-- **不要因为某条更有分析感、解释性或深度就选它**——分析腔 ≠ 贴近独白
-- 要选最「人味」、最贴近独白此刻情绪和态度的
-- **如果某条回复自然引入了角色的日常话题或生活动态（见下方"可用素材"），且整体情绪基调与独白一致，这是正常聊天行为，不算偏离独白——可正向评价；但若是用来回避用户的核心问题，则不加分**
+- **不要因为某条更有分析感、解释性或深度就选它**——分析腔不等于情景契合
+- 要选最「人味」、最像这个角色此刻在这个情景下会说的话
+- **如果某条回复自然引入了角色的日常话题或生活动态（见下方"可用素材"），且整体情绪基调与独白一致，这是正常聊天行为——可正向评价；但若是用来回避用户的核心问题，则不加分**
 - 输出 winner_index（候选列表中的下标 0..{n-1}）和简短 justification
-"""
+{_rep_block}"""
 
         ctx_line = f"\n## 可用日常素材（角色可能引入，供参考）\n{external_ctx_line}\n" if external_ctx_line else ""
         user_content = f"""## 当前用户消息

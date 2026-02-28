@@ -427,6 +427,10 @@ class AgentState(TypedDict, total=False):
     # 安全层输出
     safety_triggered: Optional[bool]
     safety_strategy_id: Optional[str]
+    # 知识缺口检测 + 外部搜索结果
+    knowledge_gap: Optional[bool]
+    search_keywords: Optional[str]
+    retrieved_external_knowledge: Optional[str]
     # 每日话题注入（loader 从 config/daily_topics.yaml 读取，date 匹配当天才填充）
     daily_topics: Optional[List[str]]
     # bot 最近的生活事件（同文件 bot_recent 字段，供 generate/judge 引入话题）

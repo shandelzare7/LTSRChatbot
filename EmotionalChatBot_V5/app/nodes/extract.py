@@ -156,6 +156,25 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
         if need_gender else ""
     )
 
+    # 近期 bot 发言（供 topic_appeal 语义重复感知用）
+    def _is_user_msg(m: Any) -> bool:
+        t = getattr(m, "type", "") or ""
+        return "human" in t.lower() or "user" in t.lower()
+
+    _chat_buf = list(state.get("chat_buffer") or state.get("messages") or [])
+    _recent_bot_lines = [
+        (getattr(m, "content", "") or str(m)).strip()[:80]
+        for m in _chat_buf[-12:]
+        if not _is_user_msg(m) and (getattr(m, "content", "") or str(m)).strip()
+    ][-3:]
+    _recent_bot_block = ""
+    if len(_recent_bot_lines) >= 2:
+        _recent_bot_block = (
+            "\n\n## 近期你自己说过的内容\n"
+            + "\n".join(f"- {t}" for t in _recent_bot_lines)
+            + "\n（评分参考：若当前独白话题与以上内容高度重叠，说明话题已充分探索，topic_appeal 应适当偏低）"
+        )
+
     system_content = f"""你是分析助手，请从下面的「内心独白」中提取结构化信息，严格输出 JSON。
 
 ## 可选 content move（2-4个）
@@ -175,13 +194,13 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
   "emotion_tag": "一两个词，从独白中自然提炼，不限于固定列表——可以是任何真实情绪描述",
   "attitude": "对用户的态度倾向，如 主动配合/被动应付/想转移话题/好奇/享受/排斥",
   "momentum_delta": 0.0,  // 冲量变化 -1.0~+1.0，正=想继续，负=想结束
-  "topic_appeal": 5.0,    // 话题吸引力 0-10
+  "topic_appeal": 5.0,    // 话题吸引力 0-10（若话题与近期发言高度重复，应偏低）
   "subtext_guess": "对用户潜台词的一句猜测，无则空字符串",
   "selected_profile_keys": [],  // 0-5个存在的 profile key
   "selected_content_move_ids": [1, 2]{gender_field}
 }}"""
 
-    user_content = f"内心独白：\n{monologue}"
+    user_content = f"内心独白：\n{monologue}{_recent_bot_block}"
 
     messages = [SystemMessage(content=system_content), HumanMessage(content=user_content)]
     log_prompt_and_params("Extract", messages=messages)

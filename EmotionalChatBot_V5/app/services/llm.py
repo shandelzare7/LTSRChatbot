@@ -600,6 +600,9 @@ def get_llm(
     api_key: Optional[str] = None,
     temperature: float = 0.3,
     base_url: Optional[str] = None,
+    presence_penalty: Optional[float] = None,
+    n: Optional[int] = None,
+    top_p: Optional[float] = None,
 ) -> BaseChatModel:
     """
     获取配置好的 LLM 实例。未配置 API Key 时返回 MockLLM。
@@ -671,7 +674,7 @@ def get_llm(
     elif preset_temp is not None:
         temperature = float(preset_temp)
 
-    cache_key: tuple[Any, ...] = (r, model_name, base_url or "", temperature)
+    cache_key: tuple[Any, ...] = (r, model_name, base_url or "", temperature, presence_penalty, n, top_p)
     if cache_key in _LLM_CACHE:
         return _LLM_CACHE[cache_key]
 
@@ -685,6 +688,9 @@ def get_llm(
         }
         if not _is_reasoning_model:
             kwargs["temperature"] = temperature
+        if top_p is not None and not _is_reasoning_model:
+            kwargs["model_kwargs"] = kwargs.get("model_kwargs") or {}
+            kwargs["model_kwargs"]["top_p"] = top_p
         # reasoning 模型：显式传 verbosity / reasoning_effort（LangChain 要求显式参数，不要塞进 model_kwargs）
         if _is_reasoning_model:
             kwargs["verbosity"] = "low"
@@ -706,6 +712,10 @@ def get_llm(
         # If the underlying client doesn't accept base_url, fall back silently.
         if base_url:
             kwargs["base_url"] = base_url
+        if presence_penalty is not None and not _is_reasoning_model:
+            kwargs["presence_penalty"] = presence_penalty
+        if n is not None and not _is_reasoning_model:
+            kwargs["n"] = n
         # Optional: enable HTTP-level trace (status_code, request_id, elapsed).
         http_client = _build_httpx_client_for_trace()
         if http_client is not None:
@@ -723,6 +733,7 @@ def get_llm(
             kwargs.pop("service_tier", None)
             kwargs.pop("verbosity", None)
             kwargs.pop("reasoning_effort", None)
+            kwargs.pop("model_kwargs", None)
             # Some versions may not accept timeout/max_retries either.
             kwargs.pop("timeout", None)
             kwargs.pop("max_retries", None)

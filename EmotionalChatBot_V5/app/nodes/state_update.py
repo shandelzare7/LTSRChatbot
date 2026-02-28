@@ -1,14 +1,19 @@
 """状态更新节点（纯代码，不调用 LLM）。
 
 根据 extract 节点产出的独白信号更新：
-- conversation_momentum（独白 + 规则混合）
+- conversation_momentum（全参数确定性公式，非 LLM 驱动）
 - mood_state.pleasure / arousal / dominance（情绪 lerp：向当前情绪目标靠近）
+
+momentum 公式（来自 config/momentum_formula.yaml）：
+  E_turn(0-10) = E_user*w_e + T_bot*w_t + R_base*w_r - H_user*penalty
+  Score_raw = EMA(M_prev*100, E_turn*10*Multiplier_arousal, α) - Penalty_fatigue
+  Ceiling = 100*(1-busyness*0.5)
+  M_next = clamp(min(Score_raw, Ceiling)/100, floor=0.4, ceil=1.0)
 
 设计原则：
 - PAD 用 lerp 而非 delta：情绪是当下状态，可以因一句话大幅变化
 - ALPHA=0.60：每轮向情绪目标靠近 60%，1 轮基本到位，保留少量惯性防止 extract 分类抖动
 - 和旧 evolver 的关系演化不冲突：evolver 在生成后做完整关系更新，这里只做即时情绪更新
-- momentum 仍用 delta 方式：冲量是累积量，不应一轮内大幅跳变
 """
 from __future__ import annotations
 
@@ -22,9 +27,21 @@ _FORMULA_CFG = load_momentum_formula_config()
 MOMENTUM_FLOOR: float = float(_FORMULA_CFG.get("momentum_floor", 0.4))
 MOMENTUM_CEILING: float = 1.0
 
-# extract.momentum_delta 对 conversation_momentum 的最大影响幅度（防止一轮内大幅波动）
-MOMENTUM_DELTA_SCALE: float = 0.12   # delta in [-1,1] → 最多影响 ±0.12
-MOMENTUM_DELTA_MAX_ABS: float = 0.10  # 每轮最大步长
+# 全参数公式常量（从 YAML 读取）
+_EMA_ALPHA: float = float(_FORMULA_CFG.get("ema_alpha", 0.15))
+_HOSTILITY_PENALTY_COEF: float = float(_FORMULA_CFG.get("hostility_penalty_coef", 0.75))
+_W_E_USER: float = float(_FORMULA_CFG.get("e_turn_e_user_weight", 0.275))
+_W_T_BOT: float = float(_FORMULA_CFG.get("e_turn_t_bot_weight", 0.375))
+_W_R_BASE: float = float(_FORMULA_CFG.get("e_turn_r_base_weight", 0.3))
+_AR_CFG: dict = _FORMULA_CFG.get("arousal") or {}
+_AR_COEF: float = min(0.3, max(0.0, float(_AR_CFG.get("multiplier_coef", 0.3))))
+_FATIGUE_CFG: dict = _FORMULA_CFG.get("fatigue") or {}
+_FATIGUE_START_TURN: int = int(_FATIGUE_CFG.get("start_turn", 20))
+_FATIGUE_PER_TURN: float = float(_FATIGUE_CFG.get("per_turn", 1.5))
+
+# R_base 权重：0.8*attractiveness + 0.1*liking + 0.1*closeness（0-1 空间，再映射到 0-10）
+_R_BASE_WEIGHTS = (0.8, 0.1, 0.1)
+_R_BASE_NEUTRAL = 5.0  # 关系维度缺失时的中性值
 
 # lerp 权重：每轮向情绪目标靠近的比例
 # 0.60 → 1 轮到 60%，2 轮到 84%，3 轮到 94%
@@ -75,15 +92,75 @@ def _safe_float(v: Any, default: float) -> float:
         return default
 
 
-def _update_momentum(current: float, momentum_delta: float) -> float:
+def _f010(v: Any, default: float = 5.0) -> float:
+    """Clamp to [0, 10]."""
+    try:
+        return max(0.0, min(10.0, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _f01(v: Any, default: float = 0.0) -> float:
+    """Clamp to [0, 1]."""
+    try:
+        return max(0.0, min(1.0, float(v)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _compute_momentum(state: Any) -> float:
     """
-    用 extract 的 momentum_delta 对 conversation_momentum 做小步长更新。
-    公式：new = current + clamp(delta * SCALE, -max_abs, +max_abs)
-    然后 clamp 到 [FLOOR, CEILING]。
+    全参数确定性动量公式（不依赖 LLM）：
+
+    Step 1: E_turn(0-10) = E_user*w_e + T_bot*w_t + R_base*w_r - H_user*penalty
+    Step 2: Multiplier_arousal = 1.0 + (arousal * coef)，高唤醒 → 更愿聊
+    Step 3: Score_raw = EMA(M_prev*100, E_turn*10*Multiplier, α) - Penalty_fatigue
+    Step 4: Ceiling = 100*(1 - busyness*0.5)，M_next = clamp(min/ceil, 0~100)/100
     """
-    step = _clamp(momentum_delta * MOMENTUM_DELTA_SCALE, -MOMENTUM_DELTA_MAX_ABS, MOMENTUM_DELTA_MAX_ABS)
-    new_val = _clamp(current + step, MOMENTUM_FLOOR, MOMENTUM_CEILING)
-    return new_val
+    detection = state.get("detection") or {}
+    mood = state.get("mood_state") or {}
+    rel = state.get("relationship_state") or {}
+    extract = state.get("monologue_extract") or {}
+
+    m_prev = _f01(state.get("conversation_momentum"), 0.5)
+
+    # E_user：用户投入度 0-10
+    e_user = _f010(detection.get("engagement_level"), 5.0)
+    # T_bot：话题吸引力来自 extract（比 detection 更及时，反映角色主观感受）
+    t_bot = _f010(extract.get("topic_appeal"), 5.0)
+    # H_user：敌意 0-10
+    h_user = _f010(detection.get("hostility_level"), 0.0)
+
+    # R_base：关系基值（0.8*attractiveness + 0.1*liking + 0.1*closeness，映射到 0-10）
+    att = _f01(rel.get("attractiveness", rel.get("warmth", 0.5)))
+    lik = _f01(rel.get("liking", 0.5))
+    clo = _f01(rel.get("closeness", 0.5))
+    r_base_01 = _R_BASE_WEIGHTS[0] * att + _R_BASE_WEIGHTS[1] * lik + _R_BASE_WEIGHTS[2] * clo
+    r_base = _f010(r_base_01 * 10.0, _R_BASE_NEUTRAL)
+
+    e_turn = (e_user * _W_E_USER) + (t_bot * _W_T_BOT) + (r_base * _W_R_BASE) - (h_user * _HOSTILITY_PENALTY_COEF)
+    e_turn = max(0.0, min(10.0, e_turn))
+
+    # Arousal multiplier（默认 [-1,1] 输入，0 为中性）
+    arousal_raw = _safe_float(mood.get("arousal"), 0.0)
+    arousal = max(-1.0, min(1.0, arousal_raw))
+    multiplier_arousal = max(0.2, 1.0 + arousal * _AR_COEF)
+
+    # Fatigue penalty（0~100 量纲）
+    turn_count = int(state.get("turn_count_in_session") or 0)
+    penalty_fatigue = max(0.0, (turn_count - _FATIGUE_START_TURN) * _FATIGUE_PER_TURN)
+
+    # EMA（量纲统一到 0~100）
+    e_turn_100 = e_turn * 10.0 * multiplier_arousal
+    score_raw = (m_prev * 100.0) * (1.0 - _EMA_ALPHA) + e_turn_100 * _EMA_ALPHA - penalty_fatigue
+
+    # Busyness 天花板
+    busyness = _f01(mood.get("busyness"), 0.0)
+    ceiling = 100.0 * (1.0 - busyness * 0.5)
+    score_final = max(0.0, min(score_raw, ceiling))
+
+    m_next = score_final / 100.0
+    return _clamp(m_next, MOMENTUM_FLOOR, MOMENTUM_CEILING)
 
 
 def _update_pad_from_emotion_tag(mood: Dict[str, Any], emotion_tag: str) -> Dict[str, Any]:
@@ -128,11 +205,9 @@ def create_state_update_node() -> Callable[[AgentState], Dict[str, Any]]:
     def state_update_node(state: AgentState) -> Dict[str, Any]:
         extract = state.get("monologue_extract") or {}
         mood = dict(state.get("mood_state") or {})
-        current_momentum = _safe_float(state.get("conversation_momentum"), 0.5)
 
-        # 1. 更新 momentum（仍用 delta 方式，冲量是累积量）
-        momentum_delta = _safe_float(extract.get("momentum_delta"), 0.0)
-        new_momentum = _update_momentum(current_momentum, momentum_delta)
+        # 1. 更新 momentum（全参数确定性公式，不依赖 LLM momentum_delta）
+        new_momentum = _compute_momentum(state)
 
         # 2. 更新 PAD（lerp 向情绪目标靠近）
         emotion_tag = str(extract.get("emotion_tag") or "").strip()

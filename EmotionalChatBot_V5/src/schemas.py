@@ -68,6 +68,14 @@ class DetectionOutput(BaseModel):
         description="关系节奏：正常=与当前阶段匹配；过分亲密=交浅言深；过分生疏=突然冷淡/回避。",
     )
     urgency: int = Field(0, ge=0, le=10, description="0-10")
+    knowledge_gap: bool = Field(
+        False,
+        description="用户提到了近期事件、具体事实、专有名词或你可能不了解的内容，需要外部搜索才能准确回应。纯情感/闲聊=False。",
+    )
+    search_keywords: str = Field(
+        "",
+        description="当 knowledge_gap=True 时，填写最适合搜索的简短关键词（中文，3-8字）；否则留空。",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -1062,8 +1062,8 @@ async def main() -> None:
                     log_line("4. [Evolver] relationship_state 本轮回写: " + ", ".join(parts))
                 else:
                     log_line("4. [Evolver] relationship_state: N/A")
-                # 5. Basic info：触发=本轮 tasks_for_lats 中出现次数（仅参考）；完成=仅以「写入 DB」为准（attempted 已废弃）
-                log_line(f"5. Basic info 触发(tasks_for_lats 出现次数，仅参考): {sum(triggered_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in triggered_this_round.items())})")
+                # 5. Basic info：触发=本轮 tasks_for_lats 中出现次数（已废弃，当前架构不写入故恒为 0）；完成=仅以「写入 DB」为准
+                log_line(f"5. Basic info 触发(tasks_for_lats，已废弃): {sum(triggered_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in triggered_this_round.items())})")
                 log_line(f"6. Basic info 完成(仅写入 DB 为准，state.completed_task_ids): {sum(completed_this_round.values())} ({', '.join(f'{k}:{v}' for k, v in completed_this_round.items())})")
                 log_line(f"7. Basic info 写入 DB (本轮回写): {written_this_round}")
                 # inferred_profile 是否被 DB 写入（memory_writer 写 user.inferred_profile）
@@ -1249,14 +1249,14 @@ async def main() -> None:
     else:
         log_line(f"\n3. 冲量变化趋势: 无数据")
     
-    # 4. 基础信息任务触发总次数（仅参考：= planner 放入 tasks_for_lats 的次数，不代表执行或完成）
+    # 4. [已废弃] 原「Basic info 触发（tasks_for_lats 出现次数）」——当前主流程无 task_planner，不写入 tasks_for_lats，此项恒为 0；基础信息改由 loader 的 session_basic_info_pending_task_ids + inner_monologue 自然语言提示驱动，完成以「5. 数据库写入」为准。
     _basic_info_task_ids = {"ask_user_name", "ask_user_age", "ask_user_occupation", "ask_user_location"}
     basic_info_task_ids = locals().get("basic_info_task_ids") or _basic_info_task_ids
-    log_line(f"\n4. Basic info 触发总次数（tasks_for_lats 出现次数，仅参考）:")
+    log_line(f"\n4. [已废弃] Basic info 触发（tasks_for_lats 出现次数）:")
     for tid in basic_info_task_ids:
         count = basic_info_task_triggered.get(tid, 0)
         log_line(f"   {tid}: {count}次")
-    log_line("   说明: 完成仅以「写入 DB」为准；attempted 已废弃，不再统计。")
+    log_line("   说明: 当前架构不再使用 tasks_for_lats 传递 ask_user_*，此项恒为 0；完成仅以「5. 数据库写入」为准。")
 
     # 5. 数据库写入总次数（流程 memory_manager + save_turn 实际写入，即真实「完成」）
     log_line(f"\n5. 数据库写入总次数（按字段，= 真实完成）:")

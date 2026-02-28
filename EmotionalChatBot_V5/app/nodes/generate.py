@@ -34,11 +34,11 @@ def _is_user_message(m: Any) -> bool:
 
 
 def _momentum_to_direction(momentum: float) -> str:
-    """将 conversation_momentum 值映射为信息密度指令（不指定具体手法，由 bot 自由选择）。"""
+    """将 conversation_momentum 值映射为信息密度 + 深度指令（不指定具体手法，由 bot 自由选择）。"""
     if momentum >= 0.80:
-        return "饱满 [+2]：回复信息密度高，自然带出更多细节、看法或相关内容，让对话有充足空间延续"
+        return "饱满 [+2]：回复信息密度高，深入话题的某个具体细节、真实经历或新角度，避免重复已说过的词句，让对话有充足空间延续"
     elif momentum >= 0.60:
-        return "延展 [+1]：在对方内容基础上补充细节或个人感受，内容充实，不刻意收尾"
+        return "延展 [+1]：在对方内容基础上补充具体细节或个人真实感受，内容充实，不刻意收尾"
     elif momentum >= 0.40:
         return "对等 [0]：提供与对方信息量相当的回复，保持当前节奏，不主动延展也不缩减"
     elif momentum >= 0.20:
@@ -118,20 +118,34 @@ def _build_messages_for_route(
 
     # 计算动态字数限制（根据 momentum）
     momentum = float(state.get("conversation_momentum") or 0.5)
-    # 微信聊天合理范围：低动量真短，高动量真长
-    # momentum=0.2→5-40, 0.4→10-65, 0.5→15-82, 0.7→20-110, 1.0→25-150
-    max_chars = int(15 + 135 * momentum)
-    min_chars = max(3, int(5 + 20 * momentum))
+    # 社交软件聊天合理范围（中文字符数）：
+    # momentum=0.2→15-18, 0.5→25-28, 0.8→35-38, 1.0→40-45
+    max_chars = int(11 + 34 * momentum)
+    min_chars = max(2, int(max_chars * 0.3))
 
     direction = _momentum_to_direction(momentum)
     direction_block = f"## 当前对话意愿（信息密度）\n{direction}\n"
 
-    # 外部素材块：bot 生活事件 + 资讯话题（如话题合适，可自然带入，不强制）
+    # 外部素材块：bot 生活事件 + 资讯话题
+    # 当 momentum 长期处于高位（话题可能固化），升级为主动引入指令
     daily_topics_list = list(state.get("daily_topics") or [])
     bot_recent_list = list(state.get("bot_recent_activities") or [])
+    turn_count_val = int(state.get("turn_count_in_session") or 0)
+    # 主动模式：topic_appeal 较低（话题无聊）且已聊了几轮，提示 bot 主动引入新素材
+    _monologue_extract = dict(state.get("monologue_extract") or {})
+    try:
+        _topic_appeal_val = float(_monologue_extract.get("topic_appeal", 5.0))
+    except (TypeError, ValueError):
+        _topic_appeal_val = 5.0
+    _topic_active_mode = _topic_appeal_val < 5.5 and turn_count_val >= 3
     external_context_block = ""
     if bot_recent_list or daily_topics_list:
-        parts: list[str] = ["\n## 你最近的生活 & 知道的事（话题合适时可自然带入，不必强行）"]
+        if _topic_active_mode:
+            # 主动模式：聊了很多轮高动量，鼓励 bot 找时机引入新素材
+            parts: list[str] = ["\n## 你今天想聊的事（聊了好几轮了，找个自然空隙主动带进来，不要生硬中断）"]
+        else:
+            # 被动模式：素材备用，话题合适时可带入
+            parts = ["\n## 你最近的生活 & 知道的事（话题合适时可自然带入，不必强行）"]
         if bot_recent_list:
             parts.append("【你最近的事】")
             parts.extend(f"- {t}" for t in bot_recent_list[:5])
@@ -144,7 +158,7 @@ def _build_messages_for_route(
     system_content = f"""你是 {bot_name}，一个拟人化的聊天伙伴。你正在和 {user_name} 对话。
 {persona_text}
 
-## 你的内心独白（刚才的真实想法，供参考，不要直接说出）
+## 你的内心活动（情绪/态度/意愿）——用于调节回复基调，不是要说出口的内容
 {monologue}
 
 {direction_block}
@@ -153,11 +167,11 @@ def _build_messages_for_route(
 {daily_topics_block}
 {move_block}
 ## 回复规则
-- 第一人称，你就是这个人在发微信，说话口语自然，不要暴露是AI
+- 第一人称，你就是这个人在社交软件上聊天，说话口语自然，不要暴露是AI
 - 回复要和内心独白的情绪/态度保持一致，**信息密度指令优先于其他规则**
 - 不要使用"作为AI"、"根据您的请求"等客服套话
 - 自然、有个性，符合写作风格参数
-- **字数限制（momentum={momentum:.2f}）**：{min_chars}-{max_chars} 字，微信聊天风格，说完就停
+- 每条消息开头应自然变化，不要以固定词语重复起句
 - **严禁**：诗意表达、押韵、排比句、散文化抒情、比喻堆叠——这不是文学创作，是真实聊天
 - **严禁**：括号内的动作描写，如（戳戳脸颊）（轻轻拍你）——聊天消息里不会出现这种写法
 - 回复直接输出，不要任何前缀或格式标记
@@ -169,7 +183,7 @@ def _build_messages_for_route(
 ## 当前用户消息
 {user_input or '（空）'}
 
-请直接写出你（{bot_name}）的回复："""
+请直接写出你（{bot_name}）的回复（**字数限制：{min_chars}-{max_chars} 字，社交软件聊天风格，说完就停**）："""
 
     return [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
@@ -179,12 +193,14 @@ async def _generate_route(
     messages: List[Any],
     move_id: Optional[int],
     route_label: str,
+    max_tokens: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """单路异步生成，llm_gen 构建时已通过 model_kwargs n=4 传入批量参数。"""
+    effective_llm = llm_gen.bind(max_tokens=max_tokens) if max_tokens else llm_gen
     candidates: List[Dict[str, Any]] = []
     try:
-        if hasattr(llm_gen, "agenerate"):
-            result = await llm_gen.agenerate([messages])
+        if hasattr(effective_llm, "agenerate"):
+            result = await effective_llm.agenerate([messages])
             gens = result.generations[0] if result.generations else []
             for gen in gens:
                 text = ""
@@ -194,8 +210,8 @@ async def _generate_route(
                     text = (getattr(gen.message, "content", "") or "").strip()
                 if text:
                     candidates.append({"move_id": move_id, "route": route_label, "text": text})
-        elif hasattr(llm_gen, "ainvoke"):
-            msg = await llm_gen.ainvoke(messages)
+        elif hasattr(effective_llm, "ainvoke"):
+            msg = await effective_llm.ainvoke(messages)
             text = (getattr(msg, "content", "") or str(msg)).strip()
             if text:
                 candidates.append({"move_id": move_id, "route": route_label, "text": text})
@@ -235,6 +251,13 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
         style_dict = state.get("style") or {}
         style_text = format_style_as_param_list(style_dict) or "（默认风格）"
 
+        # 根据 momentum 计算 max_tokens（硬约束，强制截断超长输出）
+        # 中文约 1-1.5 token/字，加 10 token 余量给标点和空格
+        momentum = float(state.get("conversation_momentum") or 0.5)
+        _max_chars = int(11 + 34 * momentum)
+        _max_tokens = int(_max_chars * 4) + 40    # 宽松安全网，不干扰正常生成
+        logger.info("[Generate] momentum=%.2f max_chars=%d max_tokens=%d", momentum, _max_chars, _max_tokens)
+
         # 为每路构建任务（同时收集路由信息供日志使用）
         route_infos: List[tuple] = []  # (label, mid, name, desc, msgs)
         tasks = []
@@ -249,14 +272,14 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
             )
             label = f"move_{mid}"
             route_infos.append((label, mid, move_name, move_desc, msgs))
-            tasks.append(_generate_route(llm_gen, msgs, mid, label))
+            tasks.append(_generate_route(llm_gen, msgs, mid, label, max_tokens=_max_tokens))
 
         # FREE 路（无 move 约束）
         free_msgs = _build_messages_for_route(
             state, None, None, dialogue_context, style_text, monologue, bot_name, user_name
         )
         route_infos.append(("free", None, "FREE", "", free_msgs))
-        tasks.append(_generate_route(llm_gen, free_msgs, None, "free"))
+        tasks.append(_generate_route(llm_gen, free_msgs, None, "free", max_tokens=_max_tokens))
 
         # 日志：路由配置概要
         logger.info("[Generate] ===== 生成路由配置 =====")

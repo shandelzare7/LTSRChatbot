@@ -20,4 +20,9 @@ e_turn_r_base_weight: 0.3
 arousal:
   range_min: -1.0
   range_max: 1.0
-  multiplier_coef: 0.5
+  multiplier_coef: 0.3  # 限制在 0.3，防止 arousal 过于主导
+
+# 轮次疲劳惩罚（0~100 量纲）：从 start_turn 轮之后每轮施加 per_turn 点惩罚
+fatigue:
+  start_turn: 20    # 从第 20 轮开始
+  per_turn: 1.5     # 每轮 1.5 点（0~100 量纲），约合动量 0.015/轮

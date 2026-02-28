@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 import math
 import os
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+_TZ_CST = timezone(timedelta(hours=8))  # UTC+8 中国标准时间
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from app.state import AgentState
@@ -33,7 +35,7 @@ def _load_daily_context(bot_id: str = "") -> dict:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         file_date = str(data.get("date") or "").strip()
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today = datetime.now(_TZ_CST).strftime("%Y-%m-%d")
         if file_date != today:
             return {"topics": [], "bot_recent": []}
         topics = data.get("topics") or []

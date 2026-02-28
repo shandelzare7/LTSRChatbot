@@ -108,6 +108,61 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
             header = "## 你今天想搞清楚的事（趁这次聊找机会自然带出）" if turn_count <= 8 else "## 你心里记着但还不了解的事"
             task_block = header + "\n" + "\n".join(f"- {h}" for h in hints[:2])
 
+    # 话题欲望钩子：双通道触发
+    # 通道 1（appeal 低）：话题本身无聊 → 想换
+    # 通道 2（内容停滞）：最近 bot 发言 n-gram 词汇多样性下降 → 原地转圈 → 想换
+    # 两个通道各自独立，取较大触发概率，话题切换后自动复位
+    import random as _random
+
+    def _content_stagnation(msgs: List[str], n: int = 2) -> float:
+        """TTR（type-token ratio）反转：词汇多样性越低 → 停滞分越高（0-1）。"""
+        total, union = 0, set()
+        for msg in msgs:
+            cleaned = msg.replace(" ", "")
+            grams = [cleaned[i:i + n] for i in range(len(cleaned) - n + 1)]
+            total += len(grams)
+            union.update(grams)
+        if total == 0:
+            return 0.0
+        return max(0.0, 1.0 - len(union) / total)
+
+    topic_shift_hook = ""
+    turn_count = int(state.get("turn_count_in_session") or 0)
+    has_external_topics = bool(state.get("bot_recent_activities") or state.get("daily_topics"))
+    if has_external_topics and turn_count >= 2:
+        # --- 通道 1：appeal 低 ---
+        _prev_extract = dict(state.get("monologue_extract") or {})
+        try:
+            _topic_appeal = float(_prev_extract.get("topic_appeal", 5.0))
+        except (TypeError, ValueError):
+            _topic_appeal = 5.0
+        _appeal_factor = max(0.0, (6.0 - _topic_appeal) / 6.0)
+        _turn_factor = min(1.0, turn_count * 0.10)
+        _appeal_prob = _appeal_factor * _turn_factor * 0.85
+
+        # --- 通道 2：内容停滞（取最近 20 条 bot 发言，覆盖分段消息） ---
+        _bot_msgs = [
+            (getattr(m, "content", "") or str(m)).strip()
+            for m in chat_buffer[-20:]
+            if not _is_user_message(m) and (getattr(m, "content", "") or str(m)).strip()
+        ]
+        _stagnation = _content_stagnation(_bot_msgs)  # 0-1，越高越重复
+        # stagnation > 0.20 时开始触发，0.37 时触发概率约 75%，线性增长
+        _stagnation_prob = min(0.75, max(0.0, (_stagnation - 0.20) * 4.5))
+
+        _final_prob = max(_appeal_prob, _stagnation_prob)
+        if _random.random() < _final_prob:
+            if _stagnation > 0.35:
+                topic_shift_hook = "- 你隐约觉得你们最近说的东西开始转圈了，心里有点想说点不一样的"
+            else:
+                topic_shift_hook = "- 你心里有点想聊点别的，最近自己的一些事说不定可以带进来"
+
+    # 外部搜索结果（由 knowledge_fetcher 写入）
+    ext_knowledge = (state.get("retrieved_external_knowledge") or "").strip()
+    ext_knowledge_block = ""
+    if ext_knowledge:
+        ext_knowledge_block = f"## 你刚好知道的背景（来自搜索）\n{ext_knowledge}"
+
     # Detection 客观信号
     detection = state.get("detection") or {}
     det_block = ""
@@ -147,6 +202,8 @@ def _gather_context_for_monologue(state: dict) -> Dict[str, str]:
         "current_state": current_state_block,
         "user_profile_summary": _build_user_profile_summary(state),
         "task_block": task_block,
+        "topic_shift_hook": topic_shift_hook,
+        "ext_knowledge_block": ext_knowledge_block,
     }
 
 
@@ -185,8 +242,10 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 
         user_pronoun = ctx["user_pronoun"]
         task_block = ctx.get("task_block", "")
+        topic_shift_hook = ctx.get("topic_shift_hook", "")
 
         # 新式提示词：重点是"被触发的感受"而不是"下一步怎么办"
+        ext_knowledge_block = ctx.get("ext_knowledge_block", "")
         system_prompt = f"""你是 {bot_name}。
 
 ## 你这个人
@@ -199,7 +258,7 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 
 {ctx['memories']}
 
-## 关于 {user_name}
+{ext_knowledge_block + chr(10) if ext_knowledge_block else ""}## 关于 {user_name}
 {ctx['user_profile_summary']}
 
 {task_block + chr(10) if task_block else ""}## 最近的对话
@@ -220,6 +279,8 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 - 你猜{user_pronoun}为什么这么说，背后是什么？
 - 你想靠近{user_pronoun}还是想推开{user_pronoun}？
 - 有没有什么小欲望在蠢蠢欲动？
+- 你们现在聊的方向，是让你越聊越有劲，还是有点转不出去的感觉？
+{topic_shift_hook}
 
 允许你：
 - 跑题、反复纠缠在一个感受上

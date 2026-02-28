@@ -27,7 +27,9 @@ import os
 import sys
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+_TZ_CST = timezone(timedelta(hours=8))  # UTC+8 中国标准时间
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -393,7 +395,7 @@ def write_daily_context(
     # 手工构建 YAML（保留注释头部）
     lines = [
         "# 每日聊天素材注入 — 由 scripts/update_daily_context.py 自动生成",
-        f'# 生成时间: {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}',
+        f'# 生成时间: {datetime.now(_TZ_CST).strftime("%Y-%m-%d %H:%M CST")}',
         "",
         f'date: "{date_str}"',
         "",
@@ -455,8 +457,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--date",
-        default=datetime.now(timezone.utc).strftime("%Y-%m-%d"),
-        help="目标日期 YYYY-MM-DD（默认: 今天 UTC）",
+        default=datetime.now(_TZ_CST).strftime("%Y-%m-%d"),
+        help="目标日期 YYYY-MM-DD（默认: 今天 UTC+8）",
     )
     parser.add_argument(
         "--no-news", action="store_true",

@@ -2,39 +2,39 @@ pure_content_transformations:
   - id: 1
     name: 向下细化
     english_name: Downward Specification
-    content_operation: 挑对方提到的某个词或事，追问或补充更具体的细节（比如：哪种？什么时候？具体怎样？）。
+    content_operation: 挑对方提到的某个词或事，追问或补充更具体的细节——指向具体的时间、数量、场景或感受，而非泛泛重复。
 
   - id: 2
     name: 向上概括
     english_name: Upward Abstraction
-    content_operation: 把对方说的具体事情往更大的道理或普遍现象上靠（比如："其实很多人都…""这就是所谓的…"）。不加新的具体内容，只拔高一层。
+    content_operation: 把对方说的具体事情归纳到更大的规律或普遍现象中，不引入新的具体内容，只做一层向上的抽象。
 
   - id: 3
     name: 横向联想
     english_name: Lateral Association
-    content_operation: 从对方说的内容联想到另一个不同领域但结构相似的事，拿来类比或对比（比如对方聊工作压力，你联想到运动训练的节奏）。
+    content_operation: 从对方的内容出发，跳到另一个不同领域但结构相似的事物上做类比或对比，完成一次跨领域的连接。
 
   - id: 4
     name: 自我暴露
     english_name: Self-disclosure
-    content_operation: 说出一条关于自己的**具体事实**（经历、习惯、状态、偏好），必须是明确的自我披露，如"我上次也…""我有个习惯…""我最近…"。仅说"我觉得"或表达观点不算，必须有真实的自我信息。
+    content_operation: 说出一条关于自己的**具体事实**（经历、习惯、状态、偏好），必须是明确的自我披露，有真实的自我信息，而非仅表达观点或感受。
 
   - id: 5
     name: 机制溯源
     english_name: Root Cause / Mechanism
-    content_operation: 给出"为什么会这样"的解释，必须使用明确的因果语言（如"因为""主要是""原因在于""来自于""这是因为"等），不是泛泛评论或印象描述，是真正说出原因或来龙去脉。
+    content_operation: 给出"为什么会这样"的解释，使用明确的因果逻辑追溯原因或来龙去脉，不是泛泛评论或印象描述。
 
   - id: 6
     name: 假设推演
     english_name: Hypothetical Deduction
-    content_operation: 在对方说的基础上做一个"如果…那就…"的假设推演（换个条件、换个角度、换个时间线，想想会怎样）。
+    content_operation: 在对方说的基础上做假设推演：换一个条件、角度或时间线，推出一个不同的结果或可能性。
 
   - id: 7
     name: 状态评价
     english_name: State Evaluation
-    content_operation: 对对方说的话或当前状态给一个简短的评价、判断或感受（比如："这挺厉害的""感觉你挺纠结""这事不简单"）。不引入新话题。
+    content_operation: 对对方说的话或当前状态给一个简短且具体的评价或判断，不引入新话题。
 
   - id: 8
     name: 物理锚定
     english_name: Physical Anchoring
-    content_operation: 在回复中，引入一条关于当前对话发生的物理空间内的事物、感官输入（光线、声音、温度）或角色的躯体动作描述。
+    content_operation: 在回复中引入当前物理空间内的一个感官细节（事物、光线、声音、温度）或躯体动作，且与之前已提过的场景细节不同，避免重复使用同一物件或动作。

@@ -11,9 +11,8 @@
                 │ (fan-in → monologue_join)          │
                 ↓                                    │
             inner_monologue                          │
-                   │                                 │
-                   ↓                                 │
-                extract                              │
+                ↓                                    │
+             extract                              │
               ┌────┴────┐                            │
               ↓         ↓                            │
           state_update  style                        │
@@ -56,7 +55,6 @@ from app.nodes.fast_safety_reply import create_fast_safety_reply_node
 from app.nodes.detection import create_detection_node
 from app.nodes.state_prep import create_state_prep_node
 from app.nodes.inner_monologue import create_inner_monologue_node
-from app.nodes.monologue_extraction import create_monologue_extraction_node
 from app.nodes.extract import create_extract_node
 from app.nodes.state_update import create_state_update_node
 from app.nodes.style import create_style_node
@@ -67,6 +65,7 @@ from app.nodes.evolver import create_evolver_node
 from app.nodes.stage_manager import create_stage_manager_node
 from app.nodes.memory_manager import create_memory_manager_node
 from app.nodes.memory_writer import create_memory_writer_node
+from app.nodes.knowledge_fetcher import create_knowledge_fetcher_node
 from app.services.llm import get_llm, llm_stats_diff, llm_stats_snapshot, set_current_node, reset_current_node
 from app.services.memory import MockMemory
 
@@ -92,11 +91,11 @@ def build_graph(
     # ── LLM 分配 ──────────────────────────────────────────────────────────────
     llm = llm or get_llm(role="main")
     llm_fast = llm_fast or get_llm(role="fast")
-    llm_judge = llm_judge or get_llm(role="judge")
+    llm_judge = llm_judge or get_llm(role="main")
 
     llm_safety = get_llm(role="fast", temperature=0.05)
     llm_detection = get_llm(role="fast", temperature=0.1)
-    llm_monologue = get_llm(role="fast")
+    llm_monologue = get_llm(role="main")
     llm_extract = get_llm(role="fast", temperature=0.1)
     llm_processor = get_llm(role="fast", temperature=0.3)
     llm_evolver = get_llm(role="fast", temperature=0.18)
@@ -110,11 +109,20 @@ def build_graph(
     if _gen_model and "qwen" in _gen_model.lower():
         _gen_api_key = _gen_api_key or (os.getenv("QWEN_API_KEY") or "").strip() or None
         _gen_base_url = _gen_base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # 生成节点：temperature 默认下调（原 1.2 → 1.0），top_p 略上调以平衡多样性（可通过 LTSR_GEN_* 覆盖）
+    _gen_temp_raw = (os.getenv("LTSR_GEN_TEMPERATURE") or "").strip()
+    _gen_temperature = float(_gen_temp_raw) if _gen_temp_raw else 1.0
+    _gen_top_p_raw = (os.getenv("LTSR_GEN_TOP_P") or "").strip()
+    _gen_top_p = float(_gen_top_p_raw) if _gen_top_p_raw else 0.95
     llm_gen = get_llm(
         role="fast",
         model=_gen_model,
         api_key=_gen_api_key,
         base_url=_gen_base_url,
+        temperature=_gen_temperature,
+        top_p=_gen_top_p,
+        presence_penalty=0.3,
+        n=4,
     )
 
     memory_service = memory_service or MockMemory()
@@ -190,7 +198,6 @@ def build_graph(
     detection_node = create_detection_node(llm_detection)
     state_prep_node = create_state_prep_node()            # 纯代码，无 LLM
     inner_monologue_node = create_inner_monologue_node(llm_monologue)
-    extraction_node = create_monologue_extraction_node(llm_extract)
     extract_node = create_extract_node(llm_extract)
     state_update_node = create_state_update_node()        # 纯代码，无 LLM
     style_node = create_style_node(None)                  # 纯代码，无 LLM
@@ -201,6 +208,7 @@ def build_graph(
     stage_manager_node = create_stage_manager_node()
     memory_manager_node = create_memory_manager_node(llm_memory_manager)
     memory_writer_node = create_memory_writer_node(memory_service)
+    knowledge_fetcher_node = create_knowledge_fetcher_node()   # 纯代码，无 LLM
 
     # ── 图构建 ─────────────────────────────────────────────────────────────────
     workflow = StateGraph(AgentState)
@@ -215,7 +223,6 @@ def build_graph(
         workflow.add_node("state_prep",        _wrap_node("state_prep",        state_prep_node))
         workflow.add_node("monologue_join",    _wrap_node("monologue_join",    _noop_handler))
         workflow.add_node("inner_monologue",   _wrap_node("inner_monologue",   inner_monologue_node))
-        workflow.add_node("monologue_extraction", _wrap_node("monologue_extraction", extraction_node))
         workflow.add_node("extract",           _wrap_node("extract",           extract_node))
         workflow.add_node("state_update",      _wrap_node("state_update",      state_update_node))
         workflow.add_node("style",             _wrap_node("style",             style_node))
@@ -227,6 +234,7 @@ def build_graph(
         workflow.add_node("stage_manager",     _wrap_node("stage_manager",     stage_manager_node))
         workflow.add_node("memory_manager",    _wrap_node("memory_manager",    memory_manager_node))
         workflow.add_node("memory_writer",     _wrap_node("memory_writer",     memory_writer_node))
+        workflow.add_node("knowledge_fetcher", _wrap_node("knowledge_fetcher", knowledge_fetcher_node))
 
         workflow.set_entry_point("loader")
 
@@ -251,10 +259,19 @@ def build_graph(
         workflow.add_edge("detection",  "monologue_join")
         workflow.add_edge("state_prep", "monologue_join")
 
-        # monologue_join → inner_monologue → monologue_extraction → extract
-        workflow.add_edge("monologue_join",       "inner_monologue")
-        workflow.add_edge("inner_monologue",      "monologue_extraction")
-        workflow.add_edge("monologue_extraction", "extract")
+        # monologue_join → conditional: knowledge_gap → knowledge_fetcher → inner_monologue
+        #                              no gap → inner_monologue 直接
+        def _route_knowledge(state: dict) -> str:
+            detection = state.get("detection") or {}
+            return "knowledge_fetcher" if detection.get("knowledge_gap") else "inner_monologue"
+
+        workflow.add_conditional_edges(
+            "monologue_join",
+            _route_knowledge,
+            {"knowledge_fetcher": "knowledge_fetcher", "inner_monologue": "inner_monologue"},
+        )
+        workflow.add_edge("knowledge_fetcher", "inner_monologue")
+        workflow.add_edge("inner_monologue",   "extract")
 
         # extract → fan-out: state_update + style（并行）
         workflow.add_edge("extract", "state_update")
