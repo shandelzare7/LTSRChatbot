@@ -306,21 +306,18 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
                 all_candidates.extend(r)
             elif isinstance(r, Exception):
                 logger.warning("[Generate] 路由 %s 异常: %s", label, r)
-                print(f"[Generate] 路由 {label} 异常: {r}")  # 写入会话 log
 
-        # 日志：所有候选全文（按路由分组）— print 写入会话 log，便于从 DB 拉下来的 log 里直接看到问题
-        print("[Generate] ===== 全部候选（按路由）=====")
+        # 日志：所有候选全文（按路由分组）；logger 会写入会话 log（WebChatLogHandler）
+        logger.info("[Generate] ===== 全部候选（按路由）=====")
         for (label, mid, name, desc, _), r in zip(route_infos, results):
             candidates_in_route = r if isinstance(r, list) else []
             n_in_route = len(candidates_in_route)
             logger.info("  【路由 %s】(%s): %d 个候选", label, name, n_in_route)
-            print(f"  【路由 {label}】({name}): {n_in_route} 个候选")
             for i, c in enumerate(candidates_in_route):
                 text = (c.get("text") or "").strip()
                 logger.debug("    [%d] %s", i, text)
-        print(f"[Generate] 总计 {len(all_candidates)} 个候选，{len(tasks)} 路")
         logger.info("[Generate] 总计 %d 个候选，%d 路", len(all_candidates), len(tasks))
-        print("[Generate] =============================")
+        logger.info("[Generate] =============================")
 
         # 如果所有路都失败，产出一个空候选避免 judge 崩溃
         if not all_candidates:

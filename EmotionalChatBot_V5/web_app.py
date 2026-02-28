@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+import contextvars
 import logging
 import time
 import asyncio
@@ -195,6 +196,32 @@ class FileOnlyWriter:
                 self._file.flush()
             except OSError:
                 pass
+
+
+# 当前请求对应的会话 log 文件（仅 web 轮次内有效），用于把 logging 输出也写入同一文件并落入 DB
+_current_web_log_file: contextvars.ContextVar[Optional[Any]] = contextvars.ContextVar("web_log_file", default=None)
+
+
+class WebChatLogHandler(logging.Handler):
+    """将 logger 输出写入当前请求的 web_chat log 文件，便于与 print 一起落入 Render 的 web_chat_logs 表。"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        f = _current_web_log_file.get()
+        if f is None:
+            return
+        try:
+            msg = self.format(record)
+            f.write(f"[LOG] {msg}\n")
+            f.flush()
+        except OSError:
+            pass
+
+
+# 模块加载时挂到 root logger，emit 内通过 contextvar 取文件，无文件时跳过
+_web_chat_log_handler = WebChatLogHandler()
+_web_chat_log_handler.setLevel(logging.DEBUG)
+_web_chat_log_handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+logging.getLogger().addHandler(_web_chat_log_handler)
 
 
 def log_web_chat(session_id: str, user_id: str, bot_id: str, user_message: str, bot_reply: str):
@@ -939,6 +966,7 @@ async def chat(
 
                 original_stdout = sys.stdout
                 sys.stdout = FileOnlyWriter(log_file)
+                _log_file_token = _current_web_log_file.set(log_file)  # 让 logger 也写入同一文件，最终落入 DB
                 try:
                     fast_return = _truthy(os.getenv("WEB_FAST_RETURN", "1"))
                     graph = get_graph_fast() if fast_return else get_graph()
@@ -946,6 +974,7 @@ async def chat(
                     result = await graph.ainvoke(state, config={"recursion_limit": 50})
                     t_graph_ms = (time.perf_counter() - t0) * 1000.0
                 finally:
+                    _current_web_log_file.reset(_log_file_token)
                     sys.stdout = original_stdout
 
                 reply = result.get("final_response") or ""
@@ -1063,6 +1092,7 @@ async def chat(
                         log_file2, _ = get_or_create_log_file(session_id, user_id, bot_id)
                         orig = sys.stdout
                         sys.stdout = FileOnlyWriter(log_file2)
+                        _tail_token = _current_web_log_file.set(log_file2)
                         try:
                             tail_graph = get_graph_tail()
                             await tail_graph.ainvoke(tail_state, config={"recursion_limit": 50})
@@ -1074,6 +1104,7 @@ async def chat(
                             except Exception:
                                 pass
                         finally:
+                            _current_web_log_file.reset(_tail_token)
                             sys.stdout = orig
 
                     try:

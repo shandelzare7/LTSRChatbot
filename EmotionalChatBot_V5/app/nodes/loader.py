@@ -1,10 +1,13 @@
 """入口加载节点：优先从 DB 读取状态（Load Early），无 DB 时落本地文件（再无则回退内存）。"""
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+import logging
 import math
 import os
 import asyncio
 from datetime import datetime, timezone, timedelta
+
+logger = logging.getLogger(__name__)
 
 _TZ_CST = timezone(timedelta(hours=8))  # UTC+8 中国标准时间
 
@@ -290,7 +293,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             user_input = sanitize_external_text(str(user_input_raw or ""))
         except Exception as e:
             leak, reasons = detect_internal_leak(str(user_input_raw or ""))
-            print(f"[Loader] ⚠ external_user_text 被污染，已拦截（reasons={reasons[:2]}）：{e}")
+            logger.warning("[Loader] ⚠ external_user_text 被污染，已拦截（reasons=%s）：%s", reasons[:2], e)
             user_input = ""
         chat_buffer = state.get("chat_buffer") or messages
 
@@ -333,7 +336,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
             db_data: Dict[str, Any] = await db.load_state(str(user_id), str(bot_id))
             bot_name = (db_data.get("bot_basic_info") or {}).get("name") or "?"
             user_name = (db_data.get("user_basic_info") or {}).get("name") or "?"
-            print(f"[Loader] 从 DB 加载 user_id={user_id}, bot_id={bot_id}, bot_name={bot_name}, user_name={user_name}")
+            logger.info("[Loader] 从 DB 加载 user_id=%s, bot_id=%s, bot_name=%s, user_name=%s", user_id, bot_id, bot_name, user_name)
             history = db_data.get("chat_buffer") or []
             merged_buffer = _merge_and_dedup_buffers(list(history), list(chat_buffer))
             merged_buffer = _ensure_messages_have_timestamp(merged_buffer, state.get("current_time"))
@@ -384,7 +387,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                     if len(retrieved) >= 8:
                         break
             except Exception as e:
-                print(f"[Loader] 召回失败（DB，忽略继续）: {e}")
+                logger.warning("[Loader] 召回失败（DB，忽略继续）: %s", e)
 
             memory_context = _build_memory_context(summary, retrieved, merged_buffer)
 
@@ -498,7 +501,7 @@ def create_loader_node(memory_service: "MemoryBase") -> Callable[[AgentState], d
                     if len(retrieved) >= 8:
                         break
             except Exception as e:
-                print(f"[Loader] 召回失败（LocalStore，忽略继续）: {e}")
+                logger.warning("[Loader] 召回失败（LocalStore，忽略继续）: %s", e)
 
             memory_context = _build_memory_context(summary, retrieved, merged_buffer)
 

@@ -88,9 +88,7 @@ def create_judge_node(llm_judge: Any) -> Callable[[AgentState], Dict[str, Any]]:
         # 过滤掉空文本候选
         valid_candidates = [c for c in candidates if (c.get("text") or "").strip()]
         if not valid_candidates:
-            msg = "[Judge] 无有效候选，返回空回复"
-            logger.warning(msg)
-            print(msg)  # 写入会话 log（web 轮次里 stdout 被重定向到 web_chat_log）
+            logger.warning("[Judge] 无有效候选，返回空回复")
             return {"final_response": "", "judge_result": {"winner_index": -1, "justification": "无有效候选"}}
 
         # 只有 1 个候选时直接返回，无需 LLM
@@ -101,13 +99,13 @@ def create_judge_node(llm_judge: Any) -> Callable[[AgentState], Dict[str, Any]]:
                 "judge_result": {"winner_index": 0, "justification": "唯一候选"},
             }
 
-        # 日志：所有候选全文（评审前展示，不截断）
-        print("[Judge] ===== 输入候选全文 =====")
+        # 日志：所有候选全文（评审前展示，不截断）；logger 会写入会话 log（WebChatLogHandler）
+        logger.info("[Judge] ===== 输入候选全文 =====")
         for i, c in enumerate(valid_candidates):
             text = (c.get("text") or "").strip()
             route = c.get("route", "?")
-            print(f"  [{i}] ({route}) {text}")
-        print("[Judge] ===========================")
+            logger.info("  [%d] (%s) %s", i, route, text)
+        logger.info("[Judge] ===========================")
 
         dialogue_snippet = _build_dialogue_snippet(state)
         candidates_text = _format_candidates(valid_candidates)
@@ -219,12 +217,12 @@ def create_judge_node(llm_judge: Any) -> Callable[[AgentState], Dict[str, Any]]:
         winner = valid_candidates[winner_index]
         final_text = winner.get("text", "").strip()
 
-        print(f"[Judge] ===== 评审结果 =====")
-        print(f"  winner_index : {winner_index}")
-        print(f"  route        : {winner.get('route', '?')}")
-        print(f"  justification: {justification}")
-        print(f"  winner_text  : {final_text}")
-        print(f"[Judge] ====================")
+        logger.info("[Judge] ===== 评审结果 =====")
+        logger.info("  winner_index : %s", winner_index)
+        logger.info("  route        : %s", winner.get("route", "?"))
+        logger.info("  justification: %s", justification)
+        logger.info("  winner_text  : %s", final_text)
+        logger.info("[Judge] ====================")
 
         return {
             "final_response": final_text,
