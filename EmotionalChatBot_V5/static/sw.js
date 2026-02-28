@@ -29,6 +29,15 @@ self.addEventListener('push', (event) => {
     const body = payload.body || '';
     const url = payload.url || '/';
 
+    // If user is actively looking at the page, skip the notification
+    try {
+      const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const hasVisible = allClients.some((c) => {
+        try { return c.visibilityState === 'visible'; } catch (e) { return false; }
+      });
+      if (hasVisible) return;
+    } catch (e) {}
+
     await self.registration.showNotification(title, {
       body,
       tag: payload.tag || 'ltsr-push',
