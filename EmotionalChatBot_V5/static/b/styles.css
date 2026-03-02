@@ -675,3 +675,80 @@ body::after {
     color: var(--muted);
     margin-top: 8px;
 }
+
+/* ── 大五人格进度条（卡片 + 抽屉复用） ── */
+.big-five-bars { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.bf-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.bf-label { width: 36px; flex-shrink: 0; font-weight: 600; }
+.bf-track { flex: 1; height: 5px; background: rgba(0,0,0,0.08); border-radius: 3px; overflow: hidden; }
+.bf-fill { height: 100%; border-radius: 3px; background: var(--primary); transition: width 0.4s ease; }
+.bf-val { width: 28px; text-align: right; flex-shrink: 0; }
+
+/* ── 右侧抽屉状态面板 ── */
+.state-panel-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 200;
+}
+.state-panel-overlay.open { display: block; }
+
+.state-panel {
+    position: fixed;
+    top: 0;
+    right: -320px;
+    width: 300px;
+    height: 100%;
+    background: var(--surface-strong);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: var(--shadow-lg);
+    z-index: 201;
+    transition: right 0.28s ease;
+    overflow-y: auto;
+    padding: 20px 16px;
+}
+.state-panel.open { right: 0; }
+
+@media (max-width: 500px) {
+    .state-panel { width: 88vw; }
+}
+
+.sp-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 16px 0 8px;
+}
+.sp-section-title:first-of-type { margin-top: 0; }
+
+.sp-close-btn {
+    float: right;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 18px;
+    color: var(--muted);
+    padding: 0;
+    line-height: 1;
+    margin-bottom: 12px;
+}
+.sp-close-btn:hover { color: var(--text); }
+
+.knapp-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 20px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+}
+.knapp-phase {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+}

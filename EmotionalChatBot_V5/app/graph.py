@@ -50,6 +50,7 @@ from langgraph.graph import END, StateGraph
 
 from app.state import AgentState
 from app.nodes import (
+    create_absence_gate_node,
     create_detection_node,
     create_evolver_node,
     create_extract_node,
@@ -83,6 +84,7 @@ def build_graph(
     llm_fast: Any = None,
     llm_judge: Any = None,
     memory_service: Any = None,
+    db_manager: Any = None,
     entry_point: Literal["loader", "evolver"] = "loader",
     end_at: Literal["memory_writer", "processor"] = "memory_writer",
 ) -> Any:
@@ -206,6 +208,7 @@ def build_graph(
     # ── 节点实例化 ─────────────────────────────────────────────────────────────
     loader_node = create_loader_node(memory_service)
     safety_node = create_safety_node(llm_safety)
+    absence_gate = create_absence_gate_node(db_manager)
     fast_safety_reply_node = create_fast_safety_reply_node(llm_fast_safety_reply)
     detection_node = create_detection_node(llm_detection)
     state_prep_node = create_state_prep_node()            # 纯代码，无 LLM
@@ -230,6 +233,7 @@ def build_graph(
         workflow.add_node("loader",            _wrap_node("loader",            loader_node))
         workflow.add_node("safety",            _wrap_node("safety",            safety_node))
         workflow.add_node("fast_safety_reply", _wrap_node("fast_safety_reply", fast_safety_reply_node))
+        workflow.add_node("absence_gate",      _wrap_node("absence_gate",      absence_gate))
         workflow.add_node("after_safety",      _wrap_node("after_safety",      _noop_handler))
         workflow.add_node("detection",         _wrap_node("detection",         detection_node))
         workflow.add_node("state_prep",        _wrap_node("state_prep",        state_prep_node))
@@ -253,14 +257,24 @@ def build_graph(
         # loader → safety
         workflow.add_edge("loader", "safety")
 
-        # safety → conditional: triggered → fast_safety_reply, normal → after_safety
+        # safety → conditional: triggered → fast_safety_reply, normal → absence_gate
         def _route_safety(state: dict) -> str:
-            return "fast_safety_reply" if state.get("safety_triggered") else "after_safety"
+            return "fast_safety_reply" if state.get("safety_triggered") else "absence_gate"
 
         workflow.add_conditional_edges(
             "safety",
             _route_safety,
-            {"fast_safety_reply": "fast_safety_reply", "after_safety": "after_safety"},
+            {"fast_safety_reply": "fast_safety_reply", "absence_gate": "absence_gate"},
+        )
+
+        # absence_gate → conditional: absence_triggered → END, else → after_safety
+        def _route_absence(state: dict) -> str:
+            return END if state.get("absence_triggered") else "after_safety"
+
+        workflow.add_conditional_edges(
+            "absence_gate",
+            _route_absence,
+            {END: END, "after_safety": "after_safety"},
         )
 
         # after_safety → fan-out: detection + state_prep（并行）

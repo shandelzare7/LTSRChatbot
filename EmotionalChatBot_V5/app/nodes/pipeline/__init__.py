@@ -1,3 +1,4 @@
+from app.nodes.pipeline.absence_gate import create_absence_gate_node
 from app.nodes.pipeline.detection import create_detection_node
 from app.nodes.pipeline.extract import create_extract_node
 from app.nodes.pipeline.generate import create_generate_node
@@ -10,6 +11,7 @@ from app.nodes.pipeline.state_update import create_state_update_node
 from app.nodes.pipeline.style import create_style_node
 
 __all__ = [
+    "create_absence_gate_node",
     "create_detection_node",
     "create_extract_node",
     "create_generate_node",

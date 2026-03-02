@@ -15,6 +15,7 @@ processor.py
 from __future__ import annotations
 
 import logging
+import math
 import random
 import re
 from datetime import datetime
@@ -209,49 +210,162 @@ class HumanizationProcessor:
             "stage_factor": stage_factor,
         }
 
-    def calculate_macro_delay(self, dyn: Dict[str, float]) -> Tuple[float, str]:
+    def _msg_signals(self) -> Dict[str, Any]:
+        """从 user_input 提取消息内容信号（无 LLM，纯文本特征）。"""
+        text = str(self.state.get("user_input") or "")
+        urgency_kws = ["急", "帮我", "快点", "赶紧", "马上", "紧急", "help", "urgent", "asap", "immediately"]
+        has_question = ("?" in text) or ("？" in text)
+        is_urgent = any(kw in text.lower() for kw in urgency_kws)
+        msg_len = len(text)
+        momentum = _clip01(float(self.state.get("conversation_momentum", 0.5) or 0.5))
+        # 情绪分量：消息越长 + arousal 越高 → 情绪载荷越重
+        pad_scale = self.mood.get("pad_scale", "m1_1")
+        arousal01 = _pad_to_01(self.mood.get("arousal", 0.0), pad_scale=pad_scale)
+        emotional_weight = min(1.0, msg_len / 200.0) * float(arousal01)
+        return {
+            "has_question": has_question,
+            "is_urgent": is_urgent,
+            "msg_len": msg_len,
+            "momentum": momentum,
+            "emotional_weight": emotional_weight,
+        }
+
+    def calculate_absence(self, dyn: Dict[str, float]) -> Tuple[float, str, str]:
+        """
+        计算宏观缺席延迟。返回 (seconds, reason, sub_reason)。
+        reason in: "sleep" | "ghosting" | "busy" | "cooling" | "online"
+        seconds == 0.0 时表示 online（无缺席）。
+
+        优先级：sleep → ghosting → busy → cooling → online（链式互斥）。
+        REAL_MODE 开关由上层 AbsenceGate 控制，此函数不感知。
+        """
         try:
             now = datetime.fromisoformat(self.current_time_str)
         except Exception:
             now = datetime.now()
 
-        current_hour = int(now.hour)
-        s_start = int(BOT_SCHEDULE["sleep_start"])
-        s_end = int(BOT_SCHEDULE["sleep_end"])
+        E  = _clip01(self.big5.get("extraversion",     self.big5.get("E", 0.5)))
+        C  = _clip01(self.big5.get("conscientiousness", self.big5.get("C", 0.5)))
+        N  = _clip01(self.big5.get("neuroticism",       self.big5.get("N", 0.3)))
+        O  = _clip01(self.big5.get("openness",          self.big5.get("O", 0.5)))
+        A  = _clip01(self.big5.get("agreeableness",     self.big5.get("A", 0.5)))
 
+        pad_scale   = self.mood.get("pad_scale", "m1_1")
+        pleasure01  = _pad_to_01(self.mood.get("pleasure",   0.0), pad_scale=pad_scale)
+        arousal01   = _pad_to_01(self.mood.get("arousal",    0.0), pad_scale=pad_scale)
+        busyness    = _clip01(self.mood.get("busyness", 0.0) or 0.0)
+
+        closeness     = _clip01(self.rel.get("closeness",     0.5))
+        liking        = _clip01(self.rel.get("liking",        0.5))
+        attractiveness= _clip01(self.rel.get("attractiveness",0.5))
+        power         = _clip01(self.rel.get("power",         0.5))
+
+        msg = self._msg_signals()
+
+        # ── 1. SLEEP ───────────────────────────────────────────────────────────
+        s_start_base = float(BOT_SCHEDULE["sleep_start"])
+        s_end_base   = float(BOT_SCHEDULE["sleep_end"])
+        schedule_noise_h = (1.0 - C) * 0.4 + N * 0.3  # 小时标准差
+        bedtime  = s_start_base + (E - 0.5) * 1.5 + (1.0 - C) * 1.0 + random.gauss(0.0, schedule_noise_h)
+        wakeup   = s_end_base   + (E - 0.5) * 1.0 - C * 0.5            + random.gauss(0.0, schedule_noise_h)
+        bedtime  = bedtime % 24
+        wakeup   = max(4.0, min(11.0, wakeup))
+
+        current_hour = now.hour + now.minute / 60.0
         is_sleeping = False
-        if s_start > s_end:
-            if current_hour >= s_start or current_hour < s_end:
-                is_sleeping = True
+        if bedtime > wakeup:  # 跨午夜（常见：23→7）
+            is_sleeping = current_hour >= bedtime or current_hour < wakeup
         else:
-            if s_start <= current_hour < s_end:
-                is_sleeping = True
+            is_sleeping = bedtime <= current_hour < wakeup
 
         if is_sleeping:
-            target_hour = s_end + 24 if current_hour >= s_start else s_end
-            hours_left = target_hour - current_hour
-            wake_up_jitter = random.uniform(900.0, 2700.0)
-            total_sleep_delay = ((hours_left * 3600.0) - (now.minute * 60.0) - float(now.second) + wake_up_jitter)
-            return max(0.0, total_sleep_delay), "sleep"
+            if bedtime > wakeup:
+                hours_to_wake = (wakeup + 24 - current_hour) % 24
+            else:
+                hours_to_wake = wakeup - current_hour
+            # 起床后还要过一会儿才拿手机
+            post_wake_min = random.triangular(5.0, 40.0, 15.0) * (1.0 + N * 0.5) * (1.0 + (1.0 - C) * 0.3)
+            # 紧急消息 + 高 attractiveness → 更早翻手机
+            if msg["is_urgent"] and attractiveness > 0.6:
+                post_wake_min *= 0.4
+            total_s = max(0.0, hours_to_wake * 3600.0 + post_wake_min * 60.0)
+            return total_s, "sleep", "sleep_night"
 
-        ghosting_prob = 0.0
+        # ── 2. GHOSTING ────────────────────────────────────────────────────────
+        base_ghost = 0.0
         if self.stage in ("avoiding", "terminating"):
-            ghosting_prob = 0.65
+            base_ghost = 0.65
         elif self.stage == "stagnating":
-            ghosting_prob = 0.5
+            base_ghost = 0.50
 
-        if float(dyn.get("pleasure", 0.0)) < -0.3:
-            ghosting_prob += 0.3
+        # 情绪 & 关系修正
+        if pleasure01 < 0.35:          base_ghost += 0.30
+        if N > 0.65:                   base_ghost += 0.15
+        if attractiveness > 0.65:      base_ghost -= 0.20
+        if liking > 0.65:              base_ghost -= 0.15
+        if power > 0.65:               base_ghost -= 0.15
+        # 消息内容修正
+        if msg["has_question"]:        base_ghost -= 0.12
+        if msg["is_urgent"]:           base_ghost -= 0.20
+        if msg["momentum"] > 0.7:      base_ghost -= 0.15
+        if O > 0.7 and msg["msg_len"] < 8 and not msg["has_question"]:
+                                       base_ghost += 0.10  # 高开放 + 无聊短句 → 更懒得回
 
-        ghosting_prob = _clamp(ghosting_prob, 0.0, 0.95)
-        if random.random() < ghosting_prob:
-            return random.uniform(7200.0, 43200.0), "ghosting"
+        ghost_prob = _clamp(base_ghost, 0.0, 0.92)
+        if random.random() < ghost_prob:
+            mode = random.random()
+            if mode < 0.55:
+                secs = random.triangular(3600.0, 21600.0, 10800.0)   # 1–6h，众数 3h
+                sub  = "ghost_short"
+            elif mode < 0.85:
+                secs = random.triangular(28800.0, 129600.0, 54000.0)  # 8–36h，众数 15h
+                sub  = "ghost_day"
+            else:
+                secs = random.uniform(172800.0, 345600.0)             # 2–4 天
+                sub  = "ghost_extended"
+            return secs, "ghosting", sub
 
-        busyness = float(self.mood.get("busyness", 0.0) or 0.0)
-        if busyness > 0.85 and random.random() < 0.7:
-            return random.uniform(1800.0, 7200.0), "busy"
+        # ── 3. BUSY ────────────────────────────────────────────────────────────
+        if busyness < 0.5:
+            busy_base = 0.0
+        elif busyness < 0.7:
+            busy_base = (busyness - 0.5) / 0.2 * 0.20
+        elif busyness < 0.85:
+            busy_base = 0.20 + (busyness - 0.7) / 0.15 * 0.30
+        else:
+            busy_base = 0.50 + (busyness - 0.85) / 0.15 * 0.30
 
-        return 0.0, "online"
+        # 关系修正
+        if closeness > 0.65:      busy_base -= 0.18
+        if liking > 0.65:         busy_base -= 0.12
+        if attractiveness > 0.65: busy_base -= 0.10
+        # 消息内容修正
+        if msg["has_question"]:   busy_base -= 0.10
+        if msg["is_urgent"]:      busy_base -= 0.20
+        if msg["momentum"] > 0.7: busy_base -= 0.08
+
+        busy_prob = _clamp(busy_base, 0.0, 0.85)
+        if random.random() < busy_prob:
+            raw = math.exp(random.gauss(math.log(3600.0), 0.65))
+            secs = _clamp(raw, 900.0, 14400.0)  # 15min–4h，lognormal
+            sub = "busy_work" if 9 <= now.hour < 18 else "busy_other"
+            return secs, "busy", sub
+
+        # ── 4. COOLING ─────────────────────────────────────────────────────────
+        cond_sensitive = N > 0.55
+        cond_emotional = pleasure01 < 0.35 or arousal01 > 0.78
+        cond_stage     = self.stage not in ("bonding", "integrating")
+        if cond_sensitive and cond_emotional and cond_stage:
+            cool_base = N * max(0.0, 0.5 - pleasure01) * 0.7
+            if msg["emotional_weight"] > 0.4: cool_base += 0.20
+            if msg["is_urgent"]:              cool_base -= 0.15
+            if msg["has_question"]:           cool_base -= 0.08
+            cool_prob = _clamp(cool_base, 0.0, 0.55)
+            if random.random() < cool_prob:
+                secs = random.triangular(300.0, 2700.0, 720.0) * (1.0 + N * 0.4)
+                return secs, "cooling", "emotion_processing"
+
+        return 0.0, "online", "online"
 
     def process_fallback(self, dyn: Dict[str, float]) -> HumanizedOutput:
         """
@@ -263,7 +377,7 @@ class HumanizationProcessor:
             (str(self.state.get("final_response") or self.state.get("draft_response") or "")).strip()
         )
 
-        macro_delay, macro_reason = self.calculate_macro_delay(dyn)
+        macro_delay, macro_reason, _ = self.calculate_absence(dyn)
         is_macro = macro_delay > 0.0
 
         if is_macro:
@@ -284,7 +398,7 @@ class HumanizationProcessor:
         t_type = (len(final_response) / typing_speed) * motor_noise if final_response else 0.0
         t_type = _clamp(float(t_type), 0.05, 60.0)
 
-        action: Any = "idle" if macro_delay > 300.0 else "typing"
+        action: Any = "absence" if macro_delay > 300.0 else "typing"
         segments: List[ResponseSegment] = [
             {"content": final_response, "delay": round(base_delay + t_type, 2), "action": action}
         ]
@@ -430,7 +544,7 @@ def _humanize_via_llm(state: AgentState, llm_invoker: Any, dyn: Dict[str, float]
                 delay_val = 2.5
             delay_val = max(0.5, min(60.0, delay_val))
             action = item.get("action")
-            if action not in ("typing", "idle"):
+            if action not in ("typing", "absence"):
                 action = "typing"
             segments.append({"content": text, "delay": round(delay_val, 2), "action": action})
         if not segments:

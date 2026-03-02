@@ -5,6 +5,7 @@ from app.nodes.memory import (
     create_memory_writer_node,
 )
 from app.nodes.pipeline import (
+    create_absence_gate_node,
     create_detection_node,
     create_extract_node,
     create_generate_node,
@@ -21,6 +22,7 @@ from app.nodes.safety import create_fast_safety_reply_node, create_safety_node
 
 __all__ = [
     "KnappStageManager",
+    "create_absence_gate_node",
     "create_detection_node",
     "create_evolver_node",
     "create_extract_node",

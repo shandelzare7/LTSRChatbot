@@ -285,6 +285,39 @@ class WebChatLog(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class PendingBotResponse(Base):
+    """
+    Cron 延迟发送任务：当 AbsenceGate 触发时将任务写入此表，
+    cron runner 到时间后读取并执行 LLM 生成 + 推送。
+    REAL_MODE_ENABLED=false 时不写入（所有行为默认跳过）。
+    """
+
+    __tablename__ = "pending_bot_responses"
+    __table_args__ = (
+        Index("idx_pbr_deliver_at", "deliver_at"),
+        Index("idx_pbr_user_bot_status", "user_id", "bot_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    bot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("bots.id", ondelete="CASCADE"), nullable=False)
+    # 用户原始消息（Option B：交付时重新加载 bot 状态 + 此文本生成回复）
+    user_message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # 计划交付时间
+    deliver_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 创建时间
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # 状态：pending / processing / done / cancelled
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    # absence 场景元数据
+    absence_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # sleep / ghosting / busy / cooling
+    absence_sub_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    absence_seconds: Mapped[Optional[float]] = mapped_column(nullable=True)
+    # 处理结果（可选）
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_detail: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+
 # -----------------------------
 # DBManager
 # -----------------------------
@@ -1497,6 +1530,126 @@ class DBManager:
                         created_at=ts,
                     )
                 )
+
+
+    # ------------------------------------------------------------------
+    # PendingBotResponse CRUD
+    # ------------------------------------------------------------------
+
+    async def create_pending_response(
+        self,
+        *,
+        user_external_id: str,
+        bot_id: str,
+        user_message: str,
+        deliver_at: datetime,
+        absence_reason: str = "online",
+        absence_sub_reason: str = "online",
+        absence_seconds: float = 0.0,
+    ) -> str:
+        """创建一条挂起的延迟发送任务，返回新行的 UUID 字符串。"""
+        bot_uuid = _to_uuid_or_none(bot_id)
+        if bot_uuid is None:
+            raise ValueError(f"Invalid bot_id: {bot_id!r}")
+        async with self.Session() as session:
+            async with session.begin():
+                user = await self._get_or_create_user(session, bot_id, user_external_id)
+                row = PendingBotResponse(
+                    user_id=user.id,
+                    bot_id=bot_uuid,
+                    user_message=user_message,
+                    deliver_at=deliver_at,
+                    status="pending",
+                    absence_reason=absence_reason,
+                    absence_sub_reason=absence_sub_reason,
+                    absence_seconds=absence_seconds,
+                )
+                session.add(row)
+                await session.flush()
+                return str(row.id)
+
+    async def cancel_pending_responses(
+        self,
+        *,
+        user_external_id: str,
+        bot_id: str,
+    ) -> int:
+        """将该 (user, bot) 所有 pending 任务标记为 cancelled，返回受影响行数。"""
+        bot_uuid = _to_uuid_or_none(bot_id)
+        if bot_uuid is None:
+            return 0
+        async with self.Session() as session:
+            async with session.begin():
+                user = await self._get_or_create_user(session, bot_id, user_external_id)
+                result = await session.execute(
+                    select(PendingBotResponse).where(
+                        PendingBotResponse.user_id == user.id,
+                        PendingBotResponse.bot_id == bot_uuid,
+                        PendingBotResponse.status == "pending",
+                    )
+                )
+                rows = result.scalars().all()
+                for r in rows:
+                    r.status = "cancelled"
+                return len(rows)
+
+    async def get_due_pending_responses(
+        self,
+        *,
+        now: Optional[datetime] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """查询到期（deliver_at <= now）且 status=pending 的任务，同时将状态置为 processing。"""
+        if now is None:
+            now = datetime.now(timezone.utc)
+        async with self.Session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(PendingBotResponse)
+                    .where(
+                        PendingBotResponse.status == "pending",
+                        PendingBotResponse.deliver_at <= now,
+                    )
+                    .order_by(PendingBotResponse.deliver_at)
+                    .limit(limit)
+                )
+                rows = result.scalars().all()
+                out = []
+                for r in rows:
+                    r.status = "processing"
+                    out.append({
+                        "id": str(r.id),
+                        "user_id": str(r.user_id),
+                        "bot_id": str(r.bot_id),
+                        "user_message": str(r.user_message or ""),
+                        "deliver_at": r.deliver_at.isoformat() if r.deliver_at else None,
+                        "absence_reason": r.absence_reason,
+                        "absence_sub_reason": r.absence_sub_reason,
+                        "absence_seconds": r.absence_seconds,
+                    })
+                return out
+
+    async def mark_pending_response_done(
+        self,
+        task_id: str,
+        *,
+        error: Optional[str] = None,
+    ) -> None:
+        """将任务标记为 done（或 failed），记录 completed_at 和可选的 error_detail。"""
+        task_uuid = _to_uuid_or_none(task_id)
+        if task_uuid is None:
+            return
+        async with self.Session() as session:
+            async with session.begin():
+                result = await session.execute(
+                    select(PendingBotResponse).where(PendingBotResponse.id == task_uuid)
+                )
+                row = result.scalar_one_or_none()
+                if row is None:
+                    return
+                row.status = "failed" if error else "done"
+                row.completed_at = datetime.now(timezone.utc)
+                row.error_detail = error
 
 
 # Legacy sync API aliases for db_service (sync layer; runtime may fail if used).

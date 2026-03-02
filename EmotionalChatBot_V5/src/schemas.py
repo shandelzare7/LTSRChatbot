@@ -103,7 +103,7 @@ class ProcessorSegment(BaseModel):
 
     content: str = Field(..., description="单条气泡文本")
     delay: float = Field(0.5, ge=0, le=60, description="秒")
-    action: Literal["typing", "idle"] = Field("typing")
+    action: Literal["typing", "absence"] = Field("typing")
 
 
 class ProcessorOutput(BaseModel):
