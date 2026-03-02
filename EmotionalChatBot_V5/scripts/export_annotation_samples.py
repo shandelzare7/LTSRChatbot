@@ -433,15 +433,18 @@ _WEBAPP_DIM_KEY: Dict[str, str] = {
 }
 
 
-def _diff_bucket(diff: float) -> int:
-    """将 0-1 范围的差值映射到 4 个等级桶。"""
+_DIFF_BUCKETS = ["extremely_low", "low", "medium", "high"]
+
+
+def _diff_bucket(diff: float) -> str:
+    """将 0-1 范围的差值映射到描述性标签。"""
     if diff < 0.15:
-        return 1
+        return "extremely_low"
     if diff < 0.30:
-        return 2
+        return "low"
     if diff < 0.50:
-        return 3
-    return 4
+        return "medium"
+    return "high"
 
 
 def export_webapp_move_samples(samples: List[Dict]) -> str:
@@ -492,7 +495,7 @@ def export_webapp_style_pairs(
 
     约束：
       - 两组该维度取值不同（diff ≥ 0.05）
-      - diff_bucket 1-4 尽量均匀分配
+      - diff_bucket（extremely_low/low/medium/high）尽量均匀分配
       - 五个维度尽量均匀分配
       - A/B 位置 50% 随机打乱
     """
@@ -501,8 +504,8 @@ def export_webapp_style_pairs(
         print("  [Webapp] Style 配对：有效样本不足 2 条，跳过")
         return ""
 
-    # 按 (维度, 桶) 收集候选配对
-    candidates: Dict[Tuple[str, int], List[Dict]] = {}
+    # 按 (维度, 桶标签) 收集候选配对
+    candidates: Dict[Tuple[str, str], List[Dict]] = {}
     for i in range(len(valid)):
         for j in range(i + 1, len(valid)):
             a, b = valid[i], valid[j]
@@ -531,17 +534,16 @@ def export_webapp_style_pairs(
         rng.shuffle(rows)
 
     # 每个 (dim×bucket) 格子均匀抽取
-    per_bin = max(1, n_pairs // (len(_WEBAPP_STYLE_DIMS) * 4))
+    per_bin = max(1, n_pairs // (len(_WEBAPP_STYLE_DIMS) * len(_DIFF_BUCKETS)))
     selected: List[Dict] = []
     used_pairs: set = set()
 
     for dim in _WEBAPP_STYLE_DIMS:
-        for bucket in [1, 2, 3, 4]:
+        for bucket in _DIFF_BUCKETS:
             pool = candidates.get((dim, bucket), [])
             for r in pool:
                 if len([x for x in selected if x["dimension"] == _WEBAPP_DIM_KEY[dim] and x["diff_bucket"] == bucket]) >= per_bin:
                     break
-                # 用排序后的双文本做去重 key，避免重复对
                 key = tuple(sorted([r["text_a_bot"][:30], r["text_b_bot"][:30]]))
                 if key not in used_pairs:
                     used_pairs.add(key)
@@ -587,7 +589,7 @@ def export_webapp_style_pairs(
             writer.writerow(row)
 
     dim_dist: Dict[str, int] = {}
-    bucket_dist: Dict[int, int] = {}
+    bucket_dist: Dict[str, int] = {}
     for row in selected:
         dim_dist[row["dimension"]] = dim_dist.get(row["dimension"], 0) + 1
         bucket_dist[row["diff_bucket"]] = bucket_dist.get(row["diff_bucket"], 0) + 1
