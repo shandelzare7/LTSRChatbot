@@ -433,18 +433,38 @@ _WEBAPP_DIM_KEY: Dict[str, str] = {
 }
 
 
-_DIFF_BUCKETS = ["extremely_low", "low", "medium", "high"]
+# 与 prompt_utils._STYLE_VALUE_TO_LABEL 保持一致的五档体系
+_STYLE_TIERS = [
+    (0.86, 1.01, "extremely_high"),
+    (0.61, 0.86, "high"),
+    (0.41, 0.61, "mid"),
+    (0.16, 0.41, "low"),
+    (0.00, 0.16, "extremely_low"),
+]
+# 档位编号：extremely_high=0, high=1, mid=2, low=3, extremely_low=4
+_TIER_RANK: Dict[str, int] = {label: i for i, (_, _, label) in enumerate(_STYLE_TIERS)}
+# 档位距离 → diff_bucket 标签（沿用相同五档词汇中的4个）
+_TIER_DIST_LABEL: Dict[int, str] = {1: "low", 2: "mid", 3: "high", 4: "extremely_high"}
+_DIFF_BUCKETS = ["low", "mid", "high", "extremely_high"]
 
 
-def _diff_bucket(diff: float) -> str:
-    """将 0-1 范围的差值映射到描述性标签。"""
-    if diff < 0.15:
-        return "extremely_low"
-    if diff < 0.30:
-        return "low"
-    if diff < 0.50:
-        return "medium"
-    return "high"
+def _value_to_tier(v: float) -> str:
+    """将 0-1 的 style 值映射到五档标签（与 prompt_utils._STYLE_VALUE_TO_LABEL 一致）。"""
+    for lo, hi, label in _STYLE_TIERS:
+        if lo <= v < hi:
+            return label
+    return "mid"
+
+
+def _diff_bucket(tier_a: str, tier_b: str) -> Optional[str]:
+    """
+    计算两个档位标签的距离，返回 diff_bucket 标签。
+    距离为 0（同档）时返回 None（调用方应跳过该配对）。
+    """
+    dist = abs(_TIER_RANK[tier_a] - _TIER_RANK[tier_b])
+    if dist == 0:
+        return None
+    return _TIER_DIST_LABEL.get(dist, "high")
 
 
 def export_webapp_move_samples(samples: List[Dict]) -> str:
@@ -504,7 +524,7 @@ def export_webapp_style_pairs(
         print("  [Webapp] Style 配对：有效样本不足 2 条，跳过")
         return ""
 
-    # 按 (维度, 桶标签) 收集候选配对
+    # 按 (维度, 档位距离标签) 收集候选配对
     candidates: Dict[Tuple[str, str], List[Dict]] = {}
     for i in range(len(valid)):
         for j in range(i + 1, len(valid)):
@@ -513,10 +533,11 @@ def export_webapp_style_pairs(
             for dim in _WEBAPP_STYLE_DIMS:
                 va = float(sa.get(dim, 0.5))
                 vb = float(sb.get(dim, 0.5))
-                diff = abs(va - vb)
-                if diff < 0.05:
-                    continue
-                bucket = _diff_bucket(diff)
+                tier_a = _value_to_tier(va)
+                tier_b = _value_to_tier(vb)
+                bucket = _diff_bucket(tier_a, tier_b)
+                if bucket is None:
+                    continue  # 同档位，差异不可辨，跳过
                 row = {
                     "task_id":        None,
                     "dimension":      _WEBAPP_DIM_KEY[dim],
@@ -525,7 +546,9 @@ def export_webapp_style_pairs(
                     "text_b_user":    str(b.get("user_text", "")).replace("\n", " "),
                     "text_b_bot":     str(b.get("bot_text", "")).replace("\n", " "),
                     "system_value_a": round(va, 3),
+                    "system_label_a": tier_a,
                     "system_value_b": round(vb, 3),
+                    "system_label_b": tier_b,
                     "diff_bucket":    bucket,
                 }
                 candidates.setdefault((dim, bucket), []).append(row)
@@ -580,7 +603,9 @@ def export_webapp_style_pairs(
         "task_id", "dimension",
         "text_a_user", "text_a_bot",
         "text_b_user", "text_b_bot",
-        "system_value_a", "system_value_b", "diff_bucket",
+        "system_value_a", "system_label_a",
+        "system_value_b", "system_label_b",
+        "diff_bucket",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
