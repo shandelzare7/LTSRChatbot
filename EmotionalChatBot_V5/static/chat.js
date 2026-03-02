@@ -342,27 +342,28 @@ async function fetchChatHistory(limit = 2000) {
     }
 }
 
+let _historyLoadInProgress = false;
 async function loadAndRenderChatHistory() {
+    if (_historyLoadInProgress) return 0;
     const chatMessages = document.getElementById('chat-messages');
     if (!chatMessages) return 0;
-
-    const history = await fetchChatHistory(5000);
-    if (!history || history.length === 0) return 0;
-
-    // clear any existing UI messages (should be empty on first load)
-    chatMessages.innerHTML = '';
-
-    history.forEach(m => {
-        const role = (m && m.role) ? String(m.role) : '';
-        const content = (m && m.content) ? String(m.content) : '';
-        const createdAt = (m && m.created_at) ? String(m.created_at) : null;
-        if (!content) return;
-        if (role === 'user') addMessage('user', content, { timestamp: createdAt });
-        else if (role === 'ai') addMessage('bot', content, { timestamp: createdAt });
-        // ignore system messages in UI
-    });
-
-    return history.length;
+    _historyLoadInProgress = true;
+    try {
+        const history = await fetchChatHistory(5000);
+        if (!history || history.length === 0) return 0;
+        chatMessages.innerHTML = '';
+        history.forEach(m => {
+            const role = (m && m.role) ? String(m.role) : '';
+            const content = (m && m.content) ? String(m.content) : '';
+            const createdAt = (m && m.created_at) ? String(m.created_at) : null;
+            if (!content) return;
+            if (role === 'user') addMessage('user', content, { timestamp: createdAt });
+            else if (role === 'ai') addMessage('bot', content, { timestamp: createdAt });
+        });
+        return history.length;
+    } finally {
+        _historyLoadInProgress = false;
+    }
 }
 
 // 加载bot列表

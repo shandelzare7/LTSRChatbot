@@ -185,21 +185,28 @@ function addMessage(role, content, options) {
     return messageId;
 }
 
+var _historyLoadInProgress = false;
 async function loadAndRenderChatHistory() {
+    if (_historyLoadInProgress) return 0;
     const chatMessages = document.getElementById('chat-messages');
     if (!chatMessages) return 0;
-    const history = await fetchChatHistory(5000);
-    if (!history || history.length === 0) return 0;
-    chatMessages.innerHTML = '';
-    history.forEach(function (m) {
-        const role = (m && m.role) ? String(m.role) : '';
-        const content = (m && m.content) ? String(m.content) : '';
-        const createdAt = (m && m.created_at) ? String(m.created_at) : null;
-        if (!content) return;
-        if (role === 'user') addMessage('user', content, { timestamp: createdAt });
-        else if (role === 'ai') addMessage('bot', content, { timestamp: createdAt });
-    });
-    return history.length;
+    _historyLoadInProgress = true;
+    try {
+        const history = await fetchChatHistory(5000);
+        if (!history || history.length === 0) return 0;
+        chatMessages.innerHTML = '';
+        history.forEach(function (m) {
+            const role = (m && m.role) ? String(m.role) : '';
+            const content = (m && m.content) ? String(m.content) : '';
+            const createdAt = (m && m.created_at) ? String(m.created_at) : null;
+            if (!content) return;
+            if (role === 'user') addMessage('user', content, { timestamp: createdAt });
+            else if (role === 'ai') addMessage('bot', content, { timestamp: createdAt });
+        });
+        return history.length;
+    } finally {
+        _historyLoadInProgress = false;
+    }
 }
 
 // 最多 2 个 chip，优先 persona（quirks/hobbies），文案简短不拥挤
@@ -252,6 +259,25 @@ function avatarLetter(name) {
     return trimmed[0];
 }
 
+function renderBigFiveBars(bigFive) {
+    if (!bigFive || typeof bigFive !== 'object') return '';
+    var dims = [
+        ['O', bigFive.O != null ? bigFive.O : bigFive.openness],
+        ['C', bigFive.C != null ? bigFive.C : bigFive.conscientiousness],
+        ['E', bigFive.E != null ? bigFive.E : bigFive.extraversion],
+        ['A', bigFive.A != null ? bigFive.A : bigFive.agreeableness],
+        ['N', bigFive.N != null ? bigFive.N : bigFive.neuroticism],
+    ];
+    var rows = dims.map(function (d) {
+        if (d[1] == null) return '';
+        var pct = Math.round(Math.min(1, Math.max(0, d[1])) * 100);
+        return '<div class="bf-row"><span class="bf-label">' + escapeHtml(d[0]) + '</span>' +
+               '<div class="bf-track"><div class="bf-fill" style="width:' + pct + '%"></div></div>' +
+               '<span class="bf-val">' + pct + '</span></div>';
+    }).join('');
+    return rows ? '<div class="big-five-bars">' + rows + '</div>' : '';
+}
+
 async function loadBots() {
     const botList = document.getElementById('bot-list');
     if (!botList) return;
@@ -279,6 +305,7 @@ async function loadBots() {
                     '<div class="bot-card-name">' + escapeHtml(name) + '</div>' +
                     '<div class="bot-card-info">年龄: ' + escapeHtml(String(age)) + ' | 职业: ' + escapeHtml(String(occupation)) + '</div>' +
                     tagOrChipsHtml +
+                    renderBigFiveBars(bot.big_five) +
                     '</div></div>' +
                     '<div class="bot-card-actions">' +
                     '<button class="btn-primary" onclick="selectBot(\'' + escapeHtml(bot.id) + '\')">开始对话</button>' +
@@ -449,10 +476,11 @@ function initChat() {
         if ('Notification' in window && Notification.permission === 'granted') syncPushSubscriptionToServer().catch(function () {});
     }, 2500);
 
-    // 聊天页头部：更新 bot 头像与名称
+    // 聊天页头部：更新 bot 头像与名称，并初始化状态面板
     fetchSessionStatus().then(function (status) {
         const botName = (status && status.bot_name) ? status.bot_name : 'Chatbot';
         currentBotName = botName;
+        renderStatePanel(status);
         const headerAvatar = document.getElementById('chat-header-avatar');
         const headerTitle = document.getElementById('chat-header-title');
         if (headerAvatar) {
@@ -551,9 +579,14 @@ function initChat() {
                                 }, t);
                             })(content, cumulativeDelayMs);
                         }
+                        // 所有 segment 播放完后刷新状态面板
+                        setTimeout(function () {
+                            fetchSessionStatus().then(renderStatePanel).catch(function () {});
+                        }, cumulativeDelayMs + 200);
                     } else {
                         addMessage('bot', data.reply || '', { timestamp: data.ai_created_at || new Date().toISOString() });
                         maybeNotifyBotMessage(data.reply).catch(function () {});
+                        fetchSessionStatus().then(renderStatePanel).catch(function () {});
                     }
                 } else {
                     var failDetail = (data && (data.detail || data.message)) ? String(data.detail || data.message) : '';
@@ -608,4 +641,110 @@ function initChat() {
     });
     // 仅非触屏设备在加载时自动聚焦；手机端不自动 focus，否则键盘会立刻弹起并挡住发送按钮
     if (!('ontouchstart' in window)) messageInput.focus();
+
+    // ── 状态抽屉 ──
+    var panelBtn = document.getElementById('state-panel-btn');
+    if (panelBtn) panelBtn.addEventListener('click', openStatePanel);
+    var spCloseBtn = document.getElementById('state-panel-close');
+    if (spCloseBtn) spCloseBtn.addEventListener('click', closeStatePanel);
+    var spOverlay = document.getElementById('state-panel-overlay');
+    if (spOverlay) spOverlay.addEventListener('click', closeStatePanel);
+}
+
+// ── 状态面板：开关 ──
+function openStatePanel() {
+    var panel = document.getElementById('state-panel');
+    var overlay = document.getElementById('state-panel-overlay');
+    if (panel) panel.classList.add('open');
+    if (overlay) overlay.classList.add('open');
+}
+function closeStatePanel() {
+    var panel = document.getElementById('state-panel');
+    var overlay = document.getElementById('state-panel-overlay');
+    if (panel) panel.classList.remove('open');
+    if (overlay) overlay.classList.remove('open');
+}
+
+// ── 状态面板：渲染数据 ──
+var _KNAPP_LABELS = {
+    initiating: '起始', experimenting: '探索', intensifying: '加深',
+    integrating: '融合', bonding: '承诺', differentiating: '分化',
+    circumscribing: '限缩', stagnating: '停滞', avoiding: '回避', terminating: '结束'
+};
+var _KNAPP_PHASE = {
+    initiating: '接近期', experimenting: '接近期', intensifying: '接近期',
+    integrating: '接近期', bonding: '接近期', differentiating: '疏远期',
+    circumscribing: '疏远期', stagnating: '疏远期', avoiding: '疏远期', terminating: '疏远期'
+};
+var _REL_DIMS = [
+    ['closeness', '亲密度'], ['trust', '信任'], ['liking', '喜爱'],
+    ['respect', '尊重'], ['attractiveness', '吸引力'], ['power', '主导']
+];
+var _PADB_DIMS = [
+    ['pleasure', 'P 愉悦'], ['arousal', 'Ar 激动'],
+    ['dominance', 'D 掌控'], ['busyness', '忙碌']
+];
+
+function _makeBarsHtml(dims, data) {
+    if (!data || typeof data !== 'object') return '';
+    var rows = dims.map(function (d) {
+        var v = data[d[0]];
+        if (v == null) return '';
+        // 兼容 m1_1 scale (-1~1)，统一转换到 0~1 显示
+        var norm = (v < 0) ? (v + 1) / 2 : v;
+        var pct = Math.round(Math.min(1, Math.max(0, norm)) * 100);
+        return '<div class="bf-row">' +
+               '<span class="bf-label" style="width:54px">' + escapeHtml(d[1]) + '</span>' +
+               '<div class="bf-track"><div class="bf-fill" style="width:' + pct + '%"></div></div>' +
+               '<span class="bf-val">' + pct + '</span></div>';
+    }).join('');
+    return rows || '';
+}
+
+function renderStatePanel(status) {
+    if (!status) return;
+
+    // 大五人格
+    var bfEl = document.getElementById('sp-big-five');
+    if (bfEl) {
+        var bf = status.bot_big_five || {};
+        var bfNorm = {
+            openness: bf.O != null ? bf.O : bf.openness,
+            conscientiousness: bf.C != null ? bf.C : bf.conscientiousness,
+            extraversion: bf.E != null ? bf.E : bf.extraversion,
+            agreeableness: bf.A != null ? bf.A : bf.agreeableness,
+            neuroticism: bf.N != null ? bf.N : bf.neuroticism,
+        };
+        var bfDims = [
+            ['openness', 'O 开放'], ['conscientiousness', 'C 尽责'],
+            ['extraversion', 'E 外向'], ['agreeableness', 'A 宜人'],
+            ['neuroticism', 'N 神经']
+        ];
+        bfEl.innerHTML = _makeBarsHtml(bfDims, bfNorm) || '暂无数据';
+    }
+
+    // PADB 情绪
+    var padbEl = document.getElementById('sp-padb');
+    if (padbEl) {
+        padbEl.innerHTML = _makeBarsHtml(_PADB_DIMS, status.bot_mood_state || {}) || '暂无数据';
+    }
+
+    // 关系维度
+    var relEl = document.getElementById('sp-relationship');
+    if (relEl) {
+        relEl.innerHTML = _makeBarsHtml(_REL_DIMS, status.user_dimensions || {}) || '暂无数据';
+    }
+
+    // Knapp 阶段
+    var stageEl = document.getElementById('sp-stage');
+    if (stageEl) {
+        var s = status.user_current_stage;
+        if (s) {
+            stageEl.innerHTML =
+                '<div class="knapp-badge">' + escapeHtml(_KNAPP_LABELS[s] || s) + '</div>' +
+                '<div class="knapp-phase">' + escapeHtml(_KNAPP_PHASE[s] || '') + '</div>';
+        } else {
+            stageEl.textContent = '暂无数据';
+        }
+    }
 }

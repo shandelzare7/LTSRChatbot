@@ -706,6 +706,7 @@ async def list_bots():
                         "name": bot.name or "Unnamed Bot",
                         "basic_info": bot.basic_info or {},
                         "persona": bot.persona if isinstance(getattr(bot, "persona", None), dict) else {},
+                        "big_five": bot.big_five or {},
                     }
                     for bot in bots
                 ]
@@ -900,7 +901,8 @@ async def chat(
                     except Exception:
                         pass
 
-            async def _run_one(req_id_local: str):
+            async def _run_one(req_id_local: str, skip_bot_write: bool = False):
+                """skip_bot_write=True 时跳过写入 bot 消息（重试时避免重复落库）"""
                 t_total = time.perf_counter()
                 # Snapshot pending messages for this run
                 async with inflight["lock"]:
@@ -921,6 +923,21 @@ async def chat(
                         visit_src = (sess.get("visit_source") or "").strip() or None
                 if not visit_src:
                     visit_src = (request.cookies.get(_COOKIE_VISIT_SOURCE) or "").strip() or None
+                # REAL_MODE: 新消息到来时，取消该用户/bot 下所有挂起的延迟任务。
+                # 用户主动发消息意味着对话已恢复，之前排队的延迟回复不再需要。
+                if _truthy(os.getenv("REAL_MODE_ENABLED", "false")):
+                    try:
+                        cancelled = await db.cancel_pending_responses(
+                            user_external_id=user_id, bot_id=bot_id
+                        )
+                        if cancelled:
+                            logging.getLogger(__name__).info(
+                                "[WEB] cancelled %d pending response(s) for user=%s bot=%s",
+                                cancelled, user_id, bot_id,
+                            )
+                    except Exception:
+                        pass
+
                 t0 = time.perf_counter()
                 db_state = await db.load_state(user_id, bot_id, visit_source=visit_src)
                 t_load_ms = (time.perf_counter() - t0) * 1000.0
@@ -977,6 +994,29 @@ async def chat(
                     _current_web_log_file.reset(_log_file_token)
                     sys.stdout = original_stdout
 
+                # ── 缺席门控：bot 决定延迟回复，本轮不生成内容 ──────────────────
+                if result.get("absence_triggered"):
+                    _ab_reason = result.get("absence_reason", "")
+                    _ab_secs   = result.get("absence_delay_seconds", 0)
+                    logging.getLogger(__name__).info(
+                        "[WEB] absence_triggered: user=%s bot=%s reason=%s delay=%.0fs (%.1fh)",
+                        user_id, bot_id, _ab_reason, _ab_secs, _ab_secs / 3600.0,
+                    )
+                    async with inflight["lock"]:
+                        if inflight.get("latest_req_id") != req_id_local:
+                            return
+                        inflight["pending_user_msgs"] = []
+                        _w = inflight.get("waiter")
+                        if _w is not None and not _w.done():
+                            _w.set_result({
+                                "status": "absence",
+                                "segments": [],
+                                "reply": "",
+                                "absence_reason": _ab_reason,
+                                "absence_delay_seconds": _ab_secs,
+                            })
+                    return
+
                 reply = result.get("final_response") or ""
                 if not reply and result.get("final_segments"):
                     reply = " ".join(result["final_segments"])
@@ -1006,8 +1046,8 @@ async def chat(
                 if isinstance(result, dict):
                     result["ai_sent_at"] = ai_sent_at
 
-                # 同步写入 bot 回复（切分后、发送给前端之前，确保历史记录完整）
-                if db:
+                # 同步写入 bot 回复（切分后、发送给前端之前）；重试时 skip_bot_write=True 不再写，避免重复落库
+                if db and not skip_bot_write:
                     try:
                         _stage = (result.get("current_stage") if isinstance(result, dict) else None) or (state.get("current_stage") if isinstance(state, dict) else None)
                         
@@ -1186,7 +1226,7 @@ async def chat(
                         if inflight.get("latest_req_id") != req_id_local:
                             return
                     try:
-                        await _run_one(req_id_local)
+                        await _run_one(req_id_local, skip_bot_write=(_attempt > 1))
                         return
                     except asyncio.CancelledError:
                         raise
@@ -1381,6 +1421,10 @@ async def get_session_status(
     bot_basic_info = {}
     has_history = False
     user_db_id = None
+    bot_big_five = {}
+    bot_mood_state = {}
+    user_dimensions = {}
+    user_current_stage = None
 
     try:
         db = get_db_manager()
@@ -1402,10 +1446,14 @@ async def get_session_status(
             if bot:
                 bot_name = bot.name
                 bot_basic_info = bot.basic_info or {}
+                bot_big_five = bot.big_five or {}
+                bot_mood_state = bot.mood_state or {}
 
                 # 确保 User 存在，以便页头能显示 user_db_id（否则要等首次发消息才创建）
                 user = await db._get_or_create_user(db_session, str(bot.id), user_external_id)
                 user_db_id = str(user.id)
+                user_dimensions = user.dimensions or {}
+                user_current_stage = user.current_stage.value if user.current_stage else None
                 result = await db_session.execute(
                     select(Message.id).where(Message.user_id == user.id).limit(1)
                 )
@@ -1430,6 +1478,10 @@ async def get_session_status(
         "bot_name": bot_name,
         "bot_basic_info": bot_basic_info,
         "has_history": has_history,
+        "bot_big_five": bot_big_five,
+        "bot_mood_state": bot_mood_state,
+        "user_dimensions": user_dimensions,
+        "user_current_stage": user_current_stage,
     }
 
 
@@ -1772,6 +1824,7 @@ def get_chat_html_b(bot_id: str) -> str:
                 <div id="user-db-id" class="b-user-id"></div>
             </div>
             <div class="b-chat-header-right">
+                <button type="button" id="state-panel-btn" class="icon-btn" title="角色状态">☰</button>
                 <a href="/" class="btn-secondary">返回选 Bot</a>
             </div>
         </div>
@@ -1782,6 +1835,18 @@ def get_chat_html_b(bot_id: str) -> str:
                 <button type="button" id="send-btn" class="btn-primary btn-send">发送</button>
             </div>
         </div>
+    </div>
+    <div id="state-panel-overlay" class="state-panel-overlay"></div>
+    <div id="state-panel" class="state-panel" aria-label="角色状态面板">
+        <button class="sp-close-btn" id="state-panel-close" type="button">✕</button>
+        <div class="sp-section-title">大五人格</div>
+        <div id="sp-big-five" class="big-five-bars">—</div>
+        <div class="sp-section-title">情绪 PADB</div>
+        <div id="sp-padb" class="big-five-bars">—</div>
+        <div class="sp-section-title">关系维度</div>
+        <div id="sp-relationship" class="big-five-bars">—</div>
+        <div class="sp-section-title">Knapp 阶段</div>
+        <div id="sp-stage">—</div>
     </div>
     <script src="/static/b/announcement-bar.js"></script>
     <script src="/static/b/chat.js"></script>
