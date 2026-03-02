@@ -233,10 +233,10 @@ def moves_to_reference_str(moves: List[Dict]) -> str:
 
 def export_style_samples(samples: List[Dict], moves_desc: str) -> str:
     """
-    导出实验3：Style 感知验证标注任务。
+    导出实验3：Style 感知验证标注任务（研究用 Likert 格式）。
     标注员对 bot_text 在 5 个维度评分（1-7 Likert）。
     """
-    path = os.path.join(OUTPUT_DIR, "annotation_samples_style.csv")
+    path = os.path.join(OUTPUT_DIR, "annotation_samples_style_research.csv")
     fieldnames = [
         "sample_id", "created_at", "current_stage",
         "user_text", "bot_text",
@@ -287,10 +287,10 @@ def export_style_samples(samples: List[Dict], moves_desc: str) -> str:
 
 def export_move_samples(samples: List[Dict], moves_desc: str) -> str:
     """
-    导出实验4：Move 人机理解一致性验证标注任务。
+    导出实验4：Move 人机理解一致性验证标注任务（研究用完整上下文格式）。
     标注员阅读对话上下文，选择最适合的 1-3 个 move。
     """
-    path = os.path.join(OUTPUT_DIR, "annotation_samples_move.csv")
+    path = os.path.join(OUTPUT_DIR, "annotation_samples_move_research.csv")
     fieldnames = [
         "sample_id", "created_at", "current_stage",
         # 近期上下文（最多 3 轮）
@@ -420,6 +420,184 @@ def export_judge_samples(samples: List[Dict]) -> str:
 
 
 # ╔══════════════════════════════════════════════════════════════════════════╗
+# ║  标注网页专用 CSV 导出（简洁格式，供 /annotation/ 页面使用）              ║
+# ╚══════════════════════════════════════════════════════════════════════════╝
+
+_WEBAPP_STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "CHAT_MARKERS"]
+_WEBAPP_DIM_KEY: Dict[str, str] = {
+    "FORMALITY":    "formality",
+    "POLITENESS":   "politeness",
+    "WARMTH":       "warmth",
+    "CERTAINTY":    "certainty",
+    "CHAT_MARKERS": "chat_markers",
+}
+
+
+def _diff_bucket(diff: float) -> int:
+    """将 0-1 范围的差值映射到 4 个等级桶。"""
+    if diff < 0.15:
+        return 1
+    if diff < 0.30:
+        return 2
+    if diff < 0.50:
+        return 3
+    return 4
+
+
+def export_webapp_move_samples(samples: List[Dict]) -> str:
+    """标注网页 Move 任务 CSV：sample_id / context_user_text / bot_text / system_move_ids。"""
+    path = os.path.join(OUTPUT_DIR, "annotation_samples_move.csv")
+    fieldnames = ["sample_id", "context_user_text", "bot_text", "system_move_ids"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for s in samples:
+            writer.writerow({
+                "sample_id":          str(s.get("transcript_id", ""))[:8],
+                "context_user_text":  str(s.get("user_text", "")).replace("\n", " "),
+                "bot_text":           str(s.get("bot_text", "")).replace("\n", " "),
+                "system_move_ids":    "",  # 需从日志回填
+            })
+    print(f"  → [Webapp] Move 任务 CSV：{path}  ({len(samples)} 条)")
+    return path
+
+
+def export_webapp_expr_mode_samples(samples: List[Dict]) -> str:
+    """标注网页 ExprMode 任务 CSV：sample_id / context_user_text / bot_text / system_expr_mode。"""
+    path = os.path.join(OUTPUT_DIR, "annotation_samples_expr_mode.csv")
+    fieldnames = ["sample_id", "context_user_text", "bot_text", "system_expr_mode"]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for s in samples:
+            style = s.get("_style") or {}
+            writer.writerow({
+                "sample_id":         str(s.get("transcript_id", ""))[:8],
+                "context_user_text": str(s.get("user_text", "")).replace("\n", " "),
+                "bot_text":          str(s.get("bot_text", "")).replace("\n", " "),
+                "system_expr_mode":  int(style.get("EXPRESSION_MODE", 0)) if style else "",
+            })
+    print(f"  → [Webapp] ExprMode 任务 CSV：{path}  ({len(samples)} 条)")
+    return path
+
+
+def export_webapp_style_pairs(
+    samples_with_style: List[Dict],
+    rng: random.Random,
+    n_pairs: int,
+) -> str:
+    """
+    标注网页 Style 配对任务 CSV。
+    每行 = 一道对比题（两组对话对 + 一个维度问题）。
+
+    约束：
+      - 两组该维度取值不同（diff ≥ 0.05）
+      - diff_bucket 1-4 尽量均匀分配
+      - 五个维度尽量均匀分配
+      - A/B 位置 50% 随机打乱
+    """
+    valid = [s for s in samples_with_style if s.get("_style")]
+    if len(valid) < 2:
+        print("  [Webapp] Style 配对：有效样本不足 2 条，跳过")
+        return ""
+
+    # 按 (维度, 桶) 收集候选配对
+    candidates: Dict[Tuple[str, int], List[Dict]] = {}
+    for i in range(len(valid)):
+        for j in range(i + 1, len(valid)):
+            a, b = valid[i], valid[j]
+            sa, sb = a["_style"], b["_style"]
+            for dim in _WEBAPP_STYLE_DIMS:
+                va = float(sa.get(dim, 0.5))
+                vb = float(sb.get(dim, 0.5))
+                diff = abs(va - vb)
+                if diff < 0.05:
+                    continue
+                bucket = _diff_bucket(diff)
+                row = {
+                    "task_id":        None,
+                    "dimension":      _WEBAPP_DIM_KEY[dim],
+                    "text_a_user":    str(a.get("user_text", "")).replace("\n", " "),
+                    "text_a_bot":     str(a.get("bot_text", "")).replace("\n", " "),
+                    "text_b_user":    str(b.get("user_text", "")).replace("\n", " "),
+                    "text_b_bot":     str(b.get("bot_text", "")).replace("\n", " "),
+                    "system_value_a": round(va, 3),
+                    "system_value_b": round(vb, 3),
+                    "diff_bucket":    bucket,
+                }
+                candidates.setdefault((dim, bucket), []).append(row)
+
+    for rows in candidates.values():
+        rng.shuffle(rows)
+
+    # 每个 (dim×bucket) 格子均匀抽取
+    per_bin = max(1, n_pairs // (len(_WEBAPP_STYLE_DIMS) * 4))
+    selected: List[Dict] = []
+    used_pairs: set = set()
+
+    for dim in _WEBAPP_STYLE_DIMS:
+        for bucket in [1, 2, 3, 4]:
+            pool = candidates.get((dim, bucket), [])
+            for r in pool:
+                if len([x for x in selected if x["dimension"] == _WEBAPP_DIM_KEY[dim] and x["diff_bucket"] == bucket]) >= per_bin:
+                    break
+                # 用排序后的双文本做去重 key，避免重复对
+                key = tuple(sorted([r["text_a_bot"][:30], r["text_b_bot"][:30]]))
+                if key not in used_pairs:
+                    used_pairs.add(key)
+                    selected.append(r)
+
+    # 不够 n_pairs 时从剩余候选中补充
+    if len(selected) < n_pairs:
+        all_cands = [r for rows in candidates.values() for r in rows]
+        rng.shuffle(all_cands)
+        for r in all_cands:
+            if len(selected) >= n_pairs:
+                break
+            key = tuple(sorted([r["text_a_bot"][:30], r["text_b_bot"][:30]]))
+            if key not in used_pairs:
+                used_pairs.add(key)
+                selected.append(r)
+
+    rng.shuffle(selected)
+    selected = selected[:n_pairs]
+
+    # 随机打乱 A/B 顺序（50%）
+    for row in selected:
+        if rng.random() < 0.5:
+            row["text_a_user"], row["text_b_user"] = row["text_b_user"], row["text_a_user"]
+            row["text_a_bot"],  row["text_b_bot"]  = row["text_b_bot"],  row["text_a_bot"]
+            row["system_value_a"], row["system_value_b"] = row["system_value_b"], row["system_value_a"]
+
+    # 分配 task_id
+    for idx, row in enumerate(selected):
+        row["task_id"] = f"ST{idx + 1:04d}"
+
+    path = os.path.join(OUTPUT_DIR, "annotation_samples_style.csv")
+    fieldnames = [
+        "task_id", "dimension",
+        "text_a_user", "text_a_bot",
+        "text_b_user", "text_b_bot",
+        "system_value_a", "system_value_b", "diff_bucket",
+    ]
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in selected:
+            writer.writerow(row)
+
+    dim_dist: Dict[str, int] = {}
+    bucket_dist: Dict[int, int] = {}
+    for row in selected:
+        dim_dist[row["dimension"]] = dim_dist.get(row["dimension"], 0) + 1
+        bucket_dist[row["diff_bucket"]] = bucket_dist.get(row["diff_bucket"], 0) + 1
+    print(f"  → [Webapp] Style 配对 CSV：{path}  ({len(selected)} 对)")
+    print(f"    维度分布：{dim_dist}")
+    print(f"    差值桶分布：{bucket_dist}")
+    return path
+
+
+# ╔══════════════════════════════════════════════════════════════════════════╗
 # ║  主流程                                                                 ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
@@ -499,11 +677,17 @@ async def main_async(db_url: str, n_samples: int, seed: int) -> None:
     moves = load_moves_desc()
     moves_desc = moves_to_reference_str(moves)
 
-    # ── 导出 CSV ──────────────────────────────────────────────────────────
-    print("\n  导出标注文件……")
+    # ── 导出研究用 CSV（Likert 格式）──────────────────────────────────────
+    print("\n  导出研究用标注文件……")
     path_style = export_style_samples(style_samples, moves_desc)
     path_move  = export_move_samples(move_samples, moves_desc)
     path_judge = export_judge_samples(judge_samples)
+
+    # ── 导出 Webapp 标注任务 CSV ──────────────────────────────────────────
+    print("\n  导出 Webapp 标注任务 CSV……")
+    path_webapp_move      = export_webapp_move_samples(move_samples)
+    path_webapp_expr_mode = export_webapp_expr_mode_samples(style_samples)
+    path_webapp_style     = export_webapp_style_pairs(style_samples, rng, n_samples)
 
     # ── 元数据 JSON ───────────────────────────────────────────────────────
     meta = {
@@ -513,9 +697,12 @@ async def main_async(db_url: str, n_samples: int, seed: int) -> None:
         "stage_distribution": {k: len(v) for k, v in stage_groups.items()},
         "moves_reference": moves_desc,
         "files": {
-            "style": path_style,
-            "move": path_move,
+            "style_research": path_style,
+            "move_research": path_move,
             "judge": path_judge,
+            "webapp_move": path_webapp_move,
+            "webapp_expr_mode": path_webapp_expr_mode,
+            "webapp_style_pairs": path_webapp_style,
         },
         "notes": {
             "move_system_ids": (
@@ -538,9 +725,9 @@ async def main_async(db_url: str, n_samples: int, seed: int) -> None:
     print(f"  → 元数据：{meta_path}")
 
     print("\n  完成！下一步操作：")
-    print("  1. 向 annotation_samples_move.csv 的 system_move_ids 列回填系统实际选取的 move ID")
-    print("  2. 向 annotation_samples_judge.csv 的 response_random/free 列补入候选文本")
-    print("  3. 使用 Label Studio 或 Google Sheets 分发给 3 名标注员")
+    print("  1. 访问 /annotation/ 页面，使用 Webapp 标注任务 CSV 进行标注")
+    print("  2. 向 annotation_samples_move_research.csv 的 system_move_ids 列回填系统实际选取的 move ID")
+    print("  3. 向 annotation_samples_judge.csv 的 response_random/free 列补入候选文本")
     print("  4. 标注完成后使用 Spearman/Kappa 计算标注员间一致性")
 
 

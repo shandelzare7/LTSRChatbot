@@ -1925,8 +1925,175 @@ async def chat_with_bot_b(
         return get_bot_selection_html_b()
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Annotation Tool Routes  /annotation/
+# ══════════════════════════════════════════════════════════════════════════════
+
+_ANNOTATION_OUTPUT = Path(__file__).parent / "scripts" / "output"
+_ANNOTATION_STATIC = Path(__file__).parent / "static" / "annotation"
+
+
+@app.get("/annotation/", response_class=HTMLResponse)
+async def annotation_page():
+    """标注工具主页面（不在导航中显示）。"""
+    html_path = _ANNOTATION_STATIC / "index.html"
+    if not html_path.exists():
+        return HTMLResponse("<h1>标注页面尚未部署</h1><p>请联系管理员。</p>", status_code=503)
+    return HTMLResponse(html_path.read_text("utf-8"))
+
+
+@app.get("/annotation/tasks")
+async def get_annotation_tasks(task_type: str, annotator_id: str):
+    """
+    读取标注任务列表，过滤掉该标注员已见过的句子（bot_text 跨任务类型去重）。
+    返回随机打乱的剩余任务列表。
+    """
+    import csv as _csv
+    import random as _random
+
+    task_type = task_type.strip().lower()
+    if task_type not in ("move", "style", "expr_mode"):
+        raise HTTPException(status_code=400, detail="task_type 必须是 move / style / expr_mode")
+
+    annotator_id = annotator_id.strip()
+    if not annotator_id:
+        raise HTTPException(status_code=400, detail="annotator_id 不能为空")
+
+    samples_path = _ANNOTATION_OUTPUT / f"annotation_samples_{task_type}.csv"
+    if not samples_path.exists():
+        return JSONResponse({
+            "tasks": [],
+            "total": 0,
+            "remaining": 0,
+            "moves": [],
+            "error": "样本文件不存在，请先运行 export_annotation_samples.py",
+        })
+
+    # 读取样本
+    tasks = []
+    with open(samples_path, "r", encoding="utf-8") as f:
+        reader = _csv.DictReader(f)
+        for row in reader:
+            tasks.append(dict(row))
+
+    # 收集该标注员已见过的 bot_text（跨所有任务类型）
+    seen_bot_texts: set = set()
+    for tt in ("move", "style", "expr_mode"):
+        results_path = _ANNOTATION_OUTPUT / f"annotation_results_{tt}.csv"
+        if not results_path.exists():
+            continue
+        try:
+            with open(results_path, "r", encoding="utf-8") as f:
+                reader = _csv.DictReader(f)
+                for row in reader:
+                    if row.get("annotator_id", "").strip() != annotator_id:
+                        continue
+                    for key in ("bot_text", "text_a_bot", "text_b_bot"):
+                        txt = row.get(key, "").strip()
+                        if txt:
+                            seen_bot_texts.add(txt)
+        except Exception:
+            pass
+
+    # 过滤：任务中包含已见句子则排除
+    def _task_seen(task: dict) -> bool:
+        for key in ("bot_text", "text_a_bot", "text_b_bot"):
+            txt = task.get(key, "").strip()
+            if txt and txt in seen_bot_texts:
+                return True
+        return False
+
+    remaining = [t for t in tasks if not _task_seen(t)]
+    _random.shuffle(remaining)
+
+    # Move 任务：嵌入 move 库供前端抽签
+    moves_data = []
+    if task_type == "move":
+        try:
+            from utils.yaml_loader import load_pure_content_transformations
+            raw = load_pure_content_transformations()
+            if isinstance(raw, dict):
+                raw = raw.get("pure_content_transformations") or []
+            moves_data = [
+                {
+                    "id": int(m.get("id")),
+                    "name": str(m.get("name") or ""),
+                    "desc": str(m.get("content_operation") or "")[:100],
+                }
+                for m in (raw if isinstance(raw, list) else [])
+                if m.get("id") is not None
+            ]
+        except Exception:
+            pass
+
+    return JSONResponse({
+        "tasks": remaining,
+        "total": len(tasks),
+        "remaining": len(remaining),
+        "moves": moves_data,
+    })
+
+
+@app.post("/annotation/submit")
+async def submit_annotation(request: Request):
+    """提交一条标注结果，追加写入对应结果 CSV。"""
+    import csv as _csv
+
+    data = await request.json()
+    task_type    = (data.get("task_type") or "").strip().lower()
+    annotator_id = (data.get("annotator_id") or "").strip()
+
+    if not task_type or not annotator_id:
+        raise HTTPException(status_code=400, detail="task_type 和 annotator_id 不能为空")
+    if task_type not in ("move", "style", "expr_mode"):
+        raise HTTPException(status_code=400, detail="task_type 必须是 move / style / expr_mode")
+
+    results_path = _ANNOTATION_OUTPUT / f"annotation_results_{task_type}.csv"
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+    if task_type == "move":
+        fieldnames = ["annotator_id", "sample_id", "bot_text", "selected_move_id", "timestamp"]
+        row = {
+            "annotator_id":     annotator_id,
+            "sample_id":        data.get("sample_id", ""),
+            "bot_text":         data.get("bot_text", ""),
+            "selected_move_id": data.get("selected_move_id", ""),
+            "timestamp":        ts,
+        }
+    elif task_type == "expr_mode":
+        fieldnames = ["annotator_id", "sample_id", "bot_text", "selected_expr_mode", "timestamp"]
+        row = {
+            "annotator_id":       annotator_id,
+            "sample_id":          data.get("sample_id", ""),
+            "bot_text":           data.get("bot_text", ""),
+            "selected_expr_mode": data.get("selected_expr_mode", ""),
+            "timestamp":          ts,
+        }
+    else:  # style
+        fieldnames = ["annotator_id", "task_id", "dimension", "choice", "text_a_bot", "text_b_bot", "timestamp"]
+        row = {
+            "annotator_id": annotator_id,
+            "task_id":      data.get("task_id", ""),
+            "dimension":    data.get("dimension", ""),
+            "choice":       data.get("choice", ""),
+            "text_a_bot":   data.get("text_a_bot", ""),
+            "text_b_bot":   data.get("text_b_bot", ""),
+            "timestamp":    ts,
+        }
+
+    _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
+    write_header = not results_path.exists()
+    with open(results_path, "a", newline="", encoding="utf-8") as f:
+        writer = _csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+    return JSONResponse({"ok": True})
+
+
 if __name__ == "__main__":
     import uvicorn
-    
+
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
