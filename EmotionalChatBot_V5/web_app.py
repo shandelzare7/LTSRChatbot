@@ -35,7 +35,15 @@ from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
 
 from app.graph import build_graph
-from app.core import DBManager, Bot, User, Message, WebChatLog
+from app.core import (
+    DBManager,
+    Bot,
+    User,
+    Message,
+    WebChatLog,
+    generate_bot_profile,
+    get_random_relationship_template,
+)
 from app.services.llm import LLMAPIError
 from app.web.session import (
     create_session,
@@ -1446,13 +1454,32 @@ async def get_session_status(
             if bot:
                 bot_name = bot.name
                 bot_basic_info = bot.basic_info or {}
-                bot_big_five = bot.big_five or {}
-                bot_mood_state = bot.mood_state or {}
+                bot_big_five = dict(bot.big_five or {})
+                bot_mood_state = dict(bot.mood_state or {})
+                # 老 Bot 可能没有 big_five/mood_state：用默认生成/占位，仅用于状态面板展示
+                _has_bf = any(
+                    bot_big_five.get(k) is not None
+                    for k in ("openness", "O", "conscientiousness", "C", "extraversion", "E")
+                )
+                if not _has_bf:
+                    try:
+                        _, bf, _ = generate_bot_profile(str(bot.id))
+                        bot_big_five = dict(bf)
+                    except Exception:
+                        pass
+                _has_pad = any(
+                    bot_mood_state.get(k) is not None
+                    for k in ("pleasure", "arousal", "dominance", "busyness")
+                )
+                if not _has_pad:
+                    bot_mood_state = {"pleasure": 0, "arousal": 0, "dominance": 0, "busyness": 0, "pad_scale": "m1_1"}
 
                 # 确保 User 存在，以便页头能显示 user_db_id（否则要等首次发消息才创建）
                 user = await db._get_or_create_user(db_session, str(bot.id), user_external_id)
                 user_db_id = str(user.id)
-                user_dimensions = user.dimensions or {}
+                user_dimensions = dict(user.dimensions or {})
+                if not user_dimensions:
+                    user_dimensions = get_random_relationship_template()
                 user_current_stage = user.current_stage.value if user.current_stage else None
                 result = await db_session.execute(
                     select(Message.id).where(Message.user_id == user.id).limit(1)
@@ -1468,7 +1495,7 @@ async def get_session_status(
                     has_history = True
     except Exception:
         # 状态接口尽量不因数据库异常影响页面；前端会降级显示通用开场白
-        pass
+        logger.exception("[session/status] 获取会话状态异常，状态面板将降级显示")
 
     return {
         "has_session": True,

@@ -1,0 +1,286 @@
+{
+  "part_a_summary": [
+    {
+      "test_id": "A01",
+      "name": "closeness_sweep",
+      "label": "closeness 0→1 (momentum=topic_appeal=0.5，其余中性)",
+      "hypothesis": "closeness 提升 → familiarity 上升 → CHAT_MARKERS↑ (familiarity +0.35), WARMTH↑ (familiarity +0.25), FORMALITY↓ (familiarity -0.40)",
+      "all_checks_pass": true,
+      "checks": {
+        "CHAT_MARKERS_increase": {
+          "passed": true,
+          "first": 0.3383,
+          "last": 0.494,
+          "delta": 0.1557
+        },
+        "WARMTH_increase": {
+          "passed": true,
+          "first": 0.4532,
+          "last": 0.5468,
+          "delta": 0.0936
+        },
+        "FORMALITY_decrease": {
+          "passed": true,
+          "first": 0.5778,
+          "last": 0.4222,
+          "delta": -0.1556
+        }
+      }
+    },
+    {
+      "test_id": "A02",
+      "name": "momentum_sweep",
+      "label": "momentum 0→1 (closeness=0.5，其余中性)",
+      "hypothesis": "momentum 提升 → CHAT_MARKERS↑ (momentum +0.25), FORMALITY↓ (momentum -0.10)",
+      "all_checks_pass": true,
+      "checks": {
+        "CHAT_MARKERS_increase": {
+          "passed": true,
+          "first": 0.3232,
+          "last": 0.5101,
+          "delta": 0.187
+        },
+        "FORMALITY_decrease": {
+          "passed": true,
+          "first": 0.5572,
+          "last": 0.4428,
+          "delta": -0.1145
+        }
+      }
+    },
+    {
+      "test_id": "A03",
+      "name": "tension_via_arousal_sweep",
+      "label": "Ar 0→1 (P=0.2 低愉悦制造高张力，其余中性)",
+      "hypothesis": "Ar↑ + 低P → tension↑ → WARMTH↓ (tension -0.30)",
+      "all_checks_pass": true,
+      "checks": {
+        "WARMTH_decrease": {
+          "passed": true,
+          "first": 0.4053,
+          "last": 0.296,
+          "delta": -0.1092
+        }
+      }
+    }
+  ],
+  "part_b_results": [
+    {
+      "test_id": "B01",
+      "name": "irony_activation",
+      "label": "四重联合条件全满足 → EXPRESSION_MODE = 3",
+      "hypothesis": "irony_propensity≥0.78, closeness≥0.68, trust≥0.62, P≥0.58, tension≤0.62, figurative_bias≥0.70 → EXPRESSION_MODE=3",
+      "type": "single",
+      "style_output": {
+        "FORMALITY": 0.0164,
+        "POLITENESS": 0.2274,
+        "WARMTH": 0.9941,
+        "CERTAINTY": 0.5992,
+        "EXPRESSION_MODE": 3,
+        "CHAT_MARKERS": 1.0
+      },
+      "checks": [
+        {
+          "key": "EXPRESSION_MODE",
+          "op": "==",
+          "threshold": 3,
+          "actual": 3,
+          "passed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "test_id": "B02",
+      "name": "respect_guardrail",
+      "label": "respect=0.85 → EXPRESSION_MODE ≤ 1 (讽刺模式被截断)",
+      "hypothesis": "guardrail: if respect≥0.80 and EXPRESSION_MODE==3 → EXPRESSION_MODE=1",
+      "type": "single",
+      "style_output": {
+        "FORMALITY": 0.1393,
+        "POLITENESS": 0.4871,
+        "WARMTH": 0.9941,
+        "CERTAINTY": 0.5992,
+        "EXPRESSION_MODE": 1,
+        "CHAT_MARKERS": 0.3825
+      },
+      "checks": [
+        {
+          "key": "EXPRESSION_MODE",
+          "op": "<=",
+          "threshold": 1,
+          "actual": 1,
+          "passed": true
+        },
+        {
+          "key": "CHAT_MARKERS",
+          "op": "<=",
+          "threshold": 0.4,
+          "actual": 0.3825,
+          "passed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "test_id": "B03",
+      "name": "trust_guardrail",
+      "label": "trust=0.30 → EXPRESSION_MODE ≤ 1 (低信任禁用比喻/讽刺)",
+      "hypothesis": "guardrail: if trust≤0.35 → if EXPRESSION_MODE in (2,3) → EXPRESSION_MODE=1",
+      "type": "single",
+      "style_output": {
+        "FORMALITY": 0.0435,
+        "POLITENESS": 0.3146,
+        "WARMTH": 0.9941,
+        "CERTAINTY": 0.4205,
+        "EXPRESSION_MODE": 1,
+        "CHAT_MARKERS": 1.0
+      },
+      "checks": [
+        {
+          "key": "EXPRESSION_MODE",
+          "op": "<=",
+          "threshold": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "test_id": "B04",
+      "name": "closeness_guardrail",
+      "label": "closeness=0.20 → EXPRESSION_MODE ≤ 1 (低亲密度禁用比喻/讽刺)",
+      "hypothesis": "guardrail: if closeness≤0.35 → if EXPRESSION_MODE in (2,3) → EXPRESSION_MODE=1",
+      "type": "single",
+      "style_output": {
+        "FORMALITY": 0.1208,
+        "POLITENESS": 0.4759,
+        "WARMTH": 0.9941,
+        "CERTAINTY": 0.5992,
+        "EXPRESSION_MODE": 1,
+        "CHAT_MARKERS": 1.0
+      },
+      "checks": [
+        {
+          "key": "EXPRESSION_MODE",
+          "op": "<=",
+          "threshold": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "test_id": "B05",
+      "name": "busy_chat_markers_guardrail",
+      "label": "busy=0.85 → CHAT_MARKERS ≤ 0.20",
+      "hypothesis": "guardrail: if busy≥0.80 → CHAT_MARKERS=min(CHAT_MARKERS, 0.20)",
+      "type": "single",
+      "style_output": {
+        "FORMALITY": 0.5569,
+        "POLITENESS": 0.3764,
+        "WARMTH": 0.3932,
+        "CERTAINTY": 0.5349,
+        "EXPRESSION_MODE": 1,
+        "CHAT_MARKERS": 0.1665
+      },
+      "checks": [
+        {
+          "key": "CHAT_MARKERS",
+          "op": "<=",
+          "threshold": 0.2,
+          "actual": 0.1665,
+          "passed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "test_id": "B06",
+      "name": "busy_expression_mode_guardrail",
+      "label": "busy=0.85 → EXPRESSION_MODE ≤ 1 (忙碌禁用比喻/讽刺)",
+      "hypothesis": "guardrail: if busy≥0.80 → EXPRESSION_MODE = 0 (if CERTAINTY≥0.55) or 1",
+      "type": "single",
+      "style_output": {
+        "FORMALITY": 0.5569,
+        "POLITENESS": 0.3764,
+        "WARMTH": 0.3932,
+        "CERTAINTY": 0.5349,
+        "EXPRESSION_MODE": 1,
+        "CHAT_MARKERS": 0.1665
+      },
+      "checks": [
+        {
+          "key": "EXPRESSION_MODE",
+          "op": "<=",
+          "threshold": 1,
+          "actual": 1,
+          "passed": true
+        }
+      ],
+      "passed": true
+    },
+    {
+      "test_id": "B07",
+      "name": "closeness_formality_contrast",
+      "label": "closeness=0.1 vs 0.9：FORMALITY 应显著更高",
+      "hypothesis": "低亲密度(closeness=0.1)的 FORMALITY 应显著高于高亲密度(closeness=0.9)",
+      "type": "contrast",
+      "contrast_key": "FORMALITY",
+      "value_a": 0.5778,
+      "value_b": 0.4222,
+      "diff": 0.1556,
+      "threshold": 0.1,
+      "passed": true,
+      "style_a": {
+        "FORMALITY": 0.5778,
+        "POLITENESS": 0.6522,
+        "WARMTH": 0.4532,
+        "CERTAINTY": 0.5,
+        "EXPRESSION_MODE": 0,
+        "CHAT_MARKERS": 0.3383
+      },
+      "style_b": {
+        "FORMALITY": 0.4222,
+        "POLITENESS": 0.3478,
+        "WARMTH": 0.5468,
+        "CERTAINTY": 0.5,
+        "EXPRESSION_MODE": 0,
+        "CHAT_MARKERS": 0.494
+      }
+    },
+    {
+      "test_id": "B08",
+      "name": "momentum_chat_markers_contrast",
+      "label": "momentum=0.9 vs 0.1：CHAT_MARKERS 应显著更高",
+      "hypothesis": "高动量(momentum=0.9)的 CHAT_MARKERS 应显著高于低动量(momentum=0.1)",
+      "type": "contrast",
+      "contrast_key": "CHAT_MARKERS",
+      "value_a": 0.5101,
+      "value_b": 0.3232,
+      "diff": 0.187,
+      "threshold": 0.05,
+      "passed": true,
+      "style_a": {
+        "FORMALITY": 0.4428,
+        "POLITENESS": 0.4379,
+        "WARMTH": 0.5252,
+        "CERTAINTY": 0.5199,
+        "EXPRESSION_MODE": 0,
+        "CHAT_MARKERS": 0.5101
+      },
+      "style_b": {
+        "FORMALITY": 0.5572,
+        "POLITENESS": 0.5621,
+        "WARMTH": 0.4748,
+        "CERTAINTY": 0.4801,
+        "EXPRESSION_MODE": 0,
+        "CHAT_MARKERS": 0.3232
+      }
+    }
+  ],
+  "part_a_pass": true,
+  "part_b_pass": true
+}

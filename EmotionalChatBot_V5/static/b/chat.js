@@ -351,7 +351,7 @@ async function selectBot(botId) {
         }
         const data = await response.json();
         if (data.status === 'ready') {
-            window.location.href = '/chat/' + encodeURIComponent(botId);
+            window.location.href = '/b/chat/' + encodeURIComponent(botId);
         }
     } catch (e) {
         console.error('选择bot失败:', e);
@@ -388,7 +388,7 @@ async function resumeByUserId() {
         }
         const data = await response.json();
         if (data.status === 'ready' && data.bot_id) {
-            window.location.href = '/chat/' + encodeURIComponent(data.bot_id);
+            window.location.href = '/b/chat/' + encodeURIComponent(data.bot_id);
         }
     } catch (e) {
         console.error('恢复会话失败:', e);
@@ -703,6 +703,12 @@ function _makeBarsHtml(dims, data) {
 
 function renderStatePanel(status) {
     if (!status) return;
+    console.log('[StatePanel] status:', JSON.stringify({
+        bot_big_five: status.bot_big_five,
+        bot_mood_state: status.bot_mood_state,
+        user_dimensions: status.user_dimensions,
+        user_current_stage: status.user_current_stage,
+    }));
 
     // 大五人格
     var bfEl = document.getElementById('sp-big-five');

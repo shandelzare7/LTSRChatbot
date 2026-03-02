@@ -1,0 +1,17 @@
+test_id,category,desc,expected_reason,trials,trigger_count,trigger_rate,threshold,dominant_reason,result
+S01,sleep,凌晨3点，中性人格 → sleep（跨午夜判断）,sleep,1,1,100.0%,100%,sleep,PASS ✓
+S02,sleep,凌晨2点，低外向早睡型人格 → sleep,sleep,1,1,100.0%,100%,sleep,PASS ✓
+S03,sleep,凌晨1点，高神经质高外向（晚睡型，1点仍在睡眠窗口） → sleep,sleep,1,1,100.0%,100%,sleep,PASS ✓
+S04,sleep,凌晨5点，中性人格 → sleep（起床前）,sleep,1,1,100.0%,100%,sleep,PASS ✓
+O01,online,下午2点，低忙碌，关系正常，非敏感阶段 → online,online,1,1,100.0%,100%,online,PASS ✓
+O02,online,上午10点，关系紧密，bonding阶段 → online,online,1,1,100.0%,100%,online,PASS ✓
+O03,online,傍晚6点，integrating阶段，中性忙碌 → online,online,1,1,100.0%,100%,online,PASS ✓
+G01,ghosting,stage=avoiding，低愉悦(-0.7)，高神经质(N=0.8) → ghosting（概率≈0.92）,ghosting,60,56,93.3%,80%,ghosting,PASS ✓
+G02,ghosting,stage=stagnating，低愉悦(-0.8)，高神经质(N=0.75) → ghosting（概率≈0.92）,ghosting,60,54,90.0%,80%,ghosting,PASS ✓
+G03,ghosting,stage=terminating，极低愉悦(-0.9)，N=0.7 → ghosting（概率≈0.92）,ghosting,60,51,85.0%,80%,ghosting,PASS ✓
+B01,busy,busyness=0.95，非敏感阶段，愉悦正常 → busy（概率≈0.80）,busy,60,44,73.3%,60%,busy,PASS ✓
+B02,busy,busyness=0.88，上班时间，closeness低 → busy（概率≈0.57）,busy,60,36,60.0%,60%,busy,PASS ✓
+B03,busy,busyness=0.95，关系一般，无紧急消息 → busy（概率≈0.80）,busy,60,41,68.3%,60%,busy,PASS ✓
+C01,cooling,N=0.9，低愉悦(-0.8)，高唤起(Ar=0.6)，高liking阻断ghost → cooling,cooling,60,28,46.7%,15%,online,PASS ✓
+C02,cooling,N=0.85，极低愉悦(-0.9)，Ar=0.7，避免ghost/busy → cooling,cooling,60,19,31.7%,15%,online,PASS ✓
+C03,cooling,N=0.9，低愉悦，短消息（低情绪权重） → cooling（边界低概率场景≈0.22）,cooling,60,17,28.3%,15%,online,PASS ✓
