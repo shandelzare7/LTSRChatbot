@@ -1888,7 +1888,7 @@ async def bot_selection_page_b():
     return get_bot_selection_html_b()
 
 
-@app.get("/b/chat/{{bot_id}}", response_class=HTMLResponse)
+@app.get("/b/chat/{bot_id}", response_class=HTMLResponse)
 async def chat_with_bot_b(
     bot_id: str, request: Request, response: Response,
     session_id: Optional[str] = Cookie(None),

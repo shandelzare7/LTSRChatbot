@@ -262,11 +262,11 @@ function avatarLetter(name) {
 function renderBigFiveBars(bigFive) {
     if (!bigFive || typeof bigFive !== 'object') return '';
     var dims = [
-        ['O', bigFive.O != null ? bigFive.O : bigFive.openness],
-        ['C', bigFive.C != null ? bigFive.C : bigFive.conscientiousness],
-        ['E', bigFive.E != null ? bigFive.E : bigFive.extraversion],
-        ['A', bigFive.A != null ? bigFive.A : bigFive.agreeableness],
-        ['N', bigFive.N != null ? bigFive.N : bigFive.neuroticism],
+        ['O 开放', bigFive.O != null ? bigFive.O : bigFive.openness],
+        ['C 尽责', bigFive.C != null ? bigFive.C : bigFive.conscientiousness],
+        ['E 外向', bigFive.E != null ? bigFive.E : bigFive.extraversion],
+        ['A 宜人', bigFive.A != null ? bigFive.A : bigFive.agreeableness],
+        ['N 神经', bigFive.N != null ? bigFive.N : bigFive.neuroticism],
     ];
     var rows = dims.map(function (d) {
         if (d[1] == null) return '';
