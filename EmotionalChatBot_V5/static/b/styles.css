@@ -679,7 +679,7 @@ body::after {
 /* ── 大五人格进度条（卡片 + 抽屉复用） ── */
 .big-five-bars { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
 .bf-row { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
-.bf-label { width: 36px; flex-shrink: 0; font-weight: 600; }
+.bf-label { width: 56px; flex-shrink: 0; font-weight: 600; }
 .bf-track { flex: 1; height: 5px; background: rgba(0,0,0,0.08); border-radius: 3px; overflow: hidden; }
 .bf-fill { height: 100%; border-radius: 3px; background: var(--primary); transition: width 0.4s ease; }
 .bf-val { width: 28px; text-align: right; flex-shrink: 0; }
