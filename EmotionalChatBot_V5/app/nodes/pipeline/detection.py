@@ -135,7 +135,8 @@ def create_detection_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 
         print(
             f"[Detection] hostility={out['hostility_level']}, engagement={out['engagement_level']}, "
-            f"stage_pacing={out['stage_pacing']}, urgency={out['urgency']}"
+            f"stage_pacing={out['stage_pacing']}, urgency={out['urgency']}, "
+            f"knowledge_gap={out['knowledge_gap']}, search_keywords={out['search_keywords']!r}"
         )
         return {"detection": out}
 

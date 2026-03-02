@@ -200,10 +200,20 @@ def _build_messages_for_route(
     except Exception:
         pass
 
+    # 搜索结果事实块：当有外部搜索结果时，直接注入生成提示词，确保事实被使用
+    ext_knowledge = (state.get("retrieved_external_knowledge") or "").strip()
+    ext_facts_block = ""
+    if ext_knowledge:
+        ext_facts_block = (
+            f"## 你刚查到的事实（对方在问这个，回复中必须自然地包含这些信息）\n"
+            f"⚠️ 以下是实时搜索到的最新事实，**必须在回复中体现核心信息**，用你自己的话自然地说出来。\n"
+            f"{ext_knowledge}\n\n"
+        )
+
     system_content = f"""你是 {bot_name}。你正在和 {user_name} 对话。
 {persona_text}
 
-{time_fact_block}## 你的内心活动（情绪/态度/意愿）——用于调节回复基调，不是要说出口的内容
+{time_fact_block}{ext_facts_block}## 你的内心活动（情绪/态度/意愿）——用于调节回复基调，不是要说出口的内容
 {monologue}
 
 {direction_block}
@@ -213,6 +223,7 @@ def _build_messages_for_route(
 {move_block}{task_hint}## 回复规则
 - 第一人称，你就是这个人在社交软件上聊天，说话口语自然，不要暴露是AI
 - 回复要和内心独白的情绪/态度保持一致，**信息密度指令优先于其他规则**
+- 如果上面有「你刚查到的事实」，必须在回复中自然地融入核心信息，不要回避或含糊——对方在问你这个问题，你要直接回答
 - 不要使用"作为AI"、"根据您的请求"等客服套话
 - 自然、有个性，符合写作风格参数
 - 每条消息开头应自然变化，不要以固定词语重复起句
