@@ -667,18 +667,18 @@ function closeStatePanel() {
 
 // ── 状态面板：渲染数据 ──
 var _KNAPP_LABELS = {
-    initiating: '起始', experimenting: '探索', intensifying: '加深',
-    integrating: '融合', bonding: '承诺', differentiating: '分化',
-    circumscribing: '限缩', stagnating: '停滞', avoiding: '回避', terminating: '结束'
+    initiating: '起始 Initiating', experimenting: '探索 Experimenting', intensifying: '加深 Intensifying',
+    integrating: '融合 Integrating', bonding: '承诺 Bonding', differentiating: '分化 Differentiating',
+    circumscribing: '限缩 Circumscribing', stagnating: '停滞 Stagnating', avoiding: '回避 Avoiding', terminating: '结束 Terminating'
 };
 var _KNAPP_PHASE = {
-    initiating: '接近期', experimenting: '接近期', intensifying: '接近期',
-    integrating: '接近期', bonding: '接近期', differentiating: '疏远期',
-    circumscribing: '疏远期', stagnating: '疏远期', avoiding: '疏远期', terminating: '疏远期'
+    initiating: '接近期 Coming Together', experimenting: '接近期 Coming Together', intensifying: '接近期 Coming Together',
+    integrating: '接近期 Coming Together', bonding: '接近期 Coming Together', differentiating: '疏远期 Coming Apart',
+    circumscribing: '疏远期 Coming Apart', stagnating: '疏远期 Coming Apart', avoiding: '疏远期 Coming Apart', terminating: '疏远期 Coming Apart'
 };
 var _REL_DIMS = [
-    ['closeness', '亲密度'], ['trust', '信任'], ['liking', '喜爱'],
-    ['respect', '尊重'], ['attractiveness', '吸引力'], ['power', '主导']
+    ['closeness', '亲密 Closeness'], ['trust', '信任 Trust'], ['liking', '喜爱 Liking'],
+    ['respect', '尊重 Respect'], ['attractiveness', '吸引 Attractiveness'], ['power', '主导 Power']
 ];
 var _PADB_DIMS = [
     ['pleasure', 'P 愉悦'], ['arousal', 'Ar 激动'],
@@ -748,7 +748,7 @@ function renderStatePanel(status) {
         if (s) {
             stageEl.innerHTML =
                 '<div class="knapp-badge">' + escapeHtml(_KNAPP_LABELS[s] || s) + '</div>' +
-                '<div class="knapp-phase">' + escapeHtml(_KNAPP_PHASE[s] || '') + '</div>';
+                (_KNAPP_PHASE[s] ? '<div class="knapp-phase">' + escapeHtml(_KNAPP_PHASE[s]) + '</div>' : '');
         } else {
             stageEl.textContent = '暂无数据';
         }
