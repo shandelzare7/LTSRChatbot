@@ -169,10 +169,10 @@ class Task(TypedDict, total=False):
 # ==========================================
 
 class ResponseSegment(TypedDict):
-    """单个回复气泡的定义（给客户端执行的“剧本”）。"""
+    """单个回复气泡的定义（给客户端执行的"剧本"）。"""
     content: str
     delay: float  # 发送该气泡前的等待时间（秒，相对于上一条气泡）
-    action: Literal["typing", "idle"]  # typing=显示“正在输入…”，idle=长离线纯等待
+    action: Literal["typing", "absence"]  # typing=显示"正在输入…"，absence=长离线/策略性沉默，纯等待
 
 
 class HumanizedOutput(TypedDict, total=False):
@@ -233,7 +233,7 @@ class ReplyPlan(TypedDict, total=False):
     stakes: Literal["low", "medium", "high"]
     first_message_role: ReplyMsgFunction
     pacing_strategy: str
-    # 生成端硬结构：用于避免“先生成再惩罚”，让 planner 显式思考预算与覆盖分配
+    # 生成端硬结构：用于避免"先生成再惩罚"，让 planner 显式思考预算与覆盖分配
     messages_count: int
     messages: List[ReplyPlanMessage]
     # must_cover_points -> message.id 映射（用于对齐计划目标与消息分配）
@@ -396,6 +396,8 @@ class AgentState(TypedDict, total=False):
     # --- Writer flags ---
     # Web 并发输入：用户消息可能已提前逐条落库，此时 save_turn 不应再写入 user_input（避免出现合并 user 行）
     skip_user_message_write: Optional[bool]
+    # Web fast-return：bot 回复已在 _run_one 中逐 segment 写入，tail graph 的 save_turn 不应再写
+    skip_bot_message_write: Optional[bool]
     
     # --- Memory System ---
     # 短期记忆窗口 (最近 10-20 条)
@@ -469,7 +471,7 @@ class AgentState(TypedDict, total=False):
     skip_reply: Optional[bool]
     reply_duration_seconds_list: Optional[List[float]]
     force_fast_route: Optional[bool]
-    # 直觉思考：由 Inner Monologue 节点生成（原 detection 的“先想再分类”现移入 inner_monologue）
+    # 直觉思考：由 Inner Monologue 节点生成（原 detection 的"先想再分类"现移入 inner_monologue）
     intuition_thought: Optional[str]
     # 关系滤镜：由 Inner Monologue 生成，此刻对 TA 的主观关系感受（字符串，非 relationship_state 数值）
     relationship_filter: Optional[str]
@@ -536,5 +538,16 @@ class AgentState(TypedDict, total=False):
     conversation_momentum: float         # 当前冲量值 0.0~1.0
 
     # --- Behavioral Layer Output (Processor) ---
-    # 更细粒度的“拟人化输出”，供客户端按 delay 播放打字/气泡
+    # 更细粒度的"拟人化输出"，供客户端按 delay 播放打字/气泡
     humanized_output: Optional[HumanizedOutput]
+
+    # --- Absence Gate Output ---
+    # 宏观缺席门控结果：由 absence_gate 节点写入，图路由据此决定是否跳过生成
+    absence_triggered: Optional[bool]       # True = 触发缺席，本轮不生成回复
+    absence_delay_seconds: Optional[float]  # 计划延迟秒数
+    absence_reason: Optional[str]           # sleep / ghosting / busy / cooling
+    absence_sub_reason: Optional[str]       # sleep_night / ghost_short / busy_work / emotion_processing …
+    pending_task_id: Optional[str]          # DB 写入成功后的 PendingBotResponse UUID
+
+    # Internal flag: cron runner 调用时置 True，让 absence_gate 直接透传，避免重复触发
+    _scheduled_run: Optional[bool]
