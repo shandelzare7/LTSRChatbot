@@ -3,9 +3,9 @@
 改动说明（V2 版本）：
 - 只输出纯文本独白，不做结构化提取（profile_keys / move_ids 移入 monologue_extraction 节点）
 - 输入改进：使用 state_to_text 将 PAD/busy/momentum/relationship 转成有感染力的文本
-- 字数不限（通常 600-1200），让独白自然流出
+- 字数目标 400-600，让独白自然流出
 - Prompt 重点：被触发的感受，不是"我应该怎么回"，而是"我心里真实的翻涌"
-- 历史窗口：降至 10-15 轮（对 RAG 检索结果的关联度更好）
+- 历史窗口：10 轮（对 RAG 检索结果的关联度更好）
 """
 from __future__ import annotations
 
@@ -25,10 +25,10 @@ from app.state import AgentState
 
 logger = logging.getLogger(__name__)
 
-INNER_MONOLOGUE_MAX_CHARS = 2000  # 不硬限，让独白自然，最后截断防溢出
+INNER_MONOLOGUE_MAX_CHARS = 800   # 软目标 400-600，硬截断防溢出
 LATEST_USER_TEXT_MAX = 800
-RECENT_MSG_CONTENT_MAX = 200  # 每条对话只显示 200 字，减少噪声
-RECENT_DIALOGUE_LAST_N = 15  # 降至 15 轮，减少 token 并提升相关性
+RECENT_MSG_CONTENT_MAX = 160  # 每条对话只显示 160 字，减少噪声
+RECENT_DIALOGUE_LAST_N = 10   # 降至 10 轮，减少 token 并提升相关性
 
 
 def _is_user_message(m: BaseMessage) -> bool:
@@ -341,18 +341,16 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 ---
 
 ## 你现在的任务
-写出你（{bot_name}）在这一刻的内心独白。
+写出你（{bot_name}）在这一刻的内心独白（**400-600 字**，意识流，不列条目）。
 
 不是分析{user_pronoun}说了什么，不是规划你该怎么回。
 就是你看到{user_pronoun}的消息时，脑子里涌上来的真实想法。
 
 你会想到什么？
 - 这句话触到了你什么，还是根本没触及？
-- 你有没有想起{user_pronoun}之前做过的什么事？
 - 你对{user_pronoun}这句话的真实反应是什么？
 - 你猜{user_pronoun}为什么这么说，背后是什么？
 - 你想靠近{user_pronoun}还是想推开{user_pronoun}？
-- 有没有什么小欲望在蠢蠢欲动？
 - 你们现在聊的方向，是让你越聊越有劲，还是有点转不出去的感觉？
 {topic_shift_hook}
 
