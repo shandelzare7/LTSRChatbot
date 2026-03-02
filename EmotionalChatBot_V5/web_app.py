@@ -1480,7 +1480,7 @@ async def get_session_status(
                 user_dimensions = dict(user.dimensions or {})
                 if not user_dimensions:
                     user_dimensions = get_random_relationship_template()
-                user_current_stage = user.current_stage.value if user.current_stage else None
+                user_current_stage = user.current_stage or None
                 result = await db_session.execute(
                     select(Message.id).where(Message.user_id == user.id).limit(1)
                 )
