@@ -678,7 +678,7 @@ var _KNAPP_PHASE = {
 };
 var _REL_DIMS = [
     ['closeness', '亲密 Closeness'], ['trust', '信任 Trust'], ['liking', '喜爱 Liking'],
-    ['respect', '尊重 Respect'], ['attractiveness', '吸引 Attract.'], ['power', '主导 Power']
+    ['respect', '尊重 Respect'], ['attractiveness', '吸引 Attractiveness'], ['power', '主导 Power']
 ];
 var _PADB_DIMS = [
     ['pleasure', 'P 愉悦'], ['arousal', 'Ar 激动'],
@@ -694,7 +694,7 @@ function _makeBarsHtml(dims, data) {
         var norm = (v < 0) ? (v + 1) / 2 : v;
         var pct = Math.round(Math.min(1, Math.max(0, norm)) * 100);
         return '<div class="bf-row">' +
-               '<span class="bf-label" style="width:95px">' + escapeHtml(d[1]) + '</span>' +
+               '<span class="bf-label" style="width:125px">' + escapeHtml(d[1]) + '</span>' +
                '<div class="bf-track"><div class="bf-fill" style="width:' + pct + '%"></div></div>' +
                '<span class="bf-val">' + pct + '</span></div>';
     }).join('');
