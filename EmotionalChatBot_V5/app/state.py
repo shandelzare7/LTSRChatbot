@@ -485,7 +485,7 @@ class AgentState(TypedDict, total=False):
     _profile: Annotated[Optional[Dict[str, Any]], _merge_profile]
     
     # --- Output Drivers (Style 节点 6 维输出) ---
-    # style: 节点输出的 6 维 dict（FORMALITY, POLITENESS, WARMTH, CERTAINTY, CHAT_MARKERS, EXPRESSION_MODE）
+    # style: 节点输出的 6 维 dict（FORMALITY, POLITENESS, WARMTH, CERTAINTY, EMOTIONAL_INTENSITY, EXPRESSION_MODE）
     style: Optional[Dict[str, Any]]
     # llm_instructions: 由 format_style_as_param_list 生成的参数字符串，供 reply_plan / fast_reply 注入 prompt
     llm_instructions: Any  # 实际为 str（参数列表字符串）或兼容旧 Dict

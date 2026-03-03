@@ -320,29 +320,24 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         certainty_cap = clip01(0.70 + 0.30 * evidence_opt)
     CERTAINTY = min(CERTAINTY, certainty_cap)
 
-    # (e) CHAT_MARKERS
-    CHAT_MARKERS = lin(
-        base=0.42,
+    # (e) EMOTIONAL_INTENSITY
+    # 情绪激活强度：Arousal 的 style 出口；与 WARMTH（方向）正交
+    EMOTIONAL_INTENSITY = lin(
+        base=0.40,
         terms={
-            "E": +0.35,
-            "familiarity": +0.35,
-            "P": +0.12,
-            "Ar": +0.18,
-            "momentum": +0.25,
-            "topic_appeal": +0.20,
-            "attractiveness": +0.10,
-            "C": -0.35,
-            "respect": -0.30,
-            "hierarchy": -0.30,
-            "busy": -0.45,
+            "Ar": +0.50,         # arousal: primary driver
+            "tension": +0.25,    # tense situations → more intense expression
+            "momentum": +0.20,   # high momentum → animated delivery
+            "topic_appeal": +0.15,
+            "N": +0.15,          # neurotic → more reactive expression
+            "P": +0.10,          # positive pleasure also activates
+            "busy": -0.20,       # busy → terse, measured
+            "C": -0.15,          # conscientious → controlled
         },
         values=v,
         gain=0.90,
     )
-    CHAT_MARKERS = clip01(CHAT_MARKERS + j)
-
-    # weaken coupling: allow "formal but a bit chatty" & "casual but restrained"
-    CHAT_MARKERS = clip01(CHAT_MARKERS - 0.15 * centered(FORMALITY))
+    EMOTIONAL_INTENSITY = clip01(EMOTIONAL_INTENSITY + j * 0.5)
 
     # (f) EXPRESSION_MODE
     indirectness = clip01(
@@ -371,9 +366,9 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         + j
     )
 
-    # slightly softened thresholds to improve observability
+    # 比喻由 figurative_bias 独立决定，与 indirectness/certainty 解耦
     EXPRESSION_MODE: ExprMode
-    if figurative_bias >= 0.60 and indirectness >= 0.47:
+    if figurative_bias >= 0.60:
         EXPRESSION_MODE = 2
     elif indirectness >= 0.60:
         EXPRESSION_MODE = 1
@@ -411,7 +406,6 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     if v["respect"] >= 0.80:
         if EXPRESSION_MODE == 3:
             EXPRESSION_MODE = 1
-        CHAT_MARKERS = min(CHAT_MARKERS, 0.40)
 
     if v["trust"] <= 0.35 or v["closeness"] <= 0.35:
         if EXPRESSION_MODE in (2, 3):
@@ -419,7 +413,6 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
 
     if v["busy"] >= 0.80:
         EXPRESSION_MODE = 0 if CERTAINTY >= 0.55 else 1
-        CHAT_MARKERS = min(CHAT_MARKERS, 0.20)
 
     # -----------------------------
     # post shaping (increase "margin" for LLM observability)
@@ -427,7 +420,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     FORMALITY = contrast_gamma01(FORMALITY, gamma=1.15)
     POLITENESS = contrast_gamma01(POLITENESS, gamma=1.30)
     WARMTH = contrast_gamma01(WARMTH, gamma=1.10)
-    CHAT_MARKERS = contrast_gamma01(CHAT_MARKERS, gamma=1.20)
+    EMOTIONAL_INTENSITY = contrast_gamma01(EMOTIONAL_INTENSITY, gamma=1.15)
 
     # CERTAINTY is safety-sensitive: keep mild, and respect the cap
     CERTAINTY = min(contrast_gamma01(CERTAINTY, gamma=1.05), certainty_cap)
@@ -438,7 +431,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         "WARMTH": float(WARMTH),
         "CERTAINTY": float(CERTAINTY),
         "EXPRESSION_MODE": int(EXPRESSION_MODE),
-        "CHAT_MARKERS": float(CHAT_MARKERS),
+        "EMOTIONAL_INTENSITY": float(EMOTIONAL_INTENSITY),
     }
 
 
@@ -545,13 +538,13 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
         llm_instructions = format_style_as_param_list(style_dict)
         logger.info(
             "[Style] FORMALITY=%.2f POLITENESS=%.2f WARMTH=%.2f CERTAINTY=%.2f "
-            "EXPRESSION_MODE=%d CHAT_MARKERS=%.2f | momentum=%.2f topic_appeal=%.2f busy=%.2f",
+            "EXPRESSION_MODE=%d EMOTIONAL_INTENSITY=%.2f | momentum=%.2f topic_appeal=%.2f busy=%.2f",
             style_dict.get("FORMALITY", 0),
             style_dict.get("POLITENESS", 0),
             style_dict.get("WARMTH", 0),
             style_dict.get("CERTAINTY", 0),
             style_dict.get("EXPRESSION_MODE", 0),
-            style_dict.get("CHAT_MARKERS", 0),
+            style_dict.get("EMOTIONAL_INTENSITY", 0),
             momentum,
             topic_appeal,
             busy,

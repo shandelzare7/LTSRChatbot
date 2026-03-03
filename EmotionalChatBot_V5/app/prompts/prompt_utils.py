@@ -68,7 +68,7 @@ def build_system_memory_block(state: Dict[str, Any]) -> str:
     return "\n\n".join(parts) if parts else "（无）"
 
 
-# 数值 -> 五档文字（用于 FORMALITY/POLITENESS/WARMTH/CERTAINTY/CHAT_MARKERS）
+# 数值 -> 五档文字（用于 FORMALITY/POLITENESS/WARMTH/CERTAINTY/EMOTIONAL_INTENSITY）
 _STYLE_VALUE_TO_LABEL = (
     (0.86, 1.01, "extremely_high"),
     (0.61, 0.86, "high"),
@@ -86,14 +86,14 @@ _STYLE_VALUE_TO_LABEL_ZH = (
 )
 
 # 新 6 维 style 的 key 顺序与 EXPRESSION_MODE 枚举
-_STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "CHAT_MARKERS", "EXPRESSION_MODE")
+_STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY", "EXPRESSION_MODE")
 # 6 维中文名（注入提示词用）
 _STYLE_6D_KEY_ZH = {
     "FORMALITY": "正式度",
     "POLITENESS": "礼貌度",
     "WARMTH": "温暖度",
     "CERTAINTY": "确定度",
-    "CHAT_MARKERS": "语气标记",
+    "EMOTIONAL_INTENSITY": "情感强度",
     "EXPRESSION_MODE": "表达模式",
 }
 _EXPRESSION_MODE_LABELS = {
@@ -117,12 +117,12 @@ _STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
         "high": "底层偏温暖，正面情绪时情感表达比较顺畅",
         "extremely_high": "底层气质亲密，情感表达阈值低，容易流露",
     },
-    "CHAT_MARKERS": {
-        "extremely_low": "零语气词/表情/感叹号，纯干文本",
-        "low": "极少语气词，偶尔一个'嗯'或句号",
-        "mid": "适量语气词（哈哈/嗯嗯/呀/～）和感叹号",
-        "high": "频繁语气词、颜表情、'hhh'/'awsl'等",
-        "extremely_high": "大量表情包/缩写/颜文字/重复感叹号",
+    "EMOTIONAL_INTENSITY": {
+        "extremely_low": "语气完全平静，无强调、无感叹，情绪完全内敛",
+        "low": "语气偏平，用词克制，情绪不外露",
+        "mid": "情绪适中，偶有强调或感叹",
+        "high": "明显情绪投入，强调副词、感叹号较多",
+        "extremely_high": "强烈情绪激活，大量强调/反复/感叹，语气高度外显",
     },
 }
 _STYLE_DIM_ANCHORS_EN: Dict[str, Dict[str, str]] = {
@@ -133,12 +133,12 @@ _STYLE_DIM_ANCHORS_EN: Dict[str, Dict[str, str]] = {
         "high": "warm baseline, fluent positive affect",
         "extremely_high": "intimate baseline, low threshold for affect",
     },
-    "CHAT_MARKERS": {
-        "extremely_low": "no fillers/emoticons/exclamation, plain text only",
-        "low": "very few fillers, occasional 嗯 or period",
-        "mid": "moderate fillers (哈哈/嗯嗯/呀/～) and exclamation",
-        "high": "frequent fillers, emoticons, hhh/awsl",
-        "extremely_high": "heavy stickers/abbrev/emoticons/repeated !!",
+    "EMOTIONAL_INTENSITY": {
+        "extremely_low": "completely flat delivery, no intensifiers or exclamations",
+        "low": "calm, measured, minimal emotional markers",
+        "mid": "moderate intensity, occasional emphasis",
+        "high": "noticeably animated, frequent intensifiers and exclamations",
+        "extremely_high": "highly activated, heavy use of intensifiers/repetition/exclamations",
     },
 }
 
@@ -205,7 +205,7 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
 
 
 def build_style_profile(state: Dict[str, Any]) -> Any:
-    """Reply plan / fast_reply 用：优先返回 6 维参数列表字符串（FORMALITY/POLITENESS/WARMTH/CERTAINTY/CHAT_MARKERS/EXPRESSION_MODE）；无 state['style'] 时回退到 style_profile / llm_instructions。"""
+    """Reply plan / fast_reply 用：优先返回 6 维参数列表字符串（FORMALITY/POLITENESS/WARMTH/CERTAINTY/EMOTIONAL_INTENSITY/EXPRESSION_MODE）；无 state['style'] 时回退到 style_profile / llm_instructions。"""
     style_dict = state.get("style")
     if isinstance(style_dict, dict) and style_dict:
         param_list = format_style_as_param_list(style_dict)

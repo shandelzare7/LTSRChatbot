@@ -5,14 +5,14 @@ scripts/validate_style.py
 Style 6D 风格参数公式验证脚本
 
 Part A: 单变量扫描（单调性验证）
-  - 扫描 closeness 0→1：CHAT_MARKERS↑, WARMTH↑, FORMALITY↓
-  - 扫描 momentum 0→1：CHAT_MARKERS↑, FORMALITY↓
-  - 扫描 arousal（低 P 制造高张力）：WARMTH↓
+  - 扫描 closeness 0→1：WARMTH↑, FORMALITY↓
+  - 扫描 momentum 0→1：EMOTIONAL_INTENSITY↑, FORMALITY↓
+  - 扫描 arousal（低 P 制造高张力）：WARMTH↓, EMOTIONAL_INTENSITY↑
 
 Part B: 边界/守卫条件验证
   - respect=0.85 → EXPRESSION_MODE ≤ 1（讽刺被禁用）
   - trust=0.30  → EXPRESSION_MODE ≤ 1（比喻/讽刺被禁用）
-  - busy=0.85   → CHAT_MARKERS ≤ 0.20
+  - busy=0.85   → EMOTIONAL_INTENSITY 偏低（busy -0.20 权重）
   - 四重联合条件全满足 → EXPRESSION_MODE = 3（讽刺激活）
 
 输出：style_validation_results.csv + style_validation_report.json
@@ -66,12 +66,11 @@ SWEEP_SPECS: List[Dict[str, Any]] = [
         "label": "closeness 0→1 (momentum=topic_appeal=0.5，其余中性)",
         "var": "closeness",
         "extra_fixed": {},
-        "expected_increase": ["CHAT_MARKERS", "WARMTH"],
+        "expected_increase": ["WARMTH"],
         "expected_decrease": ["FORMALITY"],
         "hypothesis": (
             "closeness 提升 → familiarity 上升 → "
-            "CHAT_MARKERS↑ (familiarity +0.35), WARMTH↑ (familiarity +0.25), "
-            "FORMALITY↓ (familiarity -0.40)"
+            "WARMTH↑ (familiarity +0.25), FORMALITY↓ (familiarity -0.40)"
         ),
     },
     {
@@ -80,10 +79,10 @@ SWEEP_SPECS: List[Dict[str, Any]] = [
         "label": "momentum 0→1 (closeness=0.5，其余中性)",
         "var": "momentum",
         "extra_fixed": {},
-        "expected_increase": ["CHAT_MARKERS"],
+        "expected_increase": ["EMOTIONAL_INTENSITY"],
         "expected_decrease": ["FORMALITY"],
         "hypothesis": (
-            "momentum 提升 → CHAT_MARKERS↑ (momentum +0.25), "
+            "momentum 提升 → EMOTIONAL_INTENSITY↑ (momentum +0.20), "
             "FORMALITY↓ (momentum -0.10)"
         ),
     },
@@ -93,10 +92,11 @@ SWEEP_SPECS: List[Dict[str, Any]] = [
         "label": "Ar 0→1 (P=0.2 低愉悦制造高张力，其余中性)",
         "var": "Ar",
         "extra_fixed": {"P": 0.2},
-        "expected_increase": [],
+        "expected_increase": ["EMOTIONAL_INTENSITY"],
         "expected_decrease": ["WARMTH"],
         "hypothesis": (
-            "Ar↑ + 低P → tension↑ → WARMTH↓ (tension -0.30)"
+            "Ar↑ + 低P → tension↑ → WARMTH↓ (tension -0.30); "
+            "Ar↑ → EMOTIONAL_INTENSITY↑ (Ar +0.50)"
         ),
     },
 ]
@@ -236,7 +236,6 @@ GUARDRAIL_SPECS: List[Dict[str, Any]] = [
         "inputs": {**_IRONY_BASE, "respect": 0.85},
         "checks": [
             ("EXPRESSION_MODE", "<=", 1),
-            ("CHAT_MARKERS", "<=", 0.40),
         ],
     },
     # ── B03: trust=0.30 → 比喻/讽刺被 guardrail 截断 ────────────────────
@@ -265,17 +264,17 @@ GUARDRAIL_SPECS: List[Dict[str, Any]] = [
             ("EXPRESSION_MODE", "<=", 1),
         ],
     },
-    # ── B05: busy=0.85 → CHAT_MARKERS ≤ 0.20 ────────────────────────────
+    # ── B05: busy=0.85 → EMOTIONAL_INTENSITY 偏低 ────────────────────────
     {
         "id": "B05",
-        "name": "busy_chat_markers_guardrail",
-        "label": "busy=0.85 → CHAT_MARKERS ≤ 0.20",
+        "name": "busy_emotional_intensity_low",
+        "label": "busy=0.85 → EMOTIONAL_INTENSITY ≤ 0.55",
         "hypothesis": (
-            "guardrail: if busy≥0.80 → CHAT_MARKERS=min(CHAT_MARKERS, 0.20)"
+            "busy 高 → EMOTIONAL_INTENSITY↓ (busy -0.20 权重)"
         ),
         "inputs": {"busy": 0.85},
         "checks": [
-            ("CHAT_MARKERS", "<=", 0.20),
+            ("EMOTIONAL_INTENSITY", "<=", 0.55),
         ],
     },
     # ── B06: busy=0.85 → EXPRESSION_MODE = 0 or 1 ───────────────────────
@@ -306,19 +305,19 @@ GUARDRAIL_SPECS: List[Dict[str, Any]] = [
         "contrast_threshold": 0.10,  # 要求差值 ≥ 0.10
         "checks": [],  # 特殊处理
     },
-    # ── B08: 高 momentum 场景 CHAT_MARKERS 显著高于低 momentum ───────────
+    # ── B08: 高 momentum 场景 EMOTIONAL_INTENSITY 显著高于低 momentum ──────
     {
         "id": "B08",
-        "name": "momentum_chat_markers_contrast",
-        "label": "momentum=0.9 vs 0.1：CHAT_MARKERS 应显著更高",
+        "name": "momentum_emotional_intensity_contrast",
+        "label": "momentum=0.9 vs 0.1：EMOTIONAL_INTENSITY 应显著更高",
         "hypothesis": (
-            "高动量(momentum=0.9)的 CHAT_MARKERS 应显著高于低动量(momentum=0.1)"
+            "高动量(momentum=0.9)的 EMOTIONAL_INTENSITY 应显著高于低动量(momentum=0.1)"
         ),
         "inputs_a": {"momentum": 0.9},
         "inputs_b": {"momentum": 0.1},
-        "contrast_key": "CHAT_MARKERS",
+        "contrast_key": "EMOTIONAL_INTENSITY",
         "contrast_direction": "a_greater",
-        "contrast_threshold": 0.05,  # 要求差值 ≥ 0.05
+        "contrast_threshold": 0.05,
         "checks": [],
     },
 ]
@@ -438,7 +437,7 @@ def save_csv(sweep_rows: List[Dict], part_b_results: List[Dict]) -> None:
         writer.writerow([
             "test_id", "sweep_var", "sweep_value",
             "FORMALITY", "POLITENESS", "WARMTH",
-            "CERTAINTY", "EXPRESSION_MODE", "CHAT_MARKERS",
+            "CERTAINTY", "EXPRESSION_MODE", "EMOTIONAL_INTENSITY",
         ])
         for row in sweep_rows:
             writer.writerow([
@@ -450,7 +449,7 @@ def save_csv(sweep_rows: List[Dict], part_b_results: List[Dict]) -> None:
                 round(row["WARMTH"], 4),
                 round(row["CERTAINTY"], 4),
                 row["EXPRESSION_MODE"],
-                round(row["CHAT_MARKERS"], 4),
+                round(row["EMOTIONAL_INTENSITY"], 4),
             ])
 
         writer.writerow([])

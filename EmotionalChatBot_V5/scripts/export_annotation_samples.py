@@ -423,13 +423,13 @@ def export_judge_samples(samples: List[Dict]) -> str:
 # ║  标注网页专用 CSV 导出（简洁格式，供 /annotation/ 页面使用）              ║
 # ╚══════════════════════════════════════════════════════════════════════════╝
 
-_WEBAPP_STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "CHAT_MARKERS"]
+_WEBAPP_STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
 _WEBAPP_DIM_KEY: Dict[str, str] = {
-    "FORMALITY":    "formality",
-    "POLITENESS":   "politeness",
-    "WARMTH":       "warmth",
-    "CERTAINTY":    "certainty",
-    "CHAT_MARKERS": "chat_markers",
+    "FORMALITY":           "formality",
+    "POLITENESS":          "politeness",
+    "WARMTH":              "warmth",
+    "CERTAINTY":           "certainty",
+    "EMOTIONAL_INTENSITY": "emotional_intensity",
 }
 
 
