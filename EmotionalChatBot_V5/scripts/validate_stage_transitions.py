@@ -29,8 +29,11 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.nodes.relation.stage_manager import evaluate_transition
+from app.nodes.relation.stage_manager import KnappStageManager
 from app.nodes.pipeline.style import compute_style_keys, Inputs
+
+_manager = KnappStageManager()
+evaluate_transition = _manager.evaluate_transition
 
 
 # ─────────────────────────────────────────────────────────────
@@ -43,11 +46,13 @@ def _rel(cl=0.3, tr=0.3, li=0.3, re=0.4, at=0.4, po=0.5) -> dict:
 
 def _spt(depth=1, breadth=2, trend="stable",
          depth_reduction=False, breadth_reduction=False) -> dict:
+    signals = []
+    if depth_reduction:
+        signals.append("depth_reduction")
+    if breadth_reduction:
+        signals.append("breadth_reduction")
     return dict(depth=depth, breadth=breadth, depth_trend=trend,
-                recent_signals={
-                    "depth_reduction": depth_reduction,
-                    "breadth_reduction": breadth_reduction,
-                })
+                recent_signals=signals)
 
 
 def _assets(confirm_counts: dict | None = None, topic_history: list | None = None) -> dict:
@@ -79,7 +84,8 @@ def _build_state(
         "relationship_assets": assets,
         "user_inferred_profile": _profile(profile_n),
         "user_basic_info": {},
-        "chat_buffer": [None] * (user_turns * 2),  # 长度 ≈ 2×turn_count
+        "chat_buffer": [None] * (user_turns * 2),
+        "turn_count_in_session": user_turns,
     }
     if rel_deltas:
         state["relationship_deltas_applied"] = rel_deltas
@@ -155,11 +161,11 @@ TEST_CASES = [
 
     # ══════════════ GROWTH 测试 ══════════════════════════════════
     {
-        "desc": "initiating→experimenting：亲密≥0.20+信任≥0.15+深度≥1+话题≥2，连续2轮",
+        "desc": "initiating→experimenting：亲密≥0.20+信任≥0.15+喜爱≥0.22+深度≥1+话题≥2，连续2轮",
         "stage": "initiating",
-        "rel": _rel(cl=0.22, tr=0.17, li=0.18, re=0.40, at=0.40, po=0.50),
+        "rel": _rel(cl=0.22, tr=0.17, li=0.25, re=0.40, at=0.40, po=0.50),
         "spt": _spt(depth=1, breadth=3),
-        "assets": _assets(confirm_counts={"initiating": 2}),
+        "assets": _assets(confirm_counts={"growth_initiating_experimenting": 1}),  # 已确认1轮，本轮是第2轮
         "profile_n": 1,
         "expected_stage": "experimenting",
         "expected_type": "GROWTH",
@@ -169,7 +175,7 @@ TEST_CASES = [
         "stage": "experimenting",
         "rel": _rel(cl=0.44, tr=0.40, li=0.44, re=0.40, at=0.45, po=0.50),
         "spt": _spt(depth=2, breadth=5),
-        "assets": _assets(confirm_counts={"experimenting": 2}),
+        "assets": _assets(confirm_counts={"growth_experimenting_intensifying": 1}),  # 已确认1轮
         "profile_n": 4,
         "expected_stage": "intensifying",
         "expected_type": "GROWTH",
@@ -181,7 +187,7 @@ TEST_CASES = [
         "stage": "experimenting",
         "rel": _rel(cl=0.35, tr=0.35, li=0.05, re=0.35, at=0.40, po=0.50),
         "spt": _spt(depth=1, breadth=2),
-        "assets": _assets(confirm_counts={"decay_experimenting": 3}),
+        "assets": _assets(confirm_counts={"decay_experimenting_initiating": 2}),  # 已确认2轮，本轮是第3轮
         "expected_stage": "initiating",
         "expected_type": "DECAY",
     },
@@ -190,7 +196,7 @@ TEST_CASES = [
         "stage": "intensifying",
         "rel": _rel(cl=0.55, tr=0.50, li=0.50),
         "spt": _spt(depth=2, breadth=4, trend="decreasing", depth_reduction=True),
-        "assets": _assets(confirm_counts={"decay_intensifying": 3}),
+        "assets": _assets(confirm_counts={"decay_intensifying_experimenting": 2}),  # 已确认2轮
         "expected_stage": "experimenting",
         "expected_type": "DECAY",
     },
@@ -199,7 +205,7 @@ TEST_CASES = [
         "stage": "differentiating",
         "rel": _rel(cl=0.55, tr=0.42, li=0.45, re=0.38),
         "spt": _spt(depth=2, breadth=3),
-        "assets": _assets(confirm_counts={"decay_differentiating": 3}),
+        "assets": _assets(confirm_counts={"decay_differentiating_circumscribing": 2}),  # 已确认2轮
         "expected_stage": "circumscribing",
         "expected_type": "DECAY",
     },
@@ -210,19 +216,19 @@ TEST_CASES = [
         "stage": "intensifying",
         "rel": _rel(cl=0.62, tr=0.58, li=0.60, re=0.42, at=0.50, po=0.50),
         "spt": _spt(depth=3, breadth=6),
-        "assets": _assets(confirm_counts={"intensifying": 1}),  # 需要2轮
-        "profile_n": 4,
+        "assets": _assets(confirm_counts={"growth_intensifying_integrating": 0}),  # 仅第1轮，需要2轮
+        "profile_n": 5,
         "expected_stage": "intensifying",
         "expected_type": "STAY",
     },
     {
-        "desc": "power_balance veto：权力失衡>0.3，即使满足升级条件→STAY",
-        "stage": "experimenting",
-        "rel": _rel(cl=0.44, tr=0.40, li=0.44, re=0.40, at=0.45, po=0.85),  # |0.85-0.5|=0.35>0.3
-        "spt": _spt(depth=2, breadth=5),
-        "assets": _assets(confirm_counts={"experimenting": 2}),
-        "profile_n": 4,
-        "expected_stage": "experimenting",
+        "desc": "power_balance veto：权力失衡>0.3，即使满足升级条件→STAY（仅integrating→bonding生效）",
+        "stage": "integrating",
+        "rel": _rel(cl=0.76, tr=0.72, li=0.72, re=0.52, at=0.60, po=0.85),  # |0.85-0.5|=0.35>0.3
+        "spt": _spt(depth=4, breadth=6),
+        "assets": _assets(confirm_counts={"growth_integrating_bonding": 1}),
+        "profile_n": 6,
+        "expected_stage": "integrating",
         "expected_type": "STAY",   # power_balance veto
     },
     {

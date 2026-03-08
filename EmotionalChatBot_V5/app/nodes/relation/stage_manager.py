@@ -17,6 +17,7 @@ Knapp 阶段管理器节点：在 evolver 之后执行阶段迁移判定。
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -82,6 +83,8 @@ class KnappStageManager:
         Returns:
           { "new_stage": str, "reason": str, "transition_type": "JUMP"|"DECAY"|"GROWTH"|"STAY" }
         """
+        if os.getenv("ABLATION_MODE"):
+            return {"new_stage": current_stage, "reason": "ablation_mode", "transition_type": "STAY"}
         parsed = StageManagerInput.model_validate(state)  # pydantic v2
         scores = parsed.relationship_state.model_dump()
         user_turns = self._count_user_turns(state)
@@ -483,6 +486,21 @@ def create_stage_manager_node(config_path: Optional[str] = None):
                 "depth_trend": "stable",
                 "recent_signals": [str(x) for x in detected],
             }
+        else:
+            # spt_info 已存在，但 breadth/depth 可能过时（memory_manager 更新 relationship_assets 而非 spt_info）
+            # 始终从 relationship_assets 同步最新值
+            assets = state.get("relationship_assets") or {}
+            if isinstance(spt_info, dict):
+                spt_info = dict(spt_info)
+            else:
+                spt_info = spt_info.model_dump() if hasattr(spt_info, "model_dump") else dict(spt_info)
+            asset_breadth = int(assets.get("breadth_score") or 0)
+            asset_depth = int(assets.get("max_spt_depth") or 1)
+            if asset_breadth > int(spt_info.get("breadth") or 0):
+                spt_info["breadth"] = asset_breadth
+            if asset_depth > int(spt_info.get("depth") or 1):
+                spt_info["depth"] = asset_depth
+            spt_info["topic_list"] = list(assets.get("topic_history") or spt_info.get("topic_list") or [])
 
         # 收集当前状态信息用于监控
         rel_state = state.get("relationship_state") or {}

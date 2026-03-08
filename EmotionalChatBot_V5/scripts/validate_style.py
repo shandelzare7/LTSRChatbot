@@ -69,8 +69,8 @@ SWEEP_SPECS: List[Dict[str, Any]] = [
         "expected_increase": ["WARMTH"],
         "expected_decrease": ["FORMALITY"],
         "hypothesis": (
-            "closeness 提升 → familiarity 上升 → "
-            "WARMTH↑ (familiarity +0.25), FORMALITY↓ (familiarity -0.40)"
+            "closeness 提升 → intimacy_index 上升 → "
+            "WARMTH↑ (intimacy_index +0.25), FORMALITY↓ (intimacy_index -0.40)"
         ),
     },
     {

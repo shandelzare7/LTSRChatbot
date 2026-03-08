@@ -21,6 +21,7 @@ bot_to_bot_chat.py
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import random
 import re
@@ -97,18 +98,98 @@ def _random_bot_description(gender: str) -> str:
     )
 
 
-# 首句池：两 bot 互聊时每次会话的首句随机（避免都是“你好”式打招呼）
+# 首句池：两 bot 互聊时每次会话的首句随机（避免都是"你好"式打招呼）
+# Phase 4 全新首句池（Phase 1-3 使用的 77 条已全部替换）
 FIRST_MESSAGE_POOL = [
-    "今天天气好怪啊，一会儿晴一会儿阴的。",
-    "你最近有看什么剧或书吗？我剧荒了。",
-    "刚想到一个冷笑话，要听吗？",
-    "你觉得周末最适合干嘛？睡觉还是出门？",
-    "我昨天梦到一件特别离谱的事。",
-    "如果只能选一种零食吃一辈子你选啥？",
-    "你平时会自己做饭吗？",
-    "有没有什么你一直想学但没学的东西？",
-    "你更喜欢早起还是熬夜？",
-    "假如明天开始不用上班/上学，你第一件事会做啥？",
+    # 日常闲聊型
+    "你最近在追什么剧啊？我感觉找不到好看的了。",
+    "我今天出门忘带伞了，结果下了一整天的雨。",
+    "你平时周末一般都干嘛？我感觉自己越来越宅了。",
+    "我发现我已经连续三天点同一家外卖了，是不是有点离谱。",
+    "刚才午休的时候做了个特别离奇的梦，醒来啥都不记得了。",
+    "你有没有那种明明很困但就是不想睡的时候？",
+    "今天地铁上看到一个人拿着一盆绿萝，也不知道他要去哪。",
+    # 好奇提问型
+    "你说为什么有的人特别怕打电话？我就是那种能发消息绝不打电话的。",
+    "你觉得养猫好还是养狗好？我纠结了好久。",
+    "有个问题想问你很久了——你觉得自己算内向还是外向？",
+    "你一般怎么缓解压力？我最近试了冥想但完全静不下来。",
+    "我一直好奇，你是怎么选择现在这份工作的？",
+    "你觉得朋友之间需要天天联系吗？",
+    "你有没有什么特别小众的爱好？",
+    # 分享见闻型
+    "我今天在公园看到一只松鼠偷了一个小朋友的饼干，笑死我了。",
+    "告诉你一个冷知识——蜗牛可以睡三年。",
+    "我刚在楼下碰到一个超级像我初中同学的人，但又不敢认。",
+    "我同事今天带了自己做的蛋糕来公司，味道出乎意料的好。",
+    "今天路过一家新开的书店，装修特别有意思，像是个树洞。",
+    "我刚才在超市看到有人一次买了二十包泡面，真的佩服。",
+    "你知道吗，我今天居然在街上看到有人骑独轮车上班。",
+    # 情绪倾诉型
+    "最近感觉自己什么事都提不起劲来，不知道是怎么了。",
+    "我今天跟家里人吵了一架，现在心里堵得慌。",
+    "有时候觉得自己挺没用的，什么事都做不好。",
+    "不知道为什么今天特别想哭，可能是太久没休息了。",
+    "我最近一直在想一个问题，越想越焦虑。",
+    "你有没有那种对未来完全看不清楚的感觉？",
+    "我觉得我最近的状态特别不对，但又说不上来哪里不对。",
+    # 热情社交型
+    "嘿！好久不见！最近过得怎么样？",
+    "我刚想起来你上次说的那件事，后来怎么样了？",
+    "正想找你聊聊呢，你现在方便吗？",
+    "你最近有没有去什么好玩的地方？给我推荐推荐。",
+    "对了，你生日快到了吧？有没有什么想要的？",
+    "我昨天看到一个视频想到了你，等下发给你看。",
+    # 观点讨论型
+    "你觉得现在的年轻人为什么越来越不想结婚了？",
+    "我最近看了一本书，里面有个观点我觉得挺有意思的——人其实是在不断自我欺骗。",
+    "你有没有想过，为什么大家都喜欢怀念过去？",
+    "你觉得努力和天赋哪个更重要？",
+    "我发现一个现象——越是忙的人越能挤出时间。",
+    "你觉得一个人独处的能力重要吗？",
+    "有人说人生就是不断失去的过程，你怎么看？",
+    # 吐槽抱怨型
+    "我真的要疯了，今天开了三个小时的会，全是废话。",
+    "你能信吗，快递放了五天才给我送到。",
+    "我楼上邻居又在半夜搞装修，我真想上去敲门。",
+    "为什么总有人在安静的车厢里外放视频？素质呢？",
+    "今天食堂的饭难吃到我怀疑人生。",
+    "被一个客户折腾了一整天，反反复复改了八遍。",
+    "堵车堵了一个半小时，我在车里差点睡着了。",
+    # 试探/含蓄型
+    "话说……你平时都跟谁聊这些啊？",
+    "我也不知道该不该跟你说这个事。",
+    "你会不会觉得我有时候挺烦的？",
+    "有件事我一直想问你，但又怕问了不太好。",
+    "你对我的印象是什么样的？好奇而已。",
+    "我有个朋友遇到了一个问题……其实就是我自己。",
+    # 冲突/质疑型
+    "你上次那么说是什么意思？我一直在想。",
+    "我觉得你对我有偏见，是不是因为那件事？",
+    "你能不能认真听我说一次？",
+    "我不太喜欢你刚才的语气。",
+    "你是不是故意的？如果是的话我觉得很没意思。",
+    "我们之间是不是哪里出了问题？我总感觉最近不太对。",
+    "既然你觉得我说的不对，那你说应该怎么办？",
+    # 冷淡/敷衍型
+    "嗯，都行。",
+    "知道了。",
+    "你自己看着办吧。",
+    "无所谓，我没意见。",
+    "好吧，就这样吧。",
+    # 突发/紧急型
+    "天哪出大事了你在吗？",
+    "完蛋了我把手机屏幕摔碎了。",
+    "你快帮我想想办法，我明天要交的东西还没做完。",
+    "你听说了吗？那个事情后续出来了！",
+    "救命啊我刚把领导的名字打错发出去了。",
+    "我钱包好像丢了，最后一次用还是中午的时候。",
+    # 深夜emo型
+    "你说人为什么总是在深夜想太多？",
+    "我有时候觉得自己像个局外人，周围的一切都跟我无关。",
+    "你会不会偶尔觉得活着很没意思？别误会我不是那个意思。",
+    "你觉得什么样的关系才算是真正的朋友？",
+    "我最近老是做同一个梦，梦里的人我根本不认识。",
 ]
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -223,7 +304,7 @@ def _region_to_location(region: str | None) -> str:
 
 def _user_profiles_from_bot(bot_basic_info: dict, bot_persona: dict, bot_big_five: dict) -> tuple[dict, dict]:
     """
-    bot-to-bot 压测：把“对方是谁”的 User 画像直接绑定到对方 Bot 的人设（避免随机人类画像污染）。
+    bot-to-bot 压测：把"对方是谁"的 User 画像直接绑定到对方 Bot 的人设（避免随机人类画像污染）。
     Returns: (user_basic_info, user_inferred_profile)
     """
     basic = dict(bot_basic_info or {})
@@ -245,7 +326,7 @@ def _user_profiles_from_bot(bot_basic_info: dict, bot_persona: dict, bot_big_fiv
         "age": age,
         "location": location,
         "occupation": basic.get("occupation"),
-        # 标记：该 user 是 bot-to-bot 中的“对方 bot 代理画像”
+        # 标记：该 user 是 bot-to-bot 中的"对方 bot 代理画像"
         "bot_proxy": True,
     }
 
@@ -473,9 +554,9 @@ async def run_one_turn(
     # 仅本脚本运行时强制不走 fast 路由（不依赖环境变量 FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED）
     state["bot2bot_disable_fast_route"] = True
     state["force_fast_route"] = False  # 明确不走 fast_reply，走 LATS 生成+评审
-    # bot-to-bot 压测：更偏“探索拟人化”而非“根计划过线就早退”
+    # bot-to-bot 压测：更偏"探索拟人化"而非"根计划过线就早退"
     state["lats_rollouts"] = int(os.getenv("BOT2BOT_LATS_ROLLOUTS", "4"))
-    # 默认 expand_k=2：与线上“平衡版”一致（避免变体生成与 soft scorer 调用爆炸）
+    # 默认 expand_k=2：与线上"平衡版"一致（避免变体生成与 soft scorer 调用爆炸）
     state["lats_expand_k"] = int(os.getenv("BOT2BOT_LATS_EXPAND_K", "2"))
     state["lats_early_exit_root_score"] = float(os.getenv("BOT2BOT_EARLY_EXIT_SCORE", "0.82"))
     state["lats_early_exit_plan_alignment_min"] = float(os.getenv("BOT2BOT_EARLY_EXIT_PLAN_MIN", "0.75"))
@@ -583,6 +664,10 @@ async def main() -> None:
     single_log_path = log_dir / f"bot_to_bot_chat_{ts}.log"
     log_file = open(single_log_path, "w", encoding="utf-8")
 
+    # 标注数据文件：每轮一条 JSON，供后续标注实验使用
+    annotation_jsonl_path = log_dir / f"bot_to_bot_chat_{ts}_annotation.jsonl"
+    annotation_file = open(annotation_jsonl_path, "w", encoding="utf-8")
+
     db = DBManager.from_env()
     # schema 初始化：偶发情况下 DDL 可能等待锁；bot-to-bot 压测允许跳过/超时继续（表通常已存在）
     if str(os.getenv("BOT2BOT_SKIP_SCHEMA", "0")).lower() not in ("1", "true", "yes", "on"):
@@ -658,11 +743,47 @@ async def main() -> None:
                 b2_sidewrite, b2_backlog = await generate_sidewrite_and_backlog(llm, b2_basic, b2_big_five, b2_persona)
             except Exception as e:
                 log_line(f"  ⚠ 侧写/任务库生成失败: {e}")
-            # 用随机 Big Five 与 PADB 覆盖 LLM 输出，增加两 Bot 多样性
-            b1_big_five = _random_big_five()
-            b2_big_five = _random_big_five()
+            # Big Five：优先使用环境变量覆盖（JSON），否则随机
+            _env_b5a = os.getenv("BOT2BOT_BIG_FIVE_A", "").strip()
+            _env_b5b = os.getenv("BOT2BOT_BIG_FIVE_B", "").strip()
+            if _env_b5a:
+                try:
+                    b1_big_five = json.loads(_env_b5a)
+                    log_line(f"  Bot A Big Five 使用环境变量覆盖: {b1_big_five}")
+                except Exception:
+                    b1_big_five = _random_big_five()
+            else:
+                b1_big_five = _random_big_five()
+            if _env_b5b:
+                try:
+                    b2_big_five = json.loads(_env_b5b)
+                    log_line(f"  Bot B Big Five 使用环境变量覆盖: {b2_big_five}")
+                except Exception:
+                    b2_big_five = _random_big_five()
+            else:
+                b2_big_five = _random_big_five()
             b1_padb = _random_padb()
             b2_padb = _random_padb()
+            # Phase 2: PAD 情绪预设（影响 style 计算中的 P/Ar/D）
+            # 配置文件用 [0,1] 标度的 P/Ar/D；style.py 读 pleasure/arousal/dominance（[-1,1] 标度）
+            # 转换: m1_1_value = 01_value * 2 - 1
+            _env_initial_pad = os.getenv("BOT2BOT_INITIAL_PAD", "").strip()
+            if _env_initial_pad:
+                try:
+                    _pad = json.loads(_env_initial_pad)
+                    _pad_m1 = {}
+                    _key_map = {"P": "pleasure", "Ar": "arousal", "D": "dominance"}
+                    for k01, km1 in _key_map.items():
+                        if k01 in _pad:
+                            _pad_m1[km1] = round(float(_pad[k01]) * 2 - 1, 4)
+                    if "busyness" in _pad:
+                        _pad_m1["busyness"] = float(_pad["busyness"])
+                        _pad_m1["busyness_fixed"] = True  # 防止 loader 用时间兜底值覆盖
+                    b1_padb = {**b1_padb, **_pad_m1}
+                    b2_padb = {**b2_padb, **_pad_m1}
+                    log_line(f"  Phase 2 PAD 预设覆盖: {_pad} → m1_1 scale: {_pad_m1}")
+                except Exception:
+                    pass
             log_line(f"  Bot A 随机 big_five={b1_big_five}  mood_state(PADB)={b1_padb}")
             log_line(f"  Bot B 随机 big_five={b2_big_five}  mood_state(PADB)={b2_padb}")
         finally:
@@ -718,11 +839,20 @@ async def main() -> None:
     log_line(f"Bot B 下 User A: load_state({user_a_external_id!r}, {bot_b_id[:8]}...)")
     _ = await db.load_state(user_a_external_id, bot_b_id)
 
-    # 强制设置为空人设，且关系维度使用参考值（app/core/relationship_templates.py）
-    template_name = (os.getenv("BOT2BOT_USER_DIMENSIONS_TEMPLATE") or "friendly_icebreaker").strip()
-    if template_name not in ("neutral_stranger", "friendly_icebreaker", "moderate_acquaintance"):
-        template_name = "friendly_icebreaker"
-    ref_dims = get_relationship_template_by_name(template_name)  # type: ignore[arg-type]
+    # 强制设置为空人设，且关系维度使用参考值或自定义值
+    _env_custom_dims = os.getenv("BOT2BOT_CUSTOM_DIMS", "").strip()
+    if _env_custom_dims:
+        try:
+            ref_dims = json.loads(_env_custom_dims)
+            template_name = "custom"
+        except Exception:
+            template_name = "friendly_icebreaker"
+            ref_dims = get_relationship_template_by_name(template_name)  # type: ignore[arg-type]
+    else:
+        template_name = (os.getenv("BOT2BOT_USER_DIMENSIONS_TEMPLATE") or "friendly_icebreaker").strip()
+        if template_name not in ("neutral_stranger", "friendly_icebreaker", "moderate_acquaintance"):
+            template_name = "friendly_icebreaker"
+        ref_dims = get_relationship_template_by_name(template_name)  # type: ignore[arg-type]
     log_line("\n" + "=" * 60)
     log_line("强制设置 User：basic_info/inferred_profile 为空，dimensions 使用参考值")
     log_line(f"  参考文档: app/core/relationship_templates.py  模板: {template_name}")
@@ -758,11 +888,44 @@ async def main() -> None:
         log_line("✓ 空人设与参考值设置完成")
     except Exception as e:
         log_line(f"⚠ 空人设设置失败: {e}")
-    
+
+    # Phase 2: 预设起始 Knapp 阶段和行为资产（绕过 topic_breadth/profile_fields 等行为门控）
+    _env_initial_stage = os.getenv("BOT2BOT_INITIAL_STAGE", "").strip()
+    _env_initial_assets = os.getenv("BOT2BOT_INITIAL_ASSETS", "").strip()
+    if _env_initial_stage or _env_initial_assets:
+        _stage = _env_initial_stage or "initiating"
+        _assets_override: dict = {}
+        if _env_initial_assets:
+            try:
+                _assets_override = json.loads(_env_initial_assets)
+            except Exception:
+                log_line(f"⚠ BOT2BOT_INITIAL_ASSETS JSON 解析失败，忽略")
+        try:
+            async with db.Session() as session:
+                async with session.begin():
+                    for _uid, _bid in [(user_b_external_id, bot_a_id), (user_a_external_id, bot_b_id)]:
+                        _u = (
+                            (await session.execute(
+                                select(User).where(User.bot_id == uuid.UUID(_bid), User.external_id == _uid)
+                            ))
+                            .scalars()
+                            .first()
+                        )
+                        if _u:
+                            if _env_initial_stage:
+                                _u.current_stage = _stage
+                            if _assets_override:
+                                merged = dict(_u.assets or {})
+                                merged.update(_assets_override)
+                                _u.assets = merged
+            log_line(f"✓ Phase 2 预设: stage={_stage}, assets={_assets_override or '(unchanged)'}")
+        except Exception as e:
+            log_line(f"⚠ Phase 2 stage/assets 预设失败: {e}")
+
     # 保留原有逻辑作为fallback（如果不需要空人设）
     use_empty_profile = str(os.getenv("BOT2BOT_EMPTY_USER_PROFILE", "1")).lower() in ("1", "true", "yes", "on")
     if not use_empty_profile:
-        # bot-to-bot 关键修复：把 user 画像绑定到“对方 bot 的 persona/basic_info”，避免随机人类画像污染
+        # bot-to-bot 关键修复：把 user 画像绑定到"对方 bot 的 persona/basic_info"，避免随机人类画像污染
         try:
             async with db.Session() as session:
                 async with session.begin():
@@ -796,11 +959,11 @@ async def main() -> None:
                         )
                         u_ba.basic_info = user_basic
                         u_ba.inferred_profile = user_inferred
-            log_line("✓ bot-to-bot: 已将 User 画像绑定为“对方 Bot 人设”")
+            log_line("✓ bot-to-bot: 已将 User 画像绑定为[对方 Bot 人设]")
         except Exception as e:
             log_line(f"⚠ bot-to-bot: 绑定对方画像失败（将继续使用默认画像）: {e}")
 
-    # 可选：仅在“第一次”压测前清空（BOT2BOT_CLEAR_BEFORE_RUN=1）
+    # 可选：仅在"第一次"压测前清空（BOT2BOT_CLEAR_BEFORE_RUN=1）
     if str(os.getenv("BOT2BOT_CLEAR_BEFORE_RUN", "0")).lower() in ("1", "true", "yes", "on"):
         try:
             log_line("\n" + "=" * 60)
@@ -909,7 +1072,9 @@ async def main() -> None:
                 log_size_info = ""
                 if log_file_pos_before is not None and log_file_pos_after is not None:
                     log_size_info = f" (本轮详细日志: {(log_file_pos_after - log_file_pos_before) // 1024}KB)"
-                log_line(f"[{current_speaker} 的 Bot] 回复: {reply} [耗时 {elapsed:.2f}s]{log_size_info}")
+                # current_speaker 是发消息者，回复者是对方 Bot
+                _replier = "Bot B" if current_bot_id == bot_b_id else "Bot A"
+                log_line(f"[{_replier}] 回复 {current_speaker}: {reply} [耗时 {elapsed:.2f}s]{log_size_info}")
 
                 # ==========================================
                 # 1. 每轮回复原文输出（包括断句）
@@ -1088,10 +1253,12 @@ async def main() -> None:
                 # ==========================================
                 # 4. 保存到聊天记录（含 6 维关系及变化）
                 # ==========================================
+                _replier_log = "Bot B" if current_bot_id == bot_b_id else "Bot A"
                 conversation_log.append({
                     "round": turn,
                     "run": run,
-                    "speaker": current_speaker,
+                    "sender": current_speaker,
+                    "replier": _replier_log,
                     "user_message": current_message,
                     "bot_reply": final_response,
                     "segments": segments,
@@ -1100,6 +1267,96 @@ async def main() -> None:
                     "relationship_state": {k: v for k, v in rel_current.items() if v is not None},
                     "relationship_deltas": {k: v for k, v in rel_deltas.items() if v is not None},
                 })
+
+                # ==========================================
+                # 4.1 标注数据写入 annotation JSONL
+                # ==========================================
+                # 上下文：只保留上一条对方的消息
+                _recent_ctx = current_message
+
+                _rs = result_state if isinstance(result_state, dict) else {}
+                _extract = _rs.get("monologue_extract") or {}
+                _style = _rs.get("style") or {}
+                _judge = _rs.get("judge_result") or {}
+                _candidates = _rs.get("generation_candidates") or []
+                # 序列化候选：只保留 move_id / route / text，语义去重
+                def _char_bigrams(s: str) -> set[str]:
+                    s = s.rstrip("？?。！!～~，,")
+                    return {s[i:i+2] for i in range(len(s)-1)} if len(s) >= 2 else {s}
+
+                def _jaccard(a: set, b: set) -> float:
+                    if not a or not b:
+                        return 0.0
+                    return len(a & b) / len(a | b)
+
+                _candidates_out = []
+                _kept_bigrams: list[tuple[set[str], str]] = []  # (bigrams, text)
+                _SIMILARITY_THRESHOLD = 0.15  # Jaccard > 0.15 视为意思相近
+                for _c in _candidates:
+                    if not isinstance(_c, dict):
+                        continue
+                    _txt = (_c.get("text") or "").strip()
+                    if not _txt or len(_txt) < 5:
+                        continue
+                    _bg = _char_bigrams(_txt)
+                    _dup = False
+                    for _prev_bg, _prev_txt in _kept_bigrams:
+                        if _jaccard(_bg, _prev_bg) > _SIMILARITY_THRESHOLD:
+                            _dup = True
+                            break
+                    if _dup:
+                        continue
+                    _kept_bigrams.append((_bg, _txt))
+                    _candidates_out.append({
+                        "move_id": _c.get("move_id"),
+                        "route": _c.get("route", ""),
+                        "text": _txt,
+                    })
+
+                _annotation_record = {
+                    "timestamp": datetime.now().isoformat(),
+                    "session_label": os.getenv("BOT2BOT_SESSION_LABEL", ""),
+                    "run": run,
+                    "round": turn,
+                    # sender = 发消息者, replier = 回复者（candidates/style/final_response 的产出者）
+                    "sender": current_speaker,
+                    "replier": "Bot B" if current_bot_id == bot_b_id else "Bot A",
+                    "sender_bot_id": bot_a_id if current_speaker == "Bot A" else bot_b_id,
+                    "replier_bot_id": current_bot_id,
+                    "user_id": current_user_id,
+                    # 上下文
+                    "context": _recent_ctx,
+                    "user_message": current_message,
+                    # Move
+                    "selected_move_ids": _extract.get("selected_content_move_ids") or [],
+                    # Style 6D
+                    "style": {
+                        k: _style.get(k)
+                        for k in ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY",
+                                  "EMOTIONAL_INTENSITY", "EXPRESSION_MODE",
+                                  "RESPONSE_LENGTH")
+                        if _style.get(k) is not None
+                    },
+                    # 全部候选（含 route 标签）
+                    "candidates": _candidates_out,
+                    # Judge 结果
+                    "judge_result": {
+                        "winner_index": _judge.get("winner_index"),
+                        "justification": _judge.get("justification", ""),
+                    },
+                    "final_response": final_response,
+                    # 内心独白（供标注员参考语境）
+                    "inner_monologue": (_rs.get("inner_monologue") or "")[:500],
+                    # 关系与阶段
+                    "current_stage": _rs.get("current_stage") or "",
+                    "relationship_state": {k: v for k, v in rel_current.items() if v is not None},
+                    "momentum": momentum_f,
+                }
+                try:
+                    annotation_file.write(json.dumps(_annotation_record, ensure_ascii=False) + "\n")
+                    annotation_file.flush()
+                except Exception as _e:
+                    log_line(f"  [annotation] 写入失败: {_e}")
 
                 # Optional: step-by-step profiling report (requires LTSR_PROFILE_STEPS=1 / LTSR_LLM_STATS=1)
                 llm_stats = (result_state or {}).get("_llm_stats") if isinstance(result_state, dict) else None
@@ -1173,7 +1430,8 @@ async def main() -> None:
                 await db.save_turn(current_user_id, current_bot_id, state_after)
 
             except Exception as e:
-                log_line(f"[错误] {current_speaker} 的 Bot 回复失败: {e}")
+                _replier_err = "Bot B" if current_bot_id == bot_b_id else "Bot A"
+                log_line(f"[错误] {_replier_err} 回复 {current_speaker} 失败: {e}")
                 if isinstance(e, TimeoutError):
                     aborted_reason = str(e)
                     log_line(f"[中止] 因超时中止：{aborted_reason}")
@@ -1205,8 +1463,8 @@ async def main() -> None:
     log_line("=" * 80)
     for entry in conversation_log:
         log_line(f"\nRound {entry.get('round')} (Run {entry.get('run', 1)}):")
-        log_line(f"  [{entry['speaker']}] {entry['user_message']}")
-        log_line(f"  [Bot Reply] {entry['bot_reply']}")
+        log_line(f"  [{entry['sender']}] {entry['user_message']}")
+        log_line(f"  [{entry['replier']}] {entry['bot_reply']}")
         rs = entry.get("relationship_state") or {}
         rd = entry.get("relationship_deltas") or {}
         if rs or rd:
@@ -1366,6 +1624,7 @@ async def main() -> None:
             log_line("\n9. LLM 用时分析: 未解析到 [LLM_ELAPSED]。运行前请设置 LTSR_LLM_ELAPSED_LOG=1")
         log_file.close()
         log_file = None
+        annotation_file.close()
 
     # 总结只打控制台
     print("\n" + "=" * 60)
@@ -1375,6 +1634,7 @@ async def main() -> None:
         print(f"Bot to Bot 对话结束（{num_runs} 次会话 × {rounds_per_run} 轮完成）")
     print("=" * 60)
     print(f"日志文件: {single_log_path}")
+    print(f"标注数据: {annotation_jsonl_path}")
     try:
         if single_log_path.exists():
             print(f"文件大小: {single_log_path.stat().st_size / (1024 * 1024):.2f} MB")

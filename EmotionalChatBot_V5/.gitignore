@@ -10,3 +10,6 @@ local_data/
 # Session logs (one file per console run, timestamped)
 logs/
 
+# Internal docs (not for public repo)
+docs/
+

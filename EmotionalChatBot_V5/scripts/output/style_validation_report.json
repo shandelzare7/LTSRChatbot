@@ -4,15 +4,9 @@
       "test_id": "A01",
       "name": "closeness_sweep",
       "label": "closeness 0→1 (momentum=topic_appeal=0.5，其余中性)",
-      "hypothesis": "closeness 提升 → familiarity 上升 → CHAT_MARKERS↑ (familiarity +0.35), WARMTH↑ (familiarity +0.25), FORMALITY↓ (familiarity -0.40)",
+      "hypothesis": "closeness 提升 → intimacy_index 上升 → WARMTH↑ (intimacy_index +0.25), FORMALITY↓ (intimacy_index -0.40)",
       "all_checks_pass": true,
       "checks": {
-        "CHAT_MARKERS_increase": {
-          "passed": true,
-          "first": 0.3383,
-          "last": 0.494,
-          "delta": 0.1557
-        },
         "WARMTH_increase": {
           "passed": true,
           "first": 0.4532,
@@ -31,14 +25,14 @@
       "test_id": "A02",
       "name": "momentum_sweep",
       "label": "momentum 0→1 (closeness=0.5，其余中性)",
-      "hypothesis": "momentum 提升 → CHAT_MARKERS↑ (momentum +0.25), FORMALITY↓ (momentum -0.10)",
+      "hypothesis": "momentum 提升 → EMOTIONAL_INTENSITY↑ (momentum +0.20), FORMALITY↓ (momentum -0.10)",
       "all_checks_pass": true,
       "checks": {
-        "CHAT_MARKERS_increase": {
+        "EMOTIONAL_INTENSITY_increase": {
           "passed": true,
-          "first": 0.3232,
-          "last": 0.5101,
-          "delta": 0.187
+          "first": 0.3257,
+          "last": 0.472,
+          "delta": 0.1464
         },
         "FORMALITY_decrease": {
           "passed": true,
@@ -52,9 +46,15 @@
       "test_id": "A03",
       "name": "tension_via_arousal_sweep",
       "label": "Ar 0→1 (P=0.2 低愉悦制造高张力，其余中性)",
-      "hypothesis": "Ar↑ + 低P → tension↑ → WARMTH↓ (tension -0.30)",
+      "hypothesis": "Ar↑ + 低P → tension↑ → WARMTH↓ (tension -0.30); Ar↑ → EMOTIONAL_INTENSITY↑ (Ar +0.50)",
       "all_checks_pass": true,
       "checks": {
+        "EMOTIONAL_INTENSITY_increase": {
+          "passed": true,
+          "first": 0.1672,
+          "last": 0.6506,
+          "delta": 0.4834
+        },
         "WARMTH_decrease": {
           "passed": true,
           "first": 0.4053,
@@ -72,12 +72,12 @@
       "hypothesis": "irony_propensity≥0.78, closeness≥0.68, trust≥0.62, P≥0.58, tension≤0.62, figurative_bias≥0.70 → EXPRESSION_MODE=3",
       "type": "single",
       "style_output": {
-        "FORMALITY": 0.0164,
+        "FORMALITY": 0.1064,
         "POLITENESS": 0.2274,
         "WARMTH": 0.9941,
-        "CERTAINTY": 0.5992,
+        "CERTAINTY": 0.5894,
         "EXPRESSION_MODE": 3,
-        "CHAT_MARKERS": 1.0
+        "EMOTIONAL_INTENSITY": 0.5949
       },
       "checks": [
         {
@@ -97,26 +97,19 @@
       "hypothesis": "guardrail: if respect≥0.80 and EXPRESSION_MODE==3 → EXPRESSION_MODE=1",
       "type": "single",
       "style_output": {
-        "FORMALITY": 0.1393,
+        "FORMALITY": 0.2452,
         "POLITENESS": 0.4871,
         "WARMTH": 0.9941,
-        "CERTAINTY": 0.5992,
-        "EXPRESSION_MODE": 1,
-        "CHAT_MARKERS": 0.3825
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 0,
+        "EMOTIONAL_INTENSITY": 0.5949
       },
       "checks": [
         {
           "key": "EXPRESSION_MODE",
           "op": "<=",
           "threshold": 1,
-          "actual": 1,
-          "passed": true
-        },
-        {
-          "key": "CHAT_MARKERS",
-          "op": "<=",
-          "threshold": 0.4,
-          "actual": 0.3825,
+          "actual": 0,
           "passed": true
         }
       ],
@@ -129,19 +122,19 @@
       "hypothesis": "guardrail: if trust≤0.35 → if EXPRESSION_MODE in (2,3) → EXPRESSION_MODE=1",
       "type": "single",
       "style_output": {
-        "FORMALITY": 0.0435,
+        "FORMALITY": 0.1391,
         "POLITENESS": 0.3146,
         "WARMTH": 0.9941,
-        "CERTAINTY": 0.4205,
-        "EXPRESSION_MODE": 1,
-        "CHAT_MARKERS": 1.0
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 0,
+        "EMOTIONAL_INTENSITY": 0.5949
       },
       "checks": [
         {
           "key": "EXPRESSION_MODE",
           "op": "<=",
           "threshold": 1,
-          "actual": 1,
+          "actual": 0,
           "passed": true
         }
       ],
@@ -154,19 +147,19 @@
       "hypothesis": "guardrail: if closeness≤0.35 → if EXPRESSION_MODE in (2,3) → EXPRESSION_MODE=1",
       "type": "single",
       "style_output": {
-        "FORMALITY": 0.1208,
+        "FORMALITY": 0.2252,
         "POLITENESS": 0.4759,
         "WARMTH": 0.9941,
-        "CERTAINTY": 0.5992,
-        "EXPRESSION_MODE": 1,
-        "CHAT_MARKERS": 1.0
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 0,
+        "EMOTIONAL_INTENSITY": 0.5949
       },
       "checks": [
         {
           "key": "EXPRESSION_MODE",
           "op": "<=",
           "threshold": 1,
-          "actual": 1,
+          "actual": 0,
           "passed": true
         }
       ],
@@ -174,24 +167,24 @@
     },
     {
       "test_id": "B05",
-      "name": "busy_chat_markers_guardrail",
-      "label": "busy=0.85 → CHAT_MARKERS ≤ 0.20",
-      "hypothesis": "guardrail: if busy≥0.80 → CHAT_MARKERS=min(CHAT_MARKERS, 0.20)",
+      "name": "busy_emotional_intensity_low",
+      "label": "busy=0.85 → EMOTIONAL_INTENSITY ≤ 0.55",
+      "hypothesis": "busy 高 → EMOTIONAL_INTENSITY↓ (busy -0.20 权重)",
       "type": "single",
       "style_output": {
         "FORMALITY": 0.5569,
         "POLITENESS": 0.3764,
         "WARMTH": 0.3932,
         "CERTAINTY": 0.5349,
-        "EXPRESSION_MODE": 1,
-        "CHAT_MARKERS": 0.1665
+        "EXPRESSION_MODE": 0,
+        "EMOTIONAL_INTENSITY": 0.3414
       },
       "checks": [
         {
-          "key": "CHAT_MARKERS",
+          "key": "EMOTIONAL_INTENSITY",
           "op": "<=",
-          "threshold": 0.2,
-          "actual": 0.1665,
+          "threshold": 0.55,
+          "actual": 0.3414,
           "passed": true
         }
       ],
@@ -208,15 +201,15 @@
         "POLITENESS": 0.3764,
         "WARMTH": 0.3932,
         "CERTAINTY": 0.5349,
-        "EXPRESSION_MODE": 1,
-        "CHAT_MARKERS": 0.1665
+        "EXPRESSION_MODE": 0,
+        "EMOTIONAL_INTENSITY": 0.3414
       },
       "checks": [
         {
           "key": "EXPRESSION_MODE",
           "op": "<=",
           "threshold": 1,
-          "actual": 1,
+          "actual": 0,
           "passed": true
         }
       ],
@@ -240,7 +233,7 @@
         "WARMTH": 0.4532,
         "CERTAINTY": 0.5,
         "EXPRESSION_MODE": 0,
-        "CHAT_MARKERS": 0.3383
+        "EMOTIONAL_INTENSITY": 0.398
       },
       "style_b": {
         "FORMALITY": 0.4222,
@@ -248,19 +241,19 @@
         "WARMTH": 0.5468,
         "CERTAINTY": 0.5,
         "EXPRESSION_MODE": 0,
-        "CHAT_MARKERS": 0.494
+        "EMOTIONAL_INTENSITY": 0.398
       }
     },
     {
       "test_id": "B08",
-      "name": "momentum_chat_markers_contrast",
-      "label": "momentum=0.9 vs 0.1：CHAT_MARKERS 应显著更高",
-      "hypothesis": "高动量(momentum=0.9)的 CHAT_MARKERS 应显著高于低动量(momentum=0.1)",
+      "name": "momentum_emotional_intensity_contrast",
+      "label": "momentum=0.9 vs 0.1：EMOTIONAL_INTENSITY 应显著更高",
+      "hypothesis": "高动量(momentum=0.9)的 EMOTIONAL_INTENSITY 应显著高于低动量(momentum=0.1)",
       "type": "contrast",
-      "contrast_key": "CHAT_MARKERS",
-      "value_a": 0.5101,
-      "value_b": 0.3232,
-      "diff": 0.187,
+      "contrast_key": "EMOTIONAL_INTENSITY",
+      "value_a": 0.472,
+      "value_b": 0.3257,
+      "diff": 0.1464,
       "threshold": 0.05,
       "passed": true,
       "style_a": {
@@ -269,7 +262,7 @@
         "WARMTH": 0.5252,
         "CERTAINTY": 0.5199,
         "EXPRESSION_MODE": 0,
-        "CHAT_MARKERS": 0.5101
+        "EMOTIONAL_INTENSITY": 0.472
       },
       "style_b": {
         "FORMALITY": 0.5572,
@@ -277,7 +270,7 @@
         "WARMTH": 0.4748,
         "CERTAINTY": 0.4801,
         "EXPRESSION_MODE": 0,
-        "CHAT_MARKERS": 0.3232
+        "EMOTIONAL_INTENSITY": 0.3257
       }
     }
   ],

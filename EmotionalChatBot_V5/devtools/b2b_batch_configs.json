@@ -1,0 +1,189 @@
+{
+  "_doc": "30 session configs for annotation data generation. Each session = 1 run x 9 rounds.",
+  "_knapp_thresholds": {
+    "initiating_to_experimenting": "closeness>=0.42, trust>=0.38, liking>=0.42",
+    "experimenting_to_intensifying": "closeness>=0.60, trust>=0.56, attractiveness>=0.48, liking>=0.55",
+    "intensifying_to_integrating": "closeness>=0.74, trust>=0.70, liking>=0.70, respect>=0.48"
+  },
+  "sessions": [
+    {
+      "id": 1, "label": "random_neutral_1", "group": "random",
+      "template": "neutral_stranger",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 2, "label": "random_neutral_2", "group": "random",
+      "template": "neutral_stranger",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 3, "label": "random_neutral_3", "group": "random",
+      "template": "neutral_stranger",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 4, "label": "random_friendly_1", "group": "random",
+      "template": "friendly_icebreaker",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 5, "label": "random_friendly_2", "group": "random",
+      "template": "friendly_icebreaker",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 6, "label": "random_friendly_3", "group": "random",
+      "template": "friendly_icebreaker",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 7, "label": "random_moderate_1", "group": "random",
+      "template": "moderate_acquaintance",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 8, "label": "random_moderate_2", "group": "random",
+      "template": "moderate_acquaintance",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 9, "label": "random_moderate_3", "group": "random",
+      "template": "moderate_acquaintance",
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 10, "label": "random_mixed_1", "group": "random",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.85, "conscientiousness": 0.3, "extraversion": 0.7, "agreeableness": 0.5, "neuroticism": 0.4},
+      "big_five_b": {"openness": 0.3, "conscientiousness": 0.8, "extraversion": 0.4, "agreeableness": 0.6, "neuroticism": 0.5}
+    },
+    {
+      "id": 11, "label": "random_mixed_2", "group": "random",
+      "template": "friendly_icebreaker",
+      "big_five_a": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.9, "agreeableness": 0.3, "neuroticism": 0.2},
+      "big_five_b": {"openness": 0.6, "conscientiousness": 0.7, "extraversion": 0.2, "agreeableness": 0.8, "neuroticism": 0.7}
+    },
+    {
+      "id": 12, "label": "random_mixed_3", "group": "random",
+      "template": "moderate_acquaintance",
+      "big_five_a": {"openness": 0.4, "conscientiousness": 0.9, "extraversion": 0.5, "agreeableness": 0.4, "neuroticism": 0.6},
+      "big_five_b": {"openness": 0.7, "conscientiousness": 0.2, "extraversion": 0.6, "agreeableness": 0.5, "neuroticism": 0.3}
+    },
+    {
+      "id": 13, "label": "random_high_n_1", "group": "random",
+      "template": "friendly_icebreaker",
+      "big_five_a": {"openness": 0.5, "conscientiousness": 0.4, "extraversion": 0.5, "agreeableness": 0.5, "neuroticism": 0.85},
+      "big_five_b": "random"
+    },
+    {
+      "id": 14, "label": "random_low_c_1", "group": "random",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.6, "conscientiousness": 0.1, "extraversion": 0.6, "agreeableness": 0.5, "neuroticism": 0.5},
+      "big_five_b": {"openness": 0.5, "conscientiousness": 0.9, "extraversion": 0.4, "agreeableness": 0.5, "neuroticism": 0.4}
+    },
+    {
+      "id": 15, "label": "random_balanced_1", "group": "random",
+      "template": "moderate_acquaintance",
+      "big_five_a": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5, "agreeableness": 0.5, "neuroticism": 0.5},
+      "big_five_b": {"openness": 0.5, "conscientiousness": 0.5, "extraversion": 0.5, "agreeableness": 0.5, "neuroticism": 0.5}
+    },
+
+    {
+      "id": 16, "label": "extreme_low_1", "group": "extreme_low",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.2, "conscientiousness": 0.7, "extraversion": 0.08, "agreeableness": 0.08, "neuroticism": 0.92},
+      "big_five_b": {"openness": 0.15, "conscientiousness": 0.8, "extraversion": 0.12, "agreeableness": 0.1, "neuroticism": 0.88}
+    },
+    {
+      "id": 17, "label": "extreme_low_2", "group": "extreme_low",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.1, "conscientiousness": 0.85, "extraversion": 0.05, "agreeableness": 0.12, "neuroticism": 0.9},
+      "big_five_b": {"openness": 0.25, "conscientiousness": 0.6, "extraversion": 0.1, "agreeableness": 0.15, "neuroticism": 0.85}
+    },
+    {
+      "id": 18, "label": "extreme_low_3", "group": "extreme_low",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.3, "conscientiousness": 0.75, "extraversion": 0.1, "agreeableness": 0.05, "neuroticism": 0.95},
+      "big_five_b": {"openness": 0.18, "conscientiousness": 0.9, "extraversion": 0.15, "agreeableness": 0.08, "neuroticism": 0.82}
+    },
+    {
+      "id": 19, "label": "extreme_low_4", "group": "extreme_low",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.12, "conscientiousness": 0.65, "extraversion": 0.07, "agreeableness": 0.1, "neuroticism": 0.88},
+      "big_five_b": {"openness": 0.2, "conscientiousness": 0.7, "extraversion": 0.12, "agreeableness": 0.12, "neuroticism": 0.9}
+    },
+    {
+      "id": 20, "label": "extreme_low_5", "group": "extreme_low",
+      "template": "neutral_stranger",
+      "big_five_a": {"openness": 0.15, "conscientiousness": 0.8, "extraversion": 0.1, "agreeableness": 0.07, "neuroticism": 0.93},
+      "big_five_b": {"openness": 0.22, "conscientiousness": 0.75, "extraversion": 0.08, "agreeableness": 0.1, "neuroticism": 0.87}
+    },
+
+    {
+      "id": 21, "label": "extreme_high_1", "group": "extreme_high",
+      "template": "friendly_icebreaker",
+      "big_five_a": {"openness": 0.92, "conscientiousness": 0.3, "extraversion": 0.9, "agreeableness": 0.88, "neuroticism": 0.1},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.25, "extraversion": 0.85, "agreeableness": 0.92, "neuroticism": 0.12}
+    },
+    {
+      "id": 22, "label": "extreme_high_2", "group": "extreme_high",
+      "template": "friendly_icebreaker",
+      "big_five_a": {"openness": 0.95, "conscientiousness": 0.2, "extraversion": 0.88, "agreeableness": 0.9, "neuroticism": 0.08},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.35, "extraversion": 0.92, "agreeableness": 0.85, "neuroticism": 0.15}
+    },
+    {
+      "id": 23, "label": "extreme_high_3", "group": "extreme_high",
+      "template": "friendly_icebreaker",
+      "big_five_a": {"openness": 0.9, "conscientiousness": 0.4, "extraversion": 0.95, "agreeableness": 0.85, "neuroticism": 0.05},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.3, "extraversion": 0.87, "agreeableness": 0.9, "neuroticism": 0.1}
+    },
+    {
+      "id": 24, "label": "extreme_high_4", "group": "extreme_high",
+      "template": "moderate_acquaintance",
+      "big_five_a": {"openness": 0.87, "conscientiousness": 0.35, "extraversion": 0.92, "agreeableness": 0.88, "neuroticism": 0.12},
+      "big_five_b": {"openness": 0.93, "conscientiousness": 0.28, "extraversion": 0.9, "agreeableness": 0.87, "neuroticism": 0.08}
+    },
+    {
+      "id": 25, "label": "extreme_high_5", "group": "extreme_high",
+      "template": "friendly_icebreaker",
+      "big_five_a": {"openness": 0.85, "conscientiousness": 0.45, "extraversion": 0.88, "agreeableness": 0.92, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.9, "conscientiousness": 0.32, "extraversion": 0.85, "agreeableness": 0.88, "neuroticism": 0.1}
+    },
+
+    {
+      "id": 26, "label": "em_boost_experimenting_1", "group": "em_boost",
+      "big_five_a": {"openness": 0.9, "conscientiousness": 0.3, "extraversion": 0.85, "agreeableness": 0.88, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.25, "extraversion": 0.9, "agreeableness": 0.85, "neuroticism": 0.1},
+      "custom_dims": {"closeness": 0.44, "trust": 0.40, "liking": 0.48, "respect": 0.45, "attractiveness": 0.50, "power": 0.48},
+      "_note": "Above experimenting.up_entry thresholds -> start near intensifying transition"
+    },
+    {
+      "id": 27, "label": "em_boost_experimenting_2", "group": "em_boost",
+      "big_five_a": {"openness": 0.92, "conscientiousness": 0.35, "extraversion": 0.88, "agreeableness": 0.9, "neuroticism": 0.08},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.4, "extraversion": 0.92, "agreeableness": 0.87, "neuroticism": 0.12},
+      "custom_dims": {"closeness": 0.48, "trust": 0.42, "liking": 0.50, "respect": 0.48, "attractiveness": 0.52, "power": 0.50},
+      "_note": "Solidly in experimenting, approaching intensifying"
+    },
+    {
+      "id": 28, "label": "em_boost_intensifying_1", "group": "em_boost",
+      "big_five_a": {"openness": 0.95, "conscientiousness": 0.2, "extraversion": 0.92, "agreeableness": 0.9, "neuroticism": 0.05},
+      "big_five_b": {"openness": 0.9, "conscientiousness": 0.3, "extraversion": 0.88, "agreeableness": 0.92, "neuroticism": 0.1},
+      "custom_dims": {"closeness": 0.62, "trust": 0.58, "liking": 0.58, "respect": 0.50, "attractiveness": 0.52, "power": 0.48},
+      "_note": "Above intensifying.up_entry -> may reach integrating"
+    },
+    {
+      "id": 29, "label": "em_boost_intensifying_2", "group": "em_boost",
+      "big_five_a": {"openness": 0.88, "conscientiousness": 0.35, "extraversion": 0.9, "agreeableness": 0.85, "neuroticism": 0.12},
+      "big_five_b": {"openness": 0.92, "conscientiousness": 0.28, "extraversion": 0.95, "agreeableness": 0.9, "neuroticism": 0.08},
+      "custom_dims": {"closeness": 0.65, "trust": 0.60, "liking": 0.60, "respect": 0.52, "attractiveness": 0.55, "power": 0.50},
+      "_note": "Deep intensifying, high EM production expected"
+    },
+    {
+      "id": 30, "label": "em_boost_integrating_1", "group": "em_boost",
+      "big_five_a": {"openness": 0.95, "conscientiousness": 0.25, "extraversion": 0.95, "agreeableness": 0.95, "neuroticism": 0.05},
+      "big_five_b": {"openness": 0.92, "conscientiousness": 0.3, "extraversion": 0.92, "agreeableness": 0.92, "neuroticism": 0.08},
+      "custom_dims": {"closeness": 0.76, "trust": 0.72, "liking": 0.72, "respect": 0.52, "attractiveness": 0.58, "power": 0.50},
+      "_note": "Above integrating.up_entry -> may reach bonding, highest EM expected"
+    }
+  ]
+}

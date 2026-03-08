@@ -97,16 +97,16 @@ _STYLE_6D_KEY_ZH = {
     "EXPRESSION_MODE": "表达模式",
 }
 _EXPRESSION_MODE_LABELS = {
-    0: "字面直白（直接说想法，不拐弯抹角）",
-    1: "字面委婉（同样是字面意思，但措辞迂回、留余地）",
+    0: "字面直白（直接说，措辞克制度由礼貌度参数决定）",
+    1: "欲言又止（有话想说但不直说，留白让对方感受，暗示而非明言）",
     2: "比喻/意象（用比喻、意象或隐喻表达，语言更具体感）",
-    3: "轻调侃（带一点反讽或调侃，关系亲密时才用）",
+    3: "讽刺/调侃（反讽或调侃——情绪温暖时是轻松玩笑，情绪低落/烦躁时是带刺的讽刺）",
 }
 _EXPRESSION_MODE_LABELS_EN = {
-    0: "literal_direct",
-    1: "literal_hedged",
+    0: "literal",
+    1: "implicit_withholding",
     2: "metaphor_imagery",
-    3: "light_teasing",
+    3: "ironic_teasing",
 }
 
 _STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {

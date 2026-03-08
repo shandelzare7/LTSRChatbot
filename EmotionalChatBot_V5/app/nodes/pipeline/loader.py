@@ -198,7 +198,9 @@ def _apply_busy_fallback_to_output(out: Dict[str, Any], state: Dict[str, Any]) -
     busy = get_busy_fallback_from_schedule(dt, use_utc=False)
     busy = min(float(busy), BUSYNESS_CAP)
     mood = dict(out.get("mood_state") or {})
-    mood["busyness"] = busy
+    # 若 mood 标记了 busyness_fixed，说明是测试/调试场景预设了 busyness，跳过时间兜底
+    if not mood.get("busyness_fixed"):
+        mood["busyness"] = busy
     mood.setdefault("pad_scale", "m1_1")
     out["mood_state"] = mood
 

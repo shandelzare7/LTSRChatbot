@@ -1,13 +1,15 @@
 """结构化提取节点：从内心独白中提取信号，并完成 move 和 profile_key 选择。
 
-这是独白之后的第一步，单次 LLM 调用（~800-1200 tok）：
-- emotion_tag / attitude / momentum_delta / topic_appeal / subtext_guess
-- selected_profile_keys（替代旧版 inner_monologue 里的 profile key 选择）
-- selected_content_move_ids（2-4 个，替代旧版 inner_monologue 里的 move 选择）
+这是独白之后的第一步，单次 LLM 调用（~600-900 tok）：
+- emotion_tag / bot_stance / topic_appeal
+- selected_profile_keys（2-5个，驱动 generate 的画像注入）
+- selected_content_move_ids（2-4个，驱动并行生成路由）
+- inferred_gender（仅在性别未知时填写）
 """
 from __future__ import annotations
 
 import logging
+import os
 import random
 from typing import Any, Callable, Dict, List, Optional
 
@@ -28,6 +30,8 @@ SELECTED_CONTENT_MOVE_IDS_MIN = 2
 # 兜底顺序：轻重交替，避免连续锁死在深挖型
 FALLBACK_CM_PRIORITY = [1, 7, 3, 2, 5, 8, 4, 6]
 CM_ACTION_MAX_CHARS = 160
+
+_VALID_STANCES = {"supportive", "exploratory", "self_sharing", "redirecting", "challenging"}
 
 
 def _normalize_pure_content_transformations(raw: Any) -> List[Dict[str, Any]]:
@@ -78,16 +82,20 @@ def create_extract_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
         metadata={"state_outputs": ["monologue_extract"]},
     )
     def extract_node(state: AgentState) -> dict:
+        if os.getenv("ABLATION_MODE"):
+            # 对照组：不做结构化提取，返回空 move_ids（generate 将只走 FREE 路）
+            ablation_extract = _default_extract()
+            ablation_extract["selected_content_move_ids"] = []
+            return {"monologue_extract": ablation_extract}
         monologue = (state.get("inner_monologue") or "").strip()
         if not monologue:
             return {"monologue_extract": _default_extract()}
 
         result = _run_extract(state, monologue, llm_invoker)
         logger.info(
-            "[Extract] emotion_tag=%s attitude=%s momentum_delta=%.2f topic_appeal=%.1f move_ids=%s",
+            "[Extract] emotion_tag=%s bot_stance=%s topic_appeal=%.1f move_ids=%s",
             result.get("emotion_tag"),
-            result.get("attitude"),
-            result.get("momentum_delta", 0.0),
+            result.get("bot_stance"),
             result.get("topic_appeal", 5.0),
             result.get("selected_content_move_ids"),
         )
@@ -99,10 +107,8 @@ def create_extract_node(llm_invoker: Any) -> Callable[[AgentState], dict]:
 def _default_extract() -> Dict[str, Any]:
     return {
         "emotion_tag": "平静",
-        "attitude": "被动应付",
-        "momentum_delta": 0.0,
+        "bot_stance": "supportive",
         "topic_appeal": 5.0,
-        "subtext_guess": "",
         "selected_profile_keys": [],
         "selected_content_move_ids": [1, 2, 5, 7],
         "inferred_gender": None,
@@ -188,14 +194,23 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 ## 可选 profile key（0-5个）
 [{profile_keys_str}]
 {gender_instruction}
+## bot_stance 说明（本轮沟通立场，五选一）
+- supportive：认同/共情，回应对方情绪或立场
+- exploratory：追问深挖，对话题有兴趣想了解更多细节
+- self_sharing：主动分享，对方的话触发了想说自己的事（经历/感受/近况），或纯粹想聊聊自己
+- redirecting：温和转移，当前话题已无聊/重复，想引向其他方向
+- challenging：轻度挑战，用反问或不同视角推动对话（只在关系较亲密时用）
+
+**区分 self_sharing vs redirecting**：
+- self_sharing：可以是因为对方话题有共鸣 OR 有独立欲望 → 想说自己的；不一定排斥当前话题
+- redirecting：当前话题让我提不起劲 → 想换掉；明确想离开当前话题
+
 ## 输出格式（仅输出此 JSON，不要其他内容）
 {{
   "emotion_tag": "一两个词，从独白中自然提炼，不限于固定列表——可以是任何真实情绪描述",
-  "attitude": "对用户的态度倾向，如 主动配合/被动应付/想转移话题/好奇/享受/排斥",
-  "momentum_delta": 0.0,  // 冲量变化 -1.0~+1.0，正=想继续，负=想结束
+  "bot_stance": "supportive",  // supportive/exploratory/self_sharing/redirecting/challenging 五选一
   "topic_appeal": 5.0,    // 话题吸引力 0-10（若话题与近期发言高度重复，应偏低）
-  "subtext_guess": "对用户潜台词的一句猜测，无则空字符串",
-  "selected_profile_keys": [],  // 0-5个存在的 profile key
+  "selected_profile_keys": [],  // 0-5个存在的 profile key，用于本轮回复中自然融入对方信息
   "selected_content_move_ids": [1, 2]{gender_field}
 }}"""
 
@@ -226,21 +241,15 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 
         # 验证并归一化
         emotion_tag = str(data.get("emotion_tag") or "平静").strip()
-        attitude = str(data.get("attitude") or "被动应付").strip()
 
-        try:
-            momentum_delta = float(data.get("momentum_delta", 0.0))
-            momentum_delta = max(-1.0, min(1.0, momentum_delta))
-        except (TypeError, ValueError):
-            momentum_delta = 0.0
+        raw_stance = str(data.get("bot_stance") or "supportive").strip().lower()
+        bot_stance = raw_stance if raw_stance in _VALID_STANCES else "supportive"
 
         try:
             topic_appeal = float(data.get("topic_appeal", 5.0))
             topic_appeal = max(0.0, min(10.0, topic_appeal))
         except (TypeError, ValueError):
             topic_appeal = 5.0
-
-        subtext_guess = str(data.get("subtext_guess") or "").strip()
 
         # profile keys 验证
         raw_keys = data.get("selected_profile_keys") or []
@@ -268,10 +277,8 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 
         result_for_log = {
             "emotion_tag": emotion_tag,
-            "attitude": attitude,
-            "momentum_delta": momentum_delta,
+            "bot_stance": bot_stance,
             "topic_appeal": topic_appeal,
-            "subtext_guess": subtext_guess,
             "selected_profile_keys": selected_keys,
             "selected_content_move_ids": selected_ids,
             "move_details": move_details,
@@ -287,10 +294,8 @@ def _run_extract(state: AgentState, monologue: str, llm_invoker: Any) -> Dict[st
 
         return {
             "emotion_tag": emotion_tag,
-            "attitude": attitude,
-            "momentum_delta": momentum_delta,
+            "bot_stance": bot_stance,
             "topic_appeal": topic_appeal,
-            "subtext_guess": subtext_guess,
             "selected_profile_keys": selected_keys,
             "selected_content_move_ids": selected_ids,
             "inferred_gender": inferred_gender,

@@ -1,0 +1,174 @@
+{
+  "_doc": "Phase 3: 17 sessions targeting remaining style tier gaps + EM=1. Dynamic values (busy/momentum/topic_appeal) default ~0.5, margins validated.",
+  "_gaps": {
+    "style_zero": "FORMALITY EH=0, CERTAINTY EH=0",
+    "style_low": "CERTAINTY EL=10(0.9%), EMOTIONAL_INTENSITY EL=18(1.7%), POLITENESS EL=35(3.2%), WARMTH EL=45(4.2%)",
+    "em": "EM=1 仅 1 条"
+  },
+  "sessions": [
+
+    {"_comment": "===== A 组：FORMALITY EH (3 sessions) ====="},
+    {"_comment": "需要：low intimacy (low closeness/liking/trust) + high respect + high hierarchy (power+D) + low E"},
+
+    {
+      "id": 201, "label": "formality_EH_1", "group": "formality_eh",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.10, "trust": 0.10, "liking": 0.10, "respect": 0.92, "attractiveness": 0.30, "power": 0.88},
+      "initial_pad": {"P": 0.50, "Ar": 0.40, "D": 0.82, "busyness": 0.75},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.08, "agreeableness": 0.50, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.10, "agreeableness": 0.50, "neuroticism": 0.50}
+    },
+    {
+      "id": 202, "label": "formality_EH_2", "group": "formality_eh",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.10, "trust": 0.20, "liking": 0.10, "respect": 0.95, "attractiveness": 0.25, "power": 0.80},
+      "initial_pad": {"P": 0.45, "Ar": 0.35, "D": 0.85, "busyness": 0.70},
+      "big_five_a": {"openness": 0.40, "conscientiousness": 0.60, "extraversion": 0.15, "agreeableness": 0.40, "neuroticism": 0.40},
+      "big_five_b": {"openness": 0.45, "conscientiousness": 0.55, "extraversion": 0.12, "agreeableness": 0.42, "neuroticism": 0.38}
+    },
+    {
+      "id": 203, "label": "formality_EH_3", "group": "formality_eh",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.12, "trust": 0.18, "liking": 0.12, "respect": 0.92, "attractiveness": 0.28, "power": 0.82},
+      "initial_pad": {"P": 0.48, "Ar": 0.38, "D": 0.82, "busyness": 0.72},
+      "big_five_a": {"openness": 0.45, "conscientiousness": 0.55, "extraversion": 0.10, "agreeableness": 0.45, "neuroticism": 0.45},
+      "big_five_b": {"openness": 0.48, "conscientiousness": 0.52, "extraversion": 0.12, "agreeableness": 0.48, "neuroticism": 0.42}
+    },
+
+    {"_comment": "===== B 组：CERTAINTY EH (2 sessions) ====="},
+    {"_comment": "需要：high D(PAD) + low power + low C + low N"},
+
+    {
+      "id": 204, "label": "certainty_EH_1", "group": "certainty_eh",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.15},
+      "initial_pad": {"P": 0.50, "Ar": 0.50, "D": 0.90},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.10, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.10},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.12, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.12}
+    },
+    {
+      "id": 205, "label": "certainty_EH_2", "group": "certainty_eh",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.40, "trust": 0.40, "liking": 0.40, "respect": 0.40, "attractiveness": 0.50, "power": 0.10},
+      "initial_pad": {"P": 0.60, "Ar": 0.40, "D": 0.85},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.15, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.10},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.18, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.15}
+    },
+
+    {"_comment": "===== C 组：EM=1 欲言又止 (4 sessions) ====="},
+    {"_comment": "需要：P≤0.45 + closeness∈[0.35,0.65] + trust∈[0.35,0.65] + tension∈[0.25,0.55] + figurative_bias<0.60 (low O)"},
+
+    {
+      "id": 206, "label": "em1_indirect_1", "group": "em1",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.40, "respect": 0.50, "attractiveness": 0.40, "power": 0.50},
+      "initial_pad": {"P": 0.35, "Ar": 0.40, "D": 0.50},
+      "big_five_a": {"openness": 0.25, "conscientiousness": 0.50, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.28, "conscientiousness": 0.50, "extraversion": 0.48, "agreeableness": 0.52, "neuroticism": 0.48}
+    },
+    {
+      "id": 207, "label": "em1_indirect_2", "group": "em1",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.45, "trust": 0.45, "liking": 0.45, "respect": 0.55, "attractiveness": 0.35, "power": 0.50},
+      "initial_pad": {"P": 0.40, "Ar": 0.35, "D": 0.50},
+      "big_five_a": {"openness": 0.20, "conscientiousness": 0.50, "extraversion": 0.40, "agreeableness": 0.50, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.22, "conscientiousness": 0.52, "extraversion": 0.42, "agreeableness": 0.48, "neuroticism": 0.52}
+    },
+    {
+      "id": 208, "label": "em1_indirect_3", "group": "em1",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.55, "trust": 0.55, "liking": 0.50, "respect": 0.45, "attractiveness": 0.40, "power": 0.45},
+      "initial_pad": {"P": 0.38, "Ar": 0.42, "D": 0.45},
+      "big_five_a": {"openness": 0.30, "conscientiousness": 0.60, "extraversion": 0.50, "agreeableness": 0.40, "neuroticism": 0.40},
+      "big_five_b": {"openness": 0.32, "conscientiousness": 0.58, "extraversion": 0.48, "agreeableness": 0.42, "neuroticism": 0.42}
+    },
+    {
+      "id": 209, "label": "em1_indirect_4", "group": "em1",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.48, "trust": 0.48, "liking": 0.42, "respect": 0.60, "attractiveness": 0.30, "power": 0.50},
+      "initial_pad": {"P": 0.42, "Ar": 0.38, "D": 0.50},
+      "big_five_a": {"openness": 0.15, "conscientiousness": 0.45, "extraversion": 0.45, "agreeableness": 0.55, "neuroticism": 0.55},
+      "big_five_b": {"openness": 0.18, "conscientiousness": 0.48, "extraversion": 0.48, "agreeableness": 0.52, "neuroticism": 0.52}
+    },
+
+    {"_comment": "===== D 组：CERTAINTY EL (2 sessions) ====="},
+    {"_comment": "需要：high N + high C + low D(PAD) + high power"},
+
+    {
+      "id": 210, "label": "certainty_EL_1", "group": "certainty_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.85},
+      "initial_pad": {"P": 0.50, "Ar": 0.50, "D": 0.10},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.90, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.90},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.88, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.88}
+    },
+    {
+      "id": 211, "label": "certainty_EL_2", "group": "certainty_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.90},
+      "initial_pad": {"P": 0.40, "Ar": 0.50, "D": 0.15},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.85, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.85},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.82, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.82}
+    },
+
+    {"_comment": "===== E 组：EMOTIONAL_INTENSITY EL (2 sessions) ====="},
+    {"_comment": "需要：low Ar + high P + low N + high C + low momentum"},
+
+    {
+      "id": 212, "label": "ei_EL_1", "group": "ei_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.50},
+      "initial_pad": {"P": 0.70, "Ar": 0.10, "D": 0.50},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.90, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.10},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.88, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.12}
+    },
+    {
+      "id": 213, "label": "ei_EL_2", "group": "ei_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.50},
+      "initial_pad": {"P": 0.65, "Ar": 0.15, "D": 0.50},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.85, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.82, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.18}
+    },
+
+    {"_comment": "===== F 组：WARMTH EL (2 sessions) ====="},
+    {"_comment": "需要：low A + low E + low P + high Ar + low liking + high hierarchy + low closeness"},
+
+    {
+      "id": 214, "label": "warmth_EL_1", "group": "warmth_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.15, "trust": 0.15, "liking": 0.10, "respect": 0.30, "attractiveness": 0.15, "power": 0.80},
+      "initial_pad": {"P": 0.20, "Ar": 0.75, "D": 0.70},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.10, "agreeableness": 0.10, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.12, "agreeableness": 0.12, "neuroticism": 0.50}
+    },
+    {
+      "id": 215, "label": "warmth_EL_2", "group": "warmth_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.10, "trust": 0.10, "liking": 0.15, "respect": 0.25, "attractiveness": 0.10, "power": 0.85},
+      "initial_pad": {"P": 0.15, "Ar": 0.80, "D": 0.75},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.15, "agreeableness": 0.15, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.18, "agreeableness": 0.18, "neuroticism": 0.50}
+    },
+
+    {"_comment": "===== G 组：POLITENESS EL (2 sessions) ====="},
+    {"_comment": "需要：low A + low respect + high intimacy + high tension + low power + high D"},
+
+    {
+      "id": 216, "label": "politeness_EL_1", "group": "politeness_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.85, "trust": 0.85, "liking": 0.85, "respect": 0.10, "attractiveness": 0.50, "power": 0.10},
+      "initial_pad": {"P": 0.25, "Ar": 0.75, "D": 0.85},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.50, "agreeableness": 0.10, "neuroticism": 0.10},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.50, "agreeableness": 0.12, "neuroticism": 0.12}
+    },
+    {
+      "id": 217, "label": "politeness_EL_2", "group": "politeness_el",
+      "rounds": 15,
+      "custom_dims": {"closeness": 0.80, "trust": 0.80, "liking": 0.80, "respect": 0.15, "attractiveness": 0.50, "power": 0.15},
+      "initial_pad": {"P": 0.30, "Ar": 0.70, "D": 0.80},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.50, "agreeableness": 0.15, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.50, "agreeableness": 0.18, "neuroticism": 0.18}
+    }
+  ]
+}

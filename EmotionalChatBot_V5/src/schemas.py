@@ -196,7 +196,7 @@ class MemoryManagerOutput(BaseModel):
     basic_info_confidence: BasicInfoConfidence = Field(default_factory=BasicInfoConfidence)
     basic_info_evidence: BasicInfoFields = Field(default_factory=BasicInfoFields)
     new_inferred_entries: List[InferredEntry] = Field(default_factory=list, description="用户画像条目：偏好/习惯/职业特征/个人情况等")
-    new_topics: List[str] = Field(default_factory=list)
+    new_topics: List[str] = Field(default_factory=list, description="本轮对话中出现的新话题（中层主题词，如'诗歌'、'暗恋经历'、'工作压力'）；若无新话题则留空数组")
     # 仅当用户性别未知时，可根据本轮对话推断并填写（男/女/其他）；否则留空
     inferred_user_gender: Optional[str] = Field(default=None, description="If user gender is unknown, infer from conversation; otherwise leave empty.")
     # 仅在会话边界（新会话第一轮，有旧摘要）时填写：对上一个 session 的最大自我披露深度评估（1-5）；其他情况留 null
@@ -217,10 +217,8 @@ class MonologueExtractOutput(BaseModel):
     """从内心独白中结构化提取信号，同时完成 profile_keys 选择和 move_ids 选择。"""
 
     emotion_tag: str = Field("", description="当前情绪标签，如 心疼/烦躁/期待/无聊/开心 等")
-    attitude: str = Field("", description="对用户的态度倾向，如 主动配合/被动应付/想转移话题/好奇/享受 等")
-    momentum_delta: float = Field(0.0, ge=-1.0, le=1.0, description="冲量变化量 -1.0~+1.0，正=想继续，负=想结束")
+    bot_stance: str = Field("supportive", description="本轮沟通立场：supportive/exploratory/self_sharing/redirecting/challenging")
     topic_appeal: float = Field(5.0, ge=0.0, le=10.0, description="话题吸引力 0-10（替换旧 detection.topic_appeal）")
-    subtext_guess: str = Field("", description="对用户潜台词的猜测，无则空字符串")
     selected_profile_keys: List[str] = Field(default_factory=list, description="当前最相关的用户画像键名，0-5个")
     selected_content_move_ids: List[int] = Field(
         default_factory=list,

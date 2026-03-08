@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -121,6 +122,24 @@ def _build_basic_info_task_block(state: AgentState) -> str:
     return header + "\n" + "\n".join(f"- {h}" for h in items) + "\n"
 
 
+
+def _build_profile_block(state: AgentState, selected_keys: List[str]) -> str:
+    """根据 selected_profile_keys 从 user_inferred_profile 提取相关条目，生成提示块。"""
+    if not selected_keys:
+        return ""
+    profile = state.get("user_inferred_profile") or {}
+    if not isinstance(profile, dict):
+        return ""
+    items = [
+        f"- {k}：{safe_text(str(profile[k]))[:60]}"
+        for k in selected_keys
+        if k in profile and profile[k]
+    ]
+    if not items:
+        return ""
+    return "## 关于对方的已知信息（自然融入，不要生硬列举）\n" + "\n".join(items) + "\n"
+
+
 def _build_messages_for_route(
     state: AgentState,
     move_desc: Optional[str],
@@ -131,6 +150,7 @@ def _build_messages_for_route(
     bot_name: str,
     user_name: str,
     task_hint: str = "",
+    profile_block: str = "",
 ) -> List[Any]:
     """为单路生成构建 messages 列表。"""
     user_input = (state.get("user_input") or "").strip()[:LATEST_USER_TEXT_MAX]
@@ -161,25 +181,12 @@ def _build_messages_for_route(
     direction_block = f"## 当前对话意愿（信息密度）\n{direction}\n"
 
     # 外部素材块：bot 生活事件 + 资讯话题
-    # 当 momentum 长期处于高位（话题可能固化），升级为主动引入指令
+    # 始终提供，由 LLM 根据独白自主决定是否引入，不做 active/passive 条件切换
     daily_topics_list = list(state.get("daily_topics") or [])
     bot_recent_list = list(state.get("bot_recent_activities") or [])
-    turn_count_val = int(state.get("turn_count_in_session") or 0)
-    # 主动模式：topic_appeal 较低（话题无聊）且已聊了几轮，提示 bot 主动引入新素材
-    _monologue_extract = dict(state.get("monologue_extract") or {})
-    try:
-        _topic_appeal_val = float(_monologue_extract.get("topic_appeal", 5.0))
-    except (TypeError, ValueError):
-        _topic_appeal_val = 5.0
-    _topic_active_mode = _topic_appeal_val < 5.5 and turn_count_val >= 3
     external_context_block = ""
     if bot_recent_list or daily_topics_list:
-        if _topic_active_mode:
-            # 主动模式：聊了很多轮高动量，鼓励 bot 找时机引入新素材
-            parts: list[str] = ["\n## 你今天想聊的事（聊了好几轮了，找个自然空隙主动带进来，不要生硬中断）"]
-        else:
-            # 被动模式：素材备用，话题合适时可带入
-            parts = ["\n## 你最近的生活 & 知道的事（话题合适时可自然带入，不必强行）"]
+        parts: list[str] = ["\n## 你最近的生活 & 知道的事（独白里如果有想聊的冲动，可以顺势带进来）"]
         if bot_recent_list:
             parts.append("【你最近的事】")
             parts.extend(f"- {t}" for t in bot_recent_list[:5])
@@ -212,7 +219,7 @@ def _build_messages_for_route(
 
     system_content = f"""你是 {bot_name}。你正在和 {user_name} 对话。
 {persona_text}
-
+{profile_block}
 {time_fact_block}{ext_facts_block}## 你的内心活动（情绪/态度/意愿）——用于调节回复基调，不是要说出口的内容
 {monologue}
 
@@ -228,7 +235,7 @@ def _build_messages_for_route(
 - 自然、有个性，符合写作风格参数
 - 每条消息开头应自然变化，不要以固定词语重复起句
 - **严禁**：诗意表达、押韵、排比句、散文化抒情、比喻堆叠——这不是文学创作，是真实聊天
-- **严禁**：括号内的动作描写，如（戳戳脸颊）（轻轻拍你）——聊天消息里不会出现这种写法
+- **严禁**：任何括号形式的动作描写，如（戳戳脸颊）[轻轻拍你]——聊天消息里不会出现这种写法
 - 回复直接输出，不要任何前缀或格式标记
 """
 
@@ -315,6 +322,33 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
         _max_tokens = int(_max_chars * 4) + 40    # 宽松安全网，不干扰正常生成
         logger.info("[Generate] momentum=%.2f max_chars=%d max_tokens=%d", momentum, _max_chars, _max_tokens)
 
+        # ── ABLATION_MODE：跳过多路 Move 生成 + Judge，单次 LLM 直接生成 ──
+        if os.getenv("ABLATION_MODE"):
+            _extract = dict(state.get("monologue_extract") or {})
+            _selected_profile_keys: List[str] = list(_extract.get("selected_profile_keys") or [])
+            _profile_block = _build_profile_block(state, _selected_profile_keys)
+            _task_hint = _build_basic_info_task_block(state)
+            free_msgs = _build_messages_for_route(
+                state, None, None, dialogue_context, style_text, monologue, bot_name, user_name,
+                task_hint=_task_hint, profile_block=_profile_block,
+            )
+            logger.info("[Generate][ABLATION] 单次生成，跳过 Move 多路 + Judge")
+            try:
+                msg = await llm_gen.ainvoke(free_msgs, max_tokens=_max_tokens)
+                text = (getattr(msg, "content", "") or str(msg)).strip()
+            except Exception as e:
+                logger.exception("[Generate][ABLATION] 生成异常: %s", e)
+                text = ""
+            return {"generation_candidates": [{"move_id": None, "route": "ablation_direct", "text": text}]}
+
+        # ── 正常模式：多路并行生成 ──
+
+        # 提取共享的 extract 信号
+        _extract = dict(state.get("monologue_extract") or {})
+        _bot_stance = str(_extract.get("bot_stance") or "")
+        _selected_profile_keys: List[str] = list(_extract.get("selected_profile_keys") or [])
+        _profile_block = _build_profile_block(state, _selected_profile_keys)
+
         # 为每路构建任务（同时收集路由信息供日志使用）
         route_infos: List[tuple] = []  # (label, mid, name, desc, msgs)
         tasks = []
@@ -325,7 +359,8 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
             move_name = move_info.get("name", f"move_{mid}")
             move_desc = move_info.get("desc", "")
             msgs = _build_messages_for_route(
-                state, move_desc, move_name, dialogue_context, style_text, monologue, bot_name, user_name
+                state, move_desc, move_name, dialogue_context, style_text, monologue, bot_name, user_name,
+                profile_block=_profile_block,
             )
             label = f"move_{mid}"
             route_infos.append((label, mid, move_name, move_desc, msgs))
@@ -335,7 +370,7 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
         _task_hint = _build_basic_info_task_block(state)
         free_msgs = _build_messages_for_route(
             state, None, None, dialogue_context, style_text, monologue, bot_name, user_name,
-            task_hint=_task_hint,
+            task_hint=_task_hint, profile_block=_profile_block,
         )
         route_infos.append(("free", None, "FREE", "", free_msgs))
         tasks.append(_generate_route(llm_gen, free_msgs, None, "free", max_tokens=_max_tokens))

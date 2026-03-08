@@ -420,7 +420,7 @@ class AgentState(TypedDict, total=False):
     inner_monologue: Optional[str]
     # state_prep 节点输出：PAD/busy/momentum/relationship 转换为的自然语言状态描述（纯代码生成）
     state_text: Optional[str]
-    # extract 节点输出：从独白中结构化提取的信号（emotion_tag/attitude/momentum_delta/topic_appeal/subtext_guess/profile_keys/move_ids）
+    # extract 节点输出：从独白中结构化提取的信号（emotion_tag/bot_stance/topic_appeal/selected_profile_keys/selected_content_move_ids/inferred_gender）
     monologue_extract: Optional[Dict[str, Any]]
     # generate 节点输出：所有路的候选回复列表 [{"move_id": int|None, "route": str, "text": str}, ...]
     generation_candidates: Optional[List[Dict[str, Any]]]

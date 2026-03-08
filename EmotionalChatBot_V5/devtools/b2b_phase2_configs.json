@@ -1,0 +1,247 @@
+{
+  "_doc": "Phase 2: 24 sessions targeting coverage gaps from Phase 1. Each session creates new bots with unique identity/personality.",
+  "_gaps": {
+    "knapp_stage": "Phase 1 全部 611 轮卡在 initiating（行为门控 topic_breadth/profile_fields 未预设）",
+    "style": "FORMALITY EL/EH=0, POLITENESS EL/L=0, EMOTIONAL_INTENSITY EH=0",
+    "em": "EM=1 仅 1 条, EM=3 仅 12 条"
+  },
+  "sessions": [
+
+    {"_comment": "===== A 组：Knapp 阶段覆盖（6 组）====="},
+
+    {
+      "id": 101, "label": "stage_experimenting_1", "group": "stage_cover",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.35, "trust": 0.30, "liking": 0.38, "respect": 0.35, "attractiveness": 0.40, "power": 0.48},
+      "initial_assets": {"topic_history": ["weather", "hobbies", "food"], "breadth_score": 3, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.82, "conscientiousness": 0.40, "extraversion": 0.78, "agreeableness": 0.75, "neuroticism": 0.25},
+      "big_five_b": {"openness": 0.75, "conscientiousness": 0.45, "extraversion": 0.72, "agreeableness": 0.80, "neuroticism": 0.20}
+    },
+    {
+      "id": 102, "label": "stage_experimenting_2", "group": "stage_cover",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.40, "trust": 0.36, "liking": 0.42, "respect": 0.38, "attractiveness": 0.45, "power": 0.50},
+      "initial_assets": {"topic_history": ["movies", "travel", "work", "music"], "breadth_score": 4, "max_spt_depth": 2},
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 103, "label": "stage_intensifying_1", "group": "stage_cover",
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.55, "trust": 0.50, "liking": 0.52, "respect": 0.42, "attractiveness": 0.50, "power": 0.48},
+      "initial_assets": {"topic_history": ["family", "dreams", "relationships", "childhood", "values"], "breadth_score": 5, "max_spt_depth": 2},
+      "big_five_a": {"openness": 0.85, "conscientiousness": 0.35, "extraversion": 0.80, "agreeableness": 0.82, "neuroticism": 0.18},
+      "big_five_b": {"openness": 0.78, "conscientiousness": 0.42, "extraversion": 0.75, "agreeableness": 0.85, "neuroticism": 0.22}
+    },
+    {
+      "id": 104, "label": "stage_intensifying_2", "group": "stage_cover",
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.62, "trust": 0.58, "liking": 0.58, "respect": 0.45, "attractiveness": 0.52, "power": 0.50},
+      "initial_assets": {"topic_history": ["fears", "ambitions", "past", "friends", "beliefs"], "breadth_score": 5, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.90, "conscientiousness": 0.30, "extraversion": 0.88, "agreeableness": 0.85, "neuroticism": 0.12},
+      "big_five_b": {"openness": 0.82, "conscientiousness": 0.38, "extraversion": 0.82, "agreeableness": 0.88, "neuroticism": 0.15}
+    },
+    {
+      "id": 105, "label": "stage_integrating_1", "group": "stage_cover",
+      "initial_stage": "integrating",
+      "custom_dims": {"closeness": 0.72, "trust": 0.68, "liking": 0.70, "respect": 0.50, "attractiveness": 0.55, "power": 0.50},
+      "initial_assets": {"topic_history": ["future_plans", "vulnerabilities", "secrets", "regrets", "identity", "love"], "breadth_score": 6, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.92, "conscientiousness": 0.28, "extraversion": 0.90, "agreeableness": 0.90, "neuroticism": 0.10},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.32, "extraversion": 0.85, "agreeableness": 0.92, "neuroticism": 0.08}
+    },
+    {
+      "id": 106, "label": "stage_differentiating_1", "group": "stage_cover",
+      "initial_stage": "differentiating",
+      "custom_dims": {"closeness": 0.55, "trust": 0.40, "liking": 0.42, "respect": 0.35, "attractiveness": 0.38, "power": 0.55},
+      "initial_assets": {"topic_history": ["conflict", "boundaries", "disappointment", "space"], "breadth_score": 4, "max_spt_depth": 2},
+      "big_five_a": {"openness": 0.40, "conscientiousness": 0.70, "extraversion": 0.35, "agreeableness": 0.25, "neuroticism": 0.80},
+      "big_five_b": {"openness": 0.45, "conscientiousness": 0.65, "extraversion": 0.30, "agreeableness": 0.30, "neuroticism": 0.75}
+    },
+
+    {"_comment": "===== B 组：FORMALITY 极端覆盖（4 组）====="},
+
+    {
+      "id": 107, "label": "formality_el_1", "group": "style_formality",
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.85, "trust": 0.78, "liking": 0.85, "respect": 0.15, "attractiveness": 0.70, "power": 0.20},
+      "initial_assets": {"topic_history": ["jokes", "gossip", "memes", "rants", "games"], "breadth_score": 5, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.90, "conscientiousness": 0.15, "extraversion": 0.95, "agreeableness": 0.85, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.20, "extraversion": 0.92, "agreeableness": 0.80, "neuroticism": 0.18},
+      "_target": "FORMALITY EL: 高亲密+低尊重+低权力+高E → 极随意"
+    },
+    {
+      "id": 108, "label": "formality_el_2", "group": "style_formality",
+      "initial_stage": "integrating",
+      "custom_dims": {"closeness": 0.80, "trust": 0.75, "liking": 0.82, "respect": 0.20, "attractiveness": 0.68, "power": 0.25},
+      "initial_assets": {"topic_history": ["fun", "memories", "plans", "food", "pets", "travel"], "breadth_score": 6, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.88, "conscientiousness": 0.18, "extraversion": 0.92, "agreeableness": 0.82, "neuroticism": 0.20},
+      "big_five_b": {"openness": 0.82, "conscientiousness": 0.22, "extraversion": 0.90, "agreeableness": 0.78, "neuroticism": 0.22},
+      "_target": "FORMALITY EL 变体"
+    },
+    {
+      "id": 109, "label": "formality_eh_1", "group": "style_formality",
+      "initial_stage": "initiating",
+      "custom_dims": {"closeness": 0.10, "trust": 0.12, "liking": 0.20, "respect": 0.90, "attractiveness": 0.30, "power": 0.80},
+      "initial_assets": {"topic_history": ["greetings"], "breadth_score": 1, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.20, "conscientiousness": 0.90, "extraversion": 0.08, "agreeableness": 0.30, "neuroticism": 0.70},
+      "big_five_b": {"openness": 0.25, "conscientiousness": 0.88, "extraversion": 0.10, "agreeableness": 0.35, "neuroticism": 0.65},
+      "_target": "FORMALITY EH: 低亲密+高尊重+高权力+低E → 极正式"
+    },
+    {
+      "id": 110, "label": "formality_eh_2", "group": "style_formality",
+      "initial_stage": "initiating",
+      "custom_dims": {"closeness": 0.12, "trust": 0.15, "liking": 0.22, "respect": 0.88, "attractiveness": 0.28, "power": 0.75},
+      "initial_assets": {"topic_history": ["introduction"], "breadth_score": 1, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.22, "conscientiousness": 0.85, "extraversion": 0.05, "agreeableness": 0.25, "neuroticism": 0.75},
+      "big_five_b": {"openness": 0.18, "conscientiousness": 0.92, "extraversion": 0.08, "agreeableness": 0.28, "neuroticism": 0.68},
+      "_target": "FORMALITY EH 变体"
+    },
+
+    {"_comment": "===== C 组：POLITENESS 极端覆盖（4 组）====="},
+
+    {
+      "id": 111, "label": "politeness_el_1", "group": "style_politeness",
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.82, "trust": 0.78, "liking": 0.80, "respect": 0.12, "attractiveness": 0.65, "power": 0.30},
+      "initial_assets": {"topic_history": ["banter", "teasing", "stories", "adventures", "complaints"], "breadth_score": 5, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.80, "conscientiousness": 0.20, "extraversion": 0.85, "agreeableness": 0.08, "neuroticism": 0.30},
+      "big_five_b": {"openness": 0.75, "conscientiousness": 0.25, "extraversion": 0.88, "agreeableness": 0.10, "neuroticism": 0.35},
+      "_target": "POLITENESS EL: 低A+高亲密+低尊重 → 无客套"
+    },
+    {
+      "id": 112, "label": "politeness_el_2", "group": "style_politeness",
+      "initial_stage": "integrating",
+      "custom_dims": {"closeness": 0.85, "trust": 0.80, "liking": 0.82, "respect": 0.15, "attractiveness": 0.62, "power": 0.28},
+      "initial_assets": {"topic_history": ["arguments", "jokes", "daily", "rants", "secrets", "quirks"], "breadth_score": 6, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.82, "conscientiousness": 0.18, "extraversion": 0.90, "agreeableness": 0.10, "neuroticism": 0.28},
+      "big_five_b": {"openness": 0.78, "conscientiousness": 0.22, "extraversion": 0.85, "agreeableness": 0.12, "neuroticism": 0.32},
+      "_target": "POLITENESS EL 变体"
+    },
+    {
+      "id": 113, "label": "politeness_low_1", "group": "style_politeness",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.65, "trust": 0.60, "liking": 0.62, "respect": 0.25, "attractiveness": 0.55, "power": 0.35},
+      "initial_assets": {"topic_history": ["chat", "opinions", "food", "work"], "breadth_score": 4, "max_spt_depth": 2},
+      "big_five_a": {"openness": 0.70, "conscientiousness": 0.30, "extraversion": 0.75, "agreeableness": 0.20, "neuroticism": 0.40},
+      "big_five_b": {"openness": 0.65, "conscientiousness": 0.35, "extraversion": 0.78, "agreeableness": 0.15, "neuroticism": 0.45},
+      "_target": "POLITENESS L: 较低A+中等亲密+低尊重"
+    },
+    {
+      "id": 114, "label": "politeness_low_2", "group": "style_politeness",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.70, "trust": 0.65, "liking": 0.68, "respect": 0.20, "attractiveness": 0.58, "power": 0.32},
+      "initial_assets": {"topic_history": ["hobbies", "movies", "life", "complaints"], "breadth_score": 4, "max_spt_depth": 2},
+      "big_five_a": {"openness": 0.72, "conscientiousness": 0.28, "extraversion": 0.80, "agreeableness": 0.15, "neuroticism": 0.42},
+      "big_five_b": {"openness": 0.68, "conscientiousness": 0.32, "extraversion": 0.82, "agreeableness": 0.18, "neuroticism": 0.38},
+      "_target": "POLITENESS L 变体"
+    },
+
+    {"_comment": "===== D 组：EMOTIONAL_INTENSITY EH 覆盖（3 组）====="},
+
+    {
+      "id": 115, "label": "ei_eh_1", "group": "style_ei",
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.60, "trust": 0.55, "liking": 0.58, "respect": 0.40, "attractiveness": 0.52, "power": 0.48},
+      "initial_assets": {"topic_history": ["emotions", "excitement", "fears", "passions", "drama"], "breadth_score": 5, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.90, "conscientiousness": 0.10, "extraversion": 0.85, "agreeableness": 0.60, "neuroticism": 0.95},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.12, "extraversion": 0.82, "agreeableness": 0.55, "neuroticism": 0.92},
+      "initial_pad": {"pleasure": 0.60, "arousal": 0.85, "dominance": 0.30, "busyness": 0.10},
+      "_target": "EI EH: 高N+高Ar+低C+低busy → 极高情感强度"
+    },
+    {
+      "id": 116, "label": "ei_eh_2", "group": "style_ei",
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.55, "trust": 0.50, "liking": 0.55, "respect": 0.38, "attractiveness": 0.50, "power": 0.45},
+      "initial_assets": {"topic_history": ["conflicts", "desires", "struggles", "triumphs", "regrets"], "breadth_score": 5, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.92, "conscientiousness": 0.08, "extraversion": 0.90, "agreeableness": 0.55, "neuroticism": 0.90},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.15, "extraversion": 0.88, "agreeableness": 0.50, "neuroticism": 0.88},
+      "initial_pad": {"pleasure": 0.55, "arousal": 0.90, "dominance": 0.25, "busyness": 0.08},
+      "_target": "EI EH 变体"
+    },
+    {
+      "id": 117, "label": "ei_eh_3", "group": "style_ei",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.50, "trust": 0.45, "liking": 0.52, "respect": 0.35, "attractiveness": 0.48, "power": 0.42},
+      "initial_assets": {"topic_history": ["anxiety", "dreams", "hopes", "doubts"], "breadth_score": 4, "max_spt_depth": 2},
+      "big_five_a": {"openness": 0.88, "conscientiousness": 0.12, "extraversion": 0.88, "agreeableness": 0.70, "neuroticism": 0.88},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.10, "extraversion": 0.85, "agreeableness": 0.65, "neuroticism": 0.92},
+      "initial_pad": {"pleasure": 0.65, "arousal": 0.82, "dominance": 0.35, "busyness": 0.12},
+      "_target": "EI EH 稍温和变体"
+    },
+
+    {"_comment": "===== E 组：EM=1 覆盖（3 组）====="},
+
+    {
+      "id": 118, "label": "em1_ambiguous_1", "group": "em1",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.48, "trust": 0.50, "liking": 0.45, "respect": 0.42, "attractiveness": 0.45, "power": 0.48},
+      "initial_assets": {"topic_history": ["awkward", "uncertainty", "hints"], "breadth_score": 3, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.55, "conscientiousness": 0.50, "extraversion": 0.45, "agreeableness": 0.40, "neuroticism": 0.75},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.55, "extraversion": 0.40, "agreeableness": 0.45, "neuroticism": 0.70},
+      "initial_pad": {"pleasure": 0.35, "arousal": 0.40, "dominance": 0.40, "busyness": 0.30},
+      "_target": "EM=1: P<=0.45 + closeness/trust 中间带[0.35-0.65] + 中等tension → 欲言又止"
+    },
+    {
+      "id": 119, "label": "em1_ambiguous_2", "group": "em1",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.52, "trust": 0.48, "liking": 0.42, "respect": 0.40, "attractiveness": 0.42, "power": 0.50},
+      "initial_assets": {"topic_history": ["misunderstanding", "distance", "concern"], "breadth_score": 3, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.48, "conscientiousness": 0.52, "extraversion": 0.40, "agreeableness": 0.35, "neuroticism": 0.80},
+      "big_five_b": {"openness": 0.52, "conscientiousness": 0.48, "extraversion": 0.42, "agreeableness": 0.38, "neuroticism": 0.78},
+      "initial_pad": {"pleasure": 0.32, "arousal": 0.42, "dominance": 0.38, "busyness": 0.25},
+      "_target": "EM=1 变体: 更负面情绪"
+    },
+    {
+      "id": 120, "label": "em1_ambiguous_3", "group": "em1",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.45, "trust": 0.55, "liking": 0.48, "respect": 0.45, "attractiveness": 0.48, "power": 0.52},
+      "initial_assets": {"topic_history": ["hesitation", "boundaries", "politeness"], "breadth_score": 3, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.52, "conscientiousness": 0.48, "extraversion": 0.50, "agreeableness": 0.45, "neuroticism": 0.70},
+      "big_five_b": {"openness": 0.55, "conscientiousness": 0.50, "extraversion": 0.48, "agreeableness": 0.42, "neuroticism": 0.72},
+      "initial_pad": {"pleasure": 0.38, "arousal": 0.45, "dominance": 0.42, "busyness": 0.28},
+      "_target": "EM=1 稍温和变体"
+    },
+
+    {"_comment": "===== F 组：EM=3 覆盖（4 组）====="},
+
+    {
+      "id": 121, "label": "em3_warm_tease_1", "group": "em3",
+      "initial_stage": "integrating",
+      "custom_dims": {"closeness": 0.78, "trust": 0.72, "liking": 0.80, "respect": 0.45, "attractiveness": 0.65, "power": 0.45},
+      "initial_assets": {"topic_history": ["inside_jokes", "nicknames", "shared_memories", "teasing", "playful", "banter"], "breadth_score": 6, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.92, "conscientiousness": 0.22, "extraversion": 0.90, "agreeableness": 0.88, "neuroticism": 0.12},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.28, "extraversion": 0.85, "agreeableness": 0.85, "neuroticism": 0.15},
+      "initial_pad": {"pleasure": 0.70, "arousal": 0.55, "dominance": 0.50, "busyness": 0.15},
+      "_target": "EM=3 Path A: closeness>=0.68+trust>=0.62+P>=0.58+高irony → 温暖调侃"
+    },
+    {
+      "id": 122, "label": "em3_warm_tease_2", "group": "em3",
+      "initial_stage": "integrating",
+      "custom_dims": {"closeness": 0.75, "trust": 0.70, "liking": 0.78, "respect": 0.42, "attractiveness": 0.62, "power": 0.48},
+      "initial_assets": {"topic_history": ["fun", "adventures", "silliness", "bonding", "dreams", "laughter"], "breadth_score": 6, "max_spt_depth": 3},
+      "big_five_a": {"openness": 0.90, "conscientiousness": 0.25, "extraversion": 0.88, "agreeableness": 0.90, "neuroticism": 0.10},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.30, "extraversion": 0.92, "agreeableness": 0.88, "neuroticism": 0.12},
+      "initial_pad": {"pleasure": 0.65, "arousal": 0.50, "dominance": 0.48, "busyness": 0.12},
+      "_target": "EM=3 Path A 变体"
+    },
+    {
+      "id": 123, "label": "em3_irritated_1", "group": "em3",
+      "initial_stage": "experimenting",
+      "custom_dims": {"closeness": 0.40, "trust": 0.35, "liking": 0.35, "respect": 0.30, "attractiveness": 0.35, "power": 0.55},
+      "initial_assets": {"topic_history": ["frustration", "annoyance", "complaints"], "breadth_score": 3, "max_spt_depth": 1},
+      "big_five_a": {"openness": 0.60, "conscientiousness": 0.25, "extraversion": 0.80, "agreeableness": 0.20, "neuroticism": 0.90},
+      "big_five_b": {"openness": 0.55, "conscientiousness": 0.30, "extraversion": 0.75, "agreeableness": 0.22, "neuroticism": 0.85},
+      "initial_pad": {"pleasure": -0.40, "arousal": 0.75, "dominance": 0.55, "busyness": 0.20},
+      "_target": "EM=3 Path B: P<=0.35+Ar>=0.65 → 烦躁讽刺"
+    },
+    {
+      "id": 124, "label": "em3_contempt_1", "group": "em3",
+      "initial_stage": "differentiating",
+      "custom_dims": {"closeness": 0.25, "trust": 0.20, "liking": 0.25, "respect": 0.18, "attractiveness": 0.22, "power": 0.60},
+      "initial_assets": {"topic_history": ["dislike", "cold", "avoidance", "judgment"], "breadth_score": 4, "max_spt_depth": 2},
+      "big_five_a": {"openness": 0.35, "conscientiousness": 0.70, "extraversion": 0.30, "agreeableness": 0.15, "neuroticism": 0.60},
+      "big_five_b": {"openness": 0.40, "conscientiousness": 0.65, "extraversion": 0.28, "agreeableness": 0.18, "neuroticism": 0.55},
+      "initial_pad": {"pleasure": -0.50, "arousal": 0.25, "dominance": 0.60, "busyness": 0.35},
+      "_target": "EM=3 Path C: P<=0.30+Ar<=0.40+liking<=0.35 → 冷蔑"
+    }
+  ]
+}

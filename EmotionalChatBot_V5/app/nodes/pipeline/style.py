@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Literal, Optional
 
@@ -153,6 +154,15 @@ class Inputs:
 # core computation
 # -----------------------------
 def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
+    if os.getenv("ABLATION_MODE"):
+        return {
+            "WARMTH": 0.5,
+            "FORMALITY": 0.5,
+            "POLITENESS": 0.5,
+            "CERTAINTY": 0.5,
+            "EXPRESSION_MODE": 0,
+            "RESPONSE_LENGTH": 0.5,
+        }
     # pack + clip
     evidence_opt = inp.evidence if inp.evidence is None else clip01(float(inp.evidence))
 
@@ -184,7 +194,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     # -----------------------------
     # derived latent signals (推算值)
     # -----------------------------
-    familiarity = clip01(
+    intimacy_index = clip01(
         0.50
         + 0.45 * centered(v["closeness"])
         + 0.25 * centered(v["liking"])
@@ -221,7 +231,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         + j * 0.4
     )
 
-    v["familiarity"] = familiarity
+    v["intimacy_index"] = intimacy_index
     v["hierarchy"] = hierarchy
     v["tension"] = tension
     v["safety_to_play"] = safety_to_play
@@ -234,11 +244,10 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     FORMALITY = lin(
         base=0.50,
         terms={
-            "C": +0.55,
             "respect": +0.225,  # 减半：原 +0.45
             "hierarchy": +0.35,
             "busy": +0.15,
-            "familiarity": -0.40,
+            "intimacy_index": -0.40,
             "E": -0.15,
             "momentum": -0.10,
             "topic_appeal": -0.05,
@@ -257,7 +266,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
             "A": +0.25,  # was +0.60
             "N": +0.10,  # was +0.20
             # when it's safe & familiar => drop pleasantries
-            "familiarity": -0.45,  # was -0.20
+            "intimacy_index": -0.45,  # was -0.20
             "safety_to_play": -0.25,  # new
             # pressure => terse, less ceremonious
             "busy": -0.25,  # was -0.15
@@ -282,7 +291,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
             "E": +0.25,
             "P": +0.35,
             "liking": +0.30,
-            "familiarity": +0.25,
+            "intimacy_index": +0.25,
             "topic_appeal": +0.18,
             "momentum": +0.10,
             "attractiveness": +0.08,
@@ -299,10 +308,9 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     CERTAINTY = lin(
         base=0.50,
         terms={
-            "C": +0.45,
             "D": +0.35,
-            "trust": +0.30,
-            "power": +0.20,
+            "power": -0.20,      # 用户强势→bot 谦逊
+            "C": -0.10,          # 尽责→略谨慎
             "N": -0.45,
             "busy": +0.10,
             "momentum": +0.05,
@@ -340,19 +348,6 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     EMOTIONAL_INTENSITY = clip01(EMOTIONAL_INTENSITY + j * 0.5)
 
     # (f) EXPRESSION_MODE
-    indirectness = clip01(
-        0.50
-        + 0.35 * centered(1.0 - CERTAINTY)
-        + 0.25 * centered(POLITENESS)
-        + 0.20 * centered(v["respect"])
-        + 0.10 * centered(1.0 - FORMALITY)
-        - 0.20 * centered(v["busy"])
-        + 0.15 * centered(v["familiarity"])
-        + 0.12 * centered(v["momentum"])
-        + 0.08 * centered(v["topic_appeal"])
-        + j * 0.6
-    )
-
     figurative_bias = clip01(
         0.50
         + 0.45 * centered(v["O"])
@@ -360,24 +355,37 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         + 0.15 * centered(v["Ar"])
         + 0.18 * centered(v["topic_appeal"])
         + 0.12 * centered(v["momentum"])
-        + 0.10 * centered(v["familiarity"])
+        + 0.10 * centered(v["intimacy_index"])
         - 0.30 * centered(v["respect"])
         - 0.35 * centered(v["busy"])
         + j
     )
 
-    # 比喻由 figurative_bias 独立决定，与 indirectness/certainty 解耦
+    # EXPRESSION_MODE 四值：0=字面直白，1=欲言又止，2=比喻意象，3=调侃/讽刺
+    # 比喻由 figurative_bias 独立决定
     EXPRESSION_MODE: ExprMode
     if figurative_bias >= 0.60:
         EXPRESSION_MODE = 2
-    elif indirectness >= 0.60:
-        EXPRESSION_MODE = 1
     else:
         EXPRESSION_MODE = 0
 
-    # -----------------------------
-    # IRONIC_LIGHT via propensity (more observable but still safe)
-    # -----------------------------
+    # -----------------------------------
+    # EM=1：欲言又止（关系模糊 + 张力适中 + 情绪偏负面）
+    # 触发逻辑来自 Pinker 2008：社会风险管理 → plausible deniability
+    # 只在 EM=0 基础上升级，不覆盖 EM=2（比喻本身也是迂回的一种）
+    # -----------------------------------
+    _indirect = (
+        v["P"] <= 0.45
+        and 0.35 <= v["closeness"] <= 0.65
+        and 0.35 <= v["trust"] <= 0.65
+        and 0.25 <= v["tension"] <= 0.55
+    )
+    if _indirect and EXPRESSION_MODE == 0:
+        EXPRESSION_MODE = 1
+
+    # -----------------------------------
+    # EM=3 路径 A：温暖调侃（关系亲密+正面情绪）
+    # -----------------------------------
     respect_mid = _respect_mid01(v["respect"])
     irony_propensity = clip01(
         0.50
@@ -400,19 +408,50 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     ):
         EXPRESSION_MODE = 3
 
+    # -----------------------------------
+    # EM=3 路径 B：烦躁讽刺（低 pleasure + 高 arousal）
+    # 独立于关系亲密度——不爽时自然说话带刺
+    # -----------------------------------
+    if (
+        v["P"] <= 0.35
+        and v["Ar"] >= 0.65
+        and v["tension"] <= 0.55      # 有刺但未到对抗/敌意
+        and EMOTIONAL_INTENSITY >= 0.55
+    ):
+        EXPRESSION_MODE = 3
+
+    # -----------------------------------
+    # EM=3 路径 C：冷静蔑视（contempt）
+    # 低 pleasure + 低 arousal + 低 liking → 冷漠刻薄
+    # 不需要高情绪激活，蔑视本身是冷的（不同于愤怒路径 B）
+    # 用原始关系变量 liking/closeness 代替计算后的 WARMTH，触发更稳定
+    # -----------------------------------
+    _contempt = (
+        v["P"] <= 0.30
+        and v["Ar"] <= 0.40
+        and v["liking"] <= 0.35
+        and EMOTIONAL_INTENSITY <= 0.40
+    )
+    if _contempt:
+        EXPRESSION_MODE = 3
+        # 蔑视 = "我已经看穿你了" → 确定性应该高，不受 trust 低的拖累
+        CERTAINTY = max(CERTAINTY, 0.65)
+
     # -----------------------------
     # guardrails
     # -----------------------------
+    # 高尊重 → 即使有讽刺冲动也收住，降为默认字面（由 POLITENESS 决定措辞克制度）
     if v["respect"] >= 0.80:
         if EXPRESSION_MODE == 3:
-            EXPRESSION_MODE = 1
+            EXPRESSION_MODE = 0
 
+    # 极低信任/亲密 → 只对温暖调侃路径限制，烦躁讽刺路径不受此约束
     if v["trust"] <= 0.35 or v["closeness"] <= 0.35:
-        if EXPRESSION_MODE in (2, 3):
-            EXPRESSION_MODE = 1
+        if EXPRESSION_MODE in (2, 3) and v["P"] > 0.35:  # 只限制正面情绪路径
+            EXPRESSION_MODE = 0
 
     if v["busy"] >= 0.80:
-        EXPRESSION_MODE = 0 if CERTAINTY >= 0.55 else 1
+        EXPRESSION_MODE = 0
 
     # -----------------------------
     # post shaping (increase "margin" for LLM observability)

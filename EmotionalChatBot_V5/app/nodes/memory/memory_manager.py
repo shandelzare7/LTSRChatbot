@@ -187,9 +187,9 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
 
 规则：
 - 比较现有 topic_history 和本轮对话内容（user_input + bot_text）
-- 只有当对话明确涉及“与已有话题明显不同”的主题时，才认为是新话题
-- 避免重复：如果话题与已有话题相似或只是已有话题的细分，不要添加
-- 话题应该是概括性的主题词（如“工作”、“电影”、“旅行”），而不是具体细节
+- 话题粒度应为中等层级的主题词，例如：”冷笑话”、”诗歌”、”暗恋经历”、”工作压力”、”旅行”、”美食”、”童年回忆”
+- 禁止使用过于笼统的类别（如”日常闲聊”、”生活”、”杂谈”），也不要用过于具体的细节（如”海子的面朝大海”）
+- 如果对话内容可以归入一个已有话题，则不要添加；但如果涉及了一个明显不同领域的中层主题，应识别为新话题
 - 如果本轮没有新话题，返回空数组 []"""
 
         # 会话边界时，附加 SPT 评估指令（基于旧摘要评估上一会话最大自我披露深度）
@@ -253,6 +253,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             data = {}
 
         # 2) 解析 LLM 结果（摘要 + 元数据 + notes）
+        print(f"[MemoryManager][DEBUG] data keys={list(data.keys()) if data else 'EMPTY'}, new_topics_in_data={data.get('new_topics', 'MISSING')}")
         new_summary = str(data.get("new_summary") or prev_summary or "").strip()
 
         # 方案C：会话边界时解析精华摘要
@@ -320,6 +321,7 @@ def create_memory_manager_node(llm_invoker: Any) -> Callable[[AgentState], dict]
             ts = str(t).strip()
             if ts and len(ts) <= 20:
                 new_topics.append(ts)
+        print(f"[MemoryManager] new_topics_raw={new_topics_raw}, filtered={new_topics}, existing_history={existing_topic_history}")
 
         # 3) 基础信息：LLM 输出 + Python 最小门控（不用正则）
         basic_updates_raw = data.get("basic_info_updates")

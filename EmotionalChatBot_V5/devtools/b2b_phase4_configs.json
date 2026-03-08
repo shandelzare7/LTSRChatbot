@@ -1,0 +1,196 @@
+{
+  "_doc": "Phase 4: 20 sessions × 30-50 rounds for broader distribution. All-new first messages. Diverse Big Five / relationship / PAD combos.",
+
+  "sessions": [
+
+    {"_comment": "===== A: 高外向+高宜人 — 热情社交场景 (2 sessions) ====="},
+
+    {
+      "id": 301, "label": "warm_social_1", "group": "broad_warm",
+      "rounds": 35,
+      "custom_dims": {"closeness": 0.65, "trust": 0.60, "liking": 0.70, "respect": 0.55, "attractiveness": 0.60, "power": 0.40},
+      "initial_pad": {"P": 0.75, "Ar": 0.65, "D": 0.50, "busyness": 0.30},
+      "big_five_a": {"openness": 0.70, "conscientiousness": 0.45, "extraversion": 0.85, "agreeableness": 0.80, "neuroticism": 0.25},
+      "big_five_b": {"openness": 0.65, "conscientiousness": 0.50, "extraversion": 0.80, "agreeableness": 0.75, "neuroticism": 0.30}
+    },
+    {
+      "id": 302, "label": "warm_social_2", "group": "broad_warm",
+      "rounds": 40,
+      "custom_dims": {"closeness": 0.72, "trust": 0.68, "liking": 0.75, "respect": 0.60, "attractiveness": 0.55, "power": 0.35},
+      "initial_pad": {"P": 0.80, "Ar": 0.60, "D": 0.55, "busyness": 0.25},
+      "big_five_a": {"openness": 0.60, "conscientiousness": 0.55, "extraversion": 0.90, "agreeableness": 0.85, "neuroticism": 0.20},
+      "big_five_b": {"openness": 0.55, "conscientiousness": 0.60, "extraversion": 0.82, "agreeableness": 0.78, "neuroticism": 0.25}
+    },
+
+    {"_comment": "===== B: 低外向+高神经质 — 焦虑内向场景 (2 sessions) ====="},
+
+    {
+      "id": 303, "label": "anxious_intro_1", "group": "broad_anxious",
+      "rounds": 30,
+      "custom_dims": {"closeness": 0.30, "trust": 0.25, "liking": 0.35, "respect": 0.45, "attractiveness": 0.30, "power": 0.55},
+      "initial_pad": {"P": 0.25, "Ar": 0.70, "D": 0.20, "busyness": 0.60},
+      "big_five_a": {"openness": 0.35, "conscientiousness": 0.65, "extraversion": 0.15, "agreeableness": 0.40, "neuroticism": 0.85},
+      "big_five_b": {"openness": 0.40, "conscientiousness": 0.60, "extraversion": 0.20, "agreeableness": 0.45, "neuroticism": 0.80}
+    },
+    {
+      "id": 304, "label": "anxious_intro_2", "group": "broad_anxious",
+      "rounds": 35,
+      "custom_dims": {"closeness": 0.25, "trust": 0.20, "liking": 0.30, "respect": 0.50, "attractiveness": 0.25, "power": 0.60},
+      "initial_pad": {"P": 0.20, "Ar": 0.75, "D": 0.15, "busyness": 0.65},
+      "big_five_a": {"openness": 0.30, "conscientiousness": 0.70, "extraversion": 0.10, "agreeableness": 0.35, "neuroticism": 0.90},
+      "big_five_b": {"openness": 0.35, "conscientiousness": 0.65, "extraversion": 0.15, "agreeableness": 0.40, "neuroticism": 0.85}
+    },
+
+    {"_comment": "===== C: 高开放+低尽责 — 随性创意场景 (2 sessions) ====="},
+
+    {
+      "id": 305, "label": "creative_free_1", "group": "broad_creative",
+      "rounds": 40,
+      "custom_dims": {"closeness": 0.55, "trust": 0.50, "liking": 0.60, "respect": 0.40, "attractiveness": 0.55, "power": 0.30},
+      "initial_pad": {"P": 0.65, "Ar": 0.55, "D": 0.70, "busyness": 0.20},
+      "big_five_a": {"openness": 0.92, "conscientiousness": 0.15, "extraversion": 0.60, "agreeableness": 0.50, "neuroticism": 0.35},
+      "big_five_b": {"openness": 0.88, "conscientiousness": 0.20, "extraversion": 0.55, "agreeableness": 0.55, "neuroticism": 0.30}
+    },
+    {
+      "id": 306, "label": "creative_free_2", "group": "broad_creative",
+      "rounds": 45,
+      "custom_dims": {"closeness": 0.60, "trust": 0.55, "liking": 0.65, "respect": 0.35, "attractiveness": 0.60, "power": 0.25},
+      "initial_pad": {"P": 0.70, "Ar": 0.50, "D": 0.75, "busyness": 0.15},
+      "big_five_a": {"openness": 0.95, "conscientiousness": 0.10, "extraversion": 0.65, "agreeableness": 0.45, "neuroticism": 0.40},
+      "big_five_b": {"openness": 0.90, "conscientiousness": 0.15, "extraversion": 0.60, "agreeableness": 0.50, "neuroticism": 0.35}
+    },
+
+    {"_comment": "===== D: 高权力+低亲密 — 正式权威场景 (2 sessions) ====="},
+
+    {
+      "id": 307, "label": "formal_authority_1", "group": "broad_formal",
+      "rounds": 30,
+      "custom_dims": {"closeness": 0.15, "trust": 0.20, "liking": 0.15, "respect": 0.90, "attractiveness": 0.20, "power": 0.85},
+      "initial_pad": {"P": 0.45, "Ar": 0.50, "D": 0.80, "busyness": 0.80},
+      "big_five_a": {"openness": 0.40, "conscientiousness": 0.80, "extraversion": 0.25, "agreeableness": 0.30, "neuroticism": 0.35},
+      "big_five_b": {"openness": 0.35, "conscientiousness": 0.85, "extraversion": 0.20, "agreeableness": 0.25, "neuroticism": 0.30}
+    },
+    {
+      "id": 308, "label": "formal_authority_2", "group": "broad_formal",
+      "rounds": 35,
+      "custom_dims": {"closeness": 0.10, "trust": 0.15, "liking": 0.10, "respect": 0.88, "attractiveness": 0.15, "power": 0.90},
+      "initial_pad": {"P": 0.40, "Ar": 0.45, "D": 0.85, "busyness": 0.75},
+      "big_five_a": {"openness": 0.35, "conscientiousness": 0.85, "extraversion": 0.15, "agreeableness": 0.20, "neuroticism": 0.30},
+      "big_five_b": {"openness": 0.30, "conscientiousness": 0.90, "extraversion": 0.12, "agreeableness": 0.22, "neuroticism": 0.25}
+    },
+
+    {"_comment": "===== E: 高亲密+高信任 — 深度亲密场景 (2 sessions) ====="},
+
+    {
+      "id": 309, "label": "deep_intimate_1", "group": "broad_intimate",
+      "rounds": 50,
+      "custom_dims": {"closeness": 0.88, "trust": 0.85, "liking": 0.85, "respect": 0.70, "attractiveness": 0.75, "power": 0.45},
+      "initial_pad": {"P": 0.80, "Ar": 0.40, "D": 0.60, "busyness": 0.20},
+      "initial_stage": "integrating",
+      "big_five_a": {"openness": 0.75, "conscientiousness": 0.50, "extraversion": 0.65, "agreeableness": 0.80, "neuroticism": 0.20},
+      "big_five_b": {"openness": 0.70, "conscientiousness": 0.55, "extraversion": 0.60, "agreeableness": 0.75, "neuroticism": 0.25}
+    },
+    {
+      "id": 310, "label": "deep_intimate_2", "group": "broad_intimate",
+      "rounds": 45,
+      "custom_dims": {"closeness": 0.82, "trust": 0.80, "liking": 0.80, "respect": 0.65, "attractiveness": 0.70, "power": 0.50},
+      "initial_pad": {"P": 0.75, "Ar": 0.35, "D": 0.55, "busyness": 0.25},
+      "initial_stage": "intensifying",
+      "big_five_a": {"openness": 0.80, "conscientiousness": 0.45, "extraversion": 0.70, "agreeableness": 0.85, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.75, "conscientiousness": 0.50, "extraversion": 0.65, "agreeableness": 0.80, "neuroticism": 0.20}
+    },
+
+    {"_comment": "===== F: 冲突/衰退 — differentiating/circumscribing 场景 (2 sessions) ====="},
+
+    {
+      "id": 311, "label": "conflict_decay_1", "group": "broad_conflict",
+      "rounds": 35,
+      "custom_dims": {"closeness": 0.40, "trust": 0.30, "liking": 0.25, "respect": 0.20, "attractiveness": 0.30, "power": 0.60},
+      "initial_pad": {"P": 0.20, "Ar": 0.80, "D": 0.65, "busyness": 0.50},
+      "initial_stage": "differentiating",
+      "big_five_a": {"openness": 0.45, "conscientiousness": 0.55, "extraversion": 0.50, "agreeableness": 0.15, "neuroticism": 0.75},
+      "big_five_b": {"openness": 0.40, "conscientiousness": 0.50, "extraversion": 0.55, "agreeableness": 0.20, "neuroticism": 0.70}
+    },
+    {
+      "id": 312, "label": "conflict_decay_2", "group": "broad_conflict",
+      "rounds": 40,
+      "custom_dims": {"closeness": 0.35, "trust": 0.25, "liking": 0.20, "respect": 0.25, "attractiveness": 0.25, "power": 0.55},
+      "initial_pad": {"P": 0.15, "Ar": 0.85, "D": 0.60, "busyness": 0.55},
+      "initial_stage": "circumscribing",
+      "big_five_a": {"openness": 0.40, "conscientiousness": 0.60, "extraversion": 0.45, "agreeableness": 0.10, "neuroticism": 0.80},
+      "big_five_b": {"openness": 0.35, "conscientiousness": 0.55, "extraversion": 0.50, "agreeableness": 0.15, "neuroticism": 0.75}
+    },
+
+    {"_comment": "===== G: 全随机 — 最大多样性 (2 sessions) ====="},
+
+    {
+      "id": 313, "label": "random_broad_1", "group": "broad_random",
+      "rounds": 40,
+      "big_five_a": "random", "big_five_b": "random"
+    },
+    {
+      "id": 314, "label": "random_broad_2", "group": "broad_random",
+      "rounds": 50,
+      "big_five_a": "random", "big_five_b": "random"
+    },
+
+    {"_comment": "===== H: 中等参数 — 均衡分布 (2 sessions) ====="},
+
+    {
+      "id": 315, "label": "balanced_mid_1", "group": "broad_balanced",
+      "rounds": 35,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.50},
+      "initial_pad": {"P": 0.50, "Ar": 0.50, "D": 0.50, "busyness": 0.50},
+      "big_five_a": {"openness": 0.50, "conscientiousness": 0.50, "extraversion": 0.50, "agreeableness": 0.50, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.55, "conscientiousness": 0.45, "extraversion": 0.55, "agreeableness": 0.45, "neuroticism": 0.55}
+    },
+    {
+      "id": 316, "label": "balanced_mid_2", "group": "broad_balanced",
+      "rounds": 45,
+      "custom_dims": {"closeness": 0.45, "trust": 0.55, "liking": 0.55, "respect": 0.45, "attractiveness": 0.45, "power": 0.55},
+      "initial_pad": {"P": 0.55, "Ar": 0.45, "D": 0.55, "busyness": 0.45},
+      "big_five_a": {"openness": 0.55, "conscientiousness": 0.45, "extraversion": 0.45, "agreeableness": 0.55, "neuroticism": 0.45},
+      "big_five_b": {"openness": 0.48, "conscientiousness": 0.52, "extraversion": 0.48, "agreeableness": 0.52, "neuroticism": 0.48}
+    },
+
+    {"_comment": "===== I: 极端对比 — A/B人格差异大 (2 sessions) ====="},
+
+    {
+      "id": 317, "label": "contrast_pair_1", "group": "broad_contrast",
+      "rounds": 40,
+      "custom_dims": {"closeness": 0.40, "trust": 0.35, "liking": 0.40, "respect": 0.55, "attractiveness": 0.45, "power": 0.70},
+      "initial_pad": {"P": 0.55, "Ar": 0.60, "D": 0.45, "busyness": 0.40},
+      "big_five_a": {"openness": 0.90, "conscientiousness": 0.20, "extraversion": 0.85, "agreeableness": 0.30, "neuroticism": 0.15},
+      "big_five_b": {"openness": 0.15, "conscientiousness": 0.85, "extraversion": 0.10, "agreeableness": 0.80, "neuroticism": 0.75}
+    },
+    {
+      "id": 318, "label": "contrast_pair_2", "group": "broad_contrast",
+      "rounds": 35,
+      "custom_dims": {"closeness": 0.50, "trust": 0.45, "liking": 0.50, "respect": 0.60, "attractiveness": 0.40, "power": 0.30},
+      "initial_pad": {"P": 0.60, "Ar": 0.55, "D": 0.50, "busyness": 0.35},
+      "big_five_a": {"openness": 0.20, "conscientiousness": 0.90, "extraversion": 0.15, "agreeableness": 0.85, "neuroticism": 0.80},
+      "big_five_b": {"openness": 0.85, "conscientiousness": 0.15, "extraversion": 0.90, "agreeableness": 0.20, "neuroticism": 0.10}
+    },
+
+    {"_comment": "===== J: 停滞/回避 — stagnating/avoiding 场景 (2 sessions) ====="},
+
+    {
+      "id": 319, "label": "stagnate_avoid_1", "group": "broad_stagnate",
+      "rounds": 30,
+      "custom_dims": {"closeness": 0.20, "trust": 0.15, "liking": 0.15, "respect": 0.30, "attractiveness": 0.15, "power": 0.50},
+      "initial_pad": {"P": 0.15, "Ar": 0.25, "D": 0.30, "busyness": 0.70},
+      "initial_stage": "stagnating",
+      "big_five_a": {"openness": 0.25, "conscientiousness": 0.50, "extraversion": 0.20, "agreeableness": 0.30, "neuroticism": 0.60},
+      "big_five_b": {"openness": 0.30, "conscientiousness": 0.55, "extraversion": 0.25, "agreeableness": 0.35, "neuroticism": 0.55}
+    },
+    {
+      "id": 320, "label": "stagnate_avoid_2", "group": "broad_stagnate",
+      "rounds": 30,
+      "custom_dims": {"closeness": 0.18, "trust": 0.12, "liking": 0.10, "respect": 0.25, "attractiveness": 0.10, "power": 0.45},
+      "initial_pad": {"P": 0.10, "Ar": 0.20, "D": 0.25, "busyness": 0.75},
+      "initial_stage": "avoiding",
+      "big_five_a": {"openness": 0.20, "conscientiousness": 0.45, "extraversion": 0.15, "agreeableness": 0.25, "neuroticism": 0.65},
+      "big_five_b": {"openness": 0.25, "conscientiousness": 0.50, "extraversion": 0.20, "agreeableness": 0.30, "neuroticism": 0.60}
+    }
+  ]
+}
