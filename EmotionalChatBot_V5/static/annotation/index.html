@@ -247,8 +247,8 @@ const DIM_LABELS = {
   FORMALITY:           '正式',
   POLITENESS:          '礼貌',
   WARMTH:              '温暖',
-  CERTAINTY:           '确定/笃定',
-  EMOTIONAL_INTENSITY: '情绪强度',
+  CERTAINTY:           '确定',
+  EMOTIONAL_INTENSITY: '情绪激动',
 };
 
 const TIER_LABELS = [
@@ -481,10 +481,10 @@ function renderStyleCompareBody(task) {
     </div>
     <div class="choice-grid cols-2">
       <div class="choice-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
-        <div class="choice-name">A 更强</div>
+        <div class="choice-name">A 更${esc(dimLabel)}</div>
       </div>
       <div class="choice-btn${S.selection === 'B' ? ' selected' : ''}" onclick="selectOption('B')">
-        <div class="choice-name">B 更强</div>
+        <div class="choice-name">B 更${esc(dimLabel)}</div>
       </div>
     </div>
   </div>`;
