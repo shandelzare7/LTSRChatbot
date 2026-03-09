@@ -14,7 +14,6 @@ logs/
 docs/
 
 # Generated annotation data (can be regenerated)
-scripts/output/deduped_pool.json
 scripts/output/annotator_*_tasks.json
 scripts/output/annotation_results.csv
 scripts/output/figures/
