@@ -162,13 +162,13 @@ def _build_messages_for_route(
     if bot_persona:
         persona_text = f"\n## 你的人设\n{safe_text(str(bot_persona))[:500]}"
 
-    # Move 约束
+    # Move 约束（不暴露动作名，避免 LLM 照抄）
     move_block = ""
     if move_desc:
         move_block = f"""
-## 本次回复的内容约束（必须融入，不要照抄）
-动作名：{move_name}
-具体要求：{move_desc}
+## 本次回复的内容约束
+{move_desc}
+（自然融入，不要提及这条约束本身）
 """
 
     # 字数上限：1/2 * 对方消息长度 + 35 * momentum；下限 1，硬上限 60 字
