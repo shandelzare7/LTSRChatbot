@@ -76,15 +76,15 @@ body {
 .bubble-row {
   display: flex; align-items: flex-end; gap: 8px;
 }
-.bubble-row.user { justify-content: flex-start; }
-.bubble-row.bot  { justify-content: flex-end; }
+.bubble-row.user { justify-content: flex-end; }
+.bubble-row.bot  { justify-content: flex-start; }
 .bubble-avatar {
   width: 28px; height: 28px; border-radius: 50%;
   font-size: 13px; font-weight: 700; color: #fff;
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.bubble-row.user .bubble-avatar { background: #aab; }
+.bubble-row.user .bubble-avatar { background: #aab; order: 2; }
 .bubble-row.bot  .bubble-avatar { background: #4f6ef7; }
 .bubble {
   max-width: 78%; padding: 10px 14px;
@@ -92,10 +92,10 @@ body {
   border-radius: 14px; word-break: break-word;
 }
 .bubble-row.user .bubble {
-  background: #f0f1f3; border-bottom-left-radius: 4px;
+  background: #f0f1f3; border-bottom-right-radius: 4px;
 }
 .bubble-row.bot .bubble {
-  background: #eef1ff; border-bottom-right-radius: 4px;
+  background: #eef1ff; border-bottom-left-radius: 4px;
 }
 .bubble-row.bot.highlight .bubble {
   background: #dde3ff; border: 2px solid #4f6ef7;
@@ -334,7 +334,11 @@ async function loadTasks() {
 
     if (data.error) {
       document.getElementById('app').innerHTML =
-        `<div class="loading-msg" style="color:#e53e3e">${esc(data.error)}</div>`;
+        `<div class="loading-msg" style="color:#e53e3e">${esc(data.error)}
+         <div style="margin-top:20px">
+           <button class="btn btn-primary" onclick="loadTasks()">重试</button>
+           <button class="btn btn-back" style="margin-left:8px" onclick="goLogin()">重新登录</button>
+         </div></div>`;
       return;
     }
 
@@ -351,7 +355,11 @@ async function loadTasks() {
     render();
   } catch (e) {
     document.getElementById('app').innerHTML =
-      `<div class="loading-msg" style="color:#e53e3e">网络错误：${esc(String(e))}</div>`;
+      `<div class="loading-msg" style="color:#e53e3e">网络错误：${esc(String(e))}
+       <div style="margin-top:20px">
+         <button class="btn btn-primary" onclick="loadTasks()">重试</button>
+         <button class="btn btn-back" style="margin-left:8px" onclick="goLogin()">重新登录</button>
+       </div></div>`;
   }
 }
 
@@ -404,12 +412,12 @@ function renderMoveBody(task) {
   return `
   <div class="chat-wrap">
     <div class="bubble-row user">
-      <div class="bubble-avatar">Ta</div>
       <div class="bubble">${esc(task.context_user_text || '（无）')}</div>
+      <div class="bubble-avatar">Ta</div>
     </div>
     <div class="bubble-row bot highlight">
-      <div class="bubble">${esc(task.bot_text || '')}</div>
       <div class="bubble-avatar">Bot</div>
+      <div class="bubble">${esc(task.bot_text || '')}</div>
     </div>
   </div>
   <div class="question-block">
@@ -433,12 +441,12 @@ function renderStyleCompareBody(task) {
       <div class="pair-label">组 A</div>
       <div class="chat-wrap" style="box-shadow:none;padding:8px 0;margin:0">
         <div class="bubble-row user">
-          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
           <div class="bubble" style="font-size:13px">${esc(task.text_a_context)}</div>
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
         </div>
         <div class="bubble-row bot">
-          <div class="bubble" style="font-size:13px">${esc(task.text_a_bot)}</div>
           <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Bot</div>
+          <div class="bubble" style="font-size:13px">${esc(task.text_a_bot)}</div>
         </div>
       </div>
     </div>
@@ -446,12 +454,12 @@ function renderStyleCompareBody(task) {
       <div class="pair-label">组 B</div>
       <div class="chat-wrap" style="box-shadow:none;padding:8px 0;margin:0">
         <div class="bubble-row user">
-          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
           <div class="bubble" style="font-size:13px">${esc(task.text_b_context)}</div>
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
         </div>
         <div class="bubble-row bot">
-          <div class="bubble" style="font-size:13px">${esc(task.text_b_bot)}</div>
           <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Bot</div>
+          <div class="bubble" style="font-size:13px">${esc(task.text_b_bot)}</div>
         </div>
       </div>
     </div>
@@ -486,12 +494,12 @@ function renderStyleLabelBody(task) {
   return `
   <div class="chat-wrap">
     <div class="bubble-row user">
-      <div class="bubble-avatar">Ta</div>
       <div class="bubble">${esc(task.context_user_text || '（无）')}</div>
+      <div class="bubble-avatar">Ta</div>
     </div>
     <div class="bubble-row bot highlight">
-      <div class="bubble">${esc(task.bot_text || '')}</div>
       <div class="bubble-avatar">Bot</div>
+      <div class="bubble">${esc(task.bot_text || '')}</div>
     </div>
   </div>
   <div class="question-block">
@@ -513,12 +521,12 @@ function renderExprModeBody(task) {
   return `
   <div class="chat-wrap">
     <div class="bubble-row user">
-      <div class="bubble-avatar">Ta</div>
       <div class="bubble">${esc(task.context_user_text || '（无）')}</div>
+      <div class="bubble-avatar">Ta</div>
     </div>
     <div class="bubble-row bot highlight">
-      <div class="bubble">${esc(task.bot_text || '')}</div>
       <div class="bubble-avatar">Bot</div>
+      <div class="bubble">${esc(task.bot_text || '')}</div>
     </div>
   </div>
   <div class="question-block">
