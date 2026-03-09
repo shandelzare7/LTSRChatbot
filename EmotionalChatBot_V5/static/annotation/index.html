@@ -287,14 +287,30 @@ function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function pickMoves(taskId, n) {
+function pickMoves(taskId, n, mustIncludeId) {
   const all = Object.entries(MOVE_LABELS).map(([id, m]) => ({ id: Number(id), ...m }));
   let h = 0;
   for (let c of String(taskId)) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0;
   h = Math.abs(h);
-  const arr = all.map((m, i) => ({ m, sort: (h * (i + 7919)) % 999983 }));
+
+  // If mustIncludeId is set, guarantee it's in the result
+  let forced = null;
+  let rest = all;
+  if (mustIncludeId && MOVE_LABELS[mustIncludeId]) {
+    forced = { id: mustIncludeId, ...MOVE_LABELS[mustIncludeId] };
+    rest = all.filter(m => m.id !== mustIncludeId);
+  }
+
+  const arr = rest.map((m, i) => ({ m, sort: (h * (i + 7919)) % 999983 }));
   arr.sort((a, b) => a.sort - b.sort);
-  return arr.slice(0, n).map(x => x.m);
+  const picks = arr.slice(0, forced ? n - 1 : n).map(x => x.m);
+
+  if (forced) picks.push(forced);
+
+  // Shuffle picks deterministically so forced answer isn't always last
+  const shuffled = picks.map((m, i) => ({ m, sort: (h * (i + 1301)) % 999961 }));
+  shuffled.sort((a, b) => a.sort - b.sort);
+  return shuffled.map(x => x.m);
 }
 
 function render() {
@@ -415,7 +431,7 @@ function renderTask() {
 
 // ── Move ─────────────────────────────────────────────────────────────────────
 function renderMoveBody(task) {
-  const pickedMoves = pickMoves(task.task_id, 3);
+  const pickedMoves = pickMoves(task.task_id, 3, task.must_include_move);
   task._pickedMoves = pickedMoves;
 
   const btns = pickedMoves.map(m => `

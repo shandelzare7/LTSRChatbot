@@ -2052,12 +2052,16 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
         for i in _sample(by_route.get(route, []), n):
             used.add(i)
             r = pool[i]
+            # Extract move_id from route string (e.g. "move_2" -> 2)
+            _route = r["route"]
+            _mid = int(_route.split("_")[1]) if _route.startswith("move_") else 0
             tasks.append({
                 "task_type": "move",
                 "task_id": f"A_{len(tasks)}",
                 "context_user_text": r["context"],
                 "bot_text": r["text"],
-                "ground_truth": {"route": r["route"]},
+                "ground_truth": {"route": _route},
+                "must_include_move": _mid,
                 "is_repeat": False,
             })
 
