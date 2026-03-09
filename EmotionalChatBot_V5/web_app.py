@@ -1948,7 +1948,7 @@ def _load_pool():
     _annotation_pool = json.loads(_POOL_PATH.read_text("utf-8"))
     # Build indices
     from collections import defaultdict
-    _STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
+    _STYLE_DIMS = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
     by_route: dict[str, list[int]] = defaultdict(list)
     by_dim_tier: dict[str, dict[str, list[int]]] = {d: defaultdict(list) for d in _STYLE_DIMS}
     by_em: dict[int, list[int]] = defaultdict(list)
@@ -1978,10 +1978,11 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
     by_dim_tier = idx["by_dim_tier"]
     by_em = idx["by_em"]
 
-    STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
+    STYLE_DIMS = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
     TIERS = ["EL", "L", "M", "H", "EH"]
     ROUTES = ["move_1", "move_2", "move_3", "move_4", "move_5",
-              "move_6", "move_7", "move_8", "free"]
+              "move_6", "move_7", "move_8", "move_9", "move_10",
+              "move_11", "move_12", "move_13", "free"]
     B1_GAP_SPEC = [
         (1, [("EL", "L"), ("L", "M"), ("M", "H"), ("H", "EH")], 6),
         (2, [("EL", "M"), ("L", "H"), ("M", "EH")], 8),

@@ -140,7 +140,7 @@ def print_stats(records: list[dict], label: str = ""):
         if v < 0.8: return "H"
         return "EH"
 
-    dims = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
+    dims = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
     print(f"\n=== Style Tier {label} ===")
     for dim in dims:
         tier_counts = Counter()
@@ -163,6 +163,25 @@ def main():
 
     kept = dedup(records, threshold=args.threshold)
     print_stats(kept, "after dedup")
+
+    # 添加 tiers 字段
+    def tier(v: float) -> str:
+        if v < 0.2: return "EL"
+        if v < 0.4: return "L"
+        if v < 0.6: return "M"
+        if v < 0.8: return "H"
+        return "EH"
+
+    dims = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
+    for r in kept:
+        r["tiers"] = {d: tier(r["style"].get(d, 0.5)) for d in dims}
+
+    # 保存去重后的数据池
+    out_dir = ROOT / "scripts" / "output"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pool_path = out_dir / "deduped_pool.json"
+    pool_path.write_text(json.dumps(kept, ensure_ascii=False, indent=1), encoding="utf-8")
+    print(f"\n✓ 已保存 {len(kept)} 条到 {pool_path}")
 
 
 if __name__ == "__main__":

@@ -56,7 +56,7 @@ def _normalize_pure_content_transformations(raw: Any) -> List[Dict[str, Any]]:
     if raw is None:
         return []
     if isinstance(raw, dict):
-        raw = raw.get("pure_content_transformations") or []
+        raw = raw.get("moves") or raw.get("pure_content_transformations") or []
     if not isinstance(raw, list):
         return []
     return [x for x in raw if isinstance(x, dict)]
@@ -171,10 +171,10 @@ def _build_messages_for_route(
 具体要求：{move_desc}
 """
 
-    # 字数上限：1/2 * 对方消息长度 + 35 * momentum；下限 1，不设保底
+    # 字数上限：1/2 * 对方消息长度 + 35 * momentum；下限 1，硬上限 60 字
     momentum = float(state.get("conversation_momentum") or 0.5)
     _other_len = len(user_input or "")
-    max_chars = int(_other_len * 0.5) + int(35 * momentum)
+    max_chars = min(60, int(_other_len * 0.5) + int(35 * momentum))
     min_chars = 1
 
     direction = _momentum_to_direction(momentum)
@@ -235,9 +235,20 @@ def _build_messages_for_route(
 - 自然、有个性，符合写作风格参数
 - 每条消息开头应自然变化，不要以固定词语重复起句
 - **严禁**：任何括号形式的动作描写，如（戳戳脸颊）[轻轻拍你]——聊天消息里不会出现这种写法
-- **严禁诗意化**（违反即废稿）：禁止比喻堆叠、排比句、押韵、散文化抒情、意象化描写、文学性修辞。你是普通人在微信上打字，不是在写作文。具体禁止的句式举例：
-  × "时间像沙漏一样流走" × "心里像打翻了五味瓶" × "你是我黑暗中的光"
-  × "书中自有颜如玉" × "生活是一幅画" × "梦里的书虫都飞走了"
+- **严禁一切文学化表达**（违反即废稿，零容忍）：
+  ① 文学性修辞=禁止：禁止比喻、拟人、排比、对偶、夸张、通感、借代、反复等文学性修辞
+  ② 文学性=zero，散文感=zero：禁止散文化句子、金句、哲理感悟、诗意总结
+  ③ 抒情性=zero：禁止抒情，不要"感叹人生"、不要"总结情感"、不要升华
+  ④ 书面语体=禁止：只用口语，禁止书面语。"我觉得挺好的"可以，"这便是最好的答案"不行
+  ⑤ 意象=禁止：禁止一切意象化描写，如"光"、"风"、"雨"、"路"等用作隐喻
+  ⑥ 押韵=禁止：句尾不允许押韵、对仗、节奏工整
+  你是普通人在微信上打字，不是在写作文。说人话，短句，口语，不完整也没关系。
+  × "旧东西才肯说真话" ← 金句，禁止
+  × "人和猫之间，靠的都是这种不刻意的记得" ← 散文化总结，禁止
+  × "因为不急着赶路，才听得见" ← 文学性抒情，禁止
+  × "偷偷留住那点安静" ← 意象化，禁止
+  × "像在偷听别人的故事" ← 比喻，禁止
+  ✓ "哈哈那挺好的" ✓ "你说的对，我也这么觉得" ✓ "行吧，回头再说"
 - 回复直接输出，不要任何前缀或格式标记
 """
 
@@ -247,7 +258,7 @@ def _build_messages_for_route(
 ## 当前用户消息
 {user_input or '（空）'}
 
-请直接写出你（{bot_name}）的回复（**字数限制：{min_chars}-{max_chars} 字，社交软件聊天风格，说完就停**）："""
+请严格按照上方「写作风格参数」的全部要求，写出你（{bot_name}）的回复（**字数限制：{min_chars}-{max_chars} 字，社交软件聊天风格，说完就停**）："""
 
     return [SystemMessage(content=system_content), HumanMessage(content=user_content)]
 
@@ -320,7 +331,7 @@ def create_generate_node(llm_gen: Any) -> Callable[[AgentState], Any]:
         # 根据 momentum 计算 max_tokens（硬约束，强制截断超长输出）
         # 中文约 1-1.5 token/字，加 10 token 余量给标点和空格
         momentum = float(state.get("conversation_momentum") or 0.5)
-        _max_chars = int(11 + 34 * momentum)
+        _max_chars = min(60, int(11 + 34 * momentum))
         _max_tokens = int(_max_chars * 4) + 40    # 宽松安全网，不干扰正常生成
         logger.info("[Generate] momentum=%.2f max_chars=%d max_tokens=%d", momentum, _max_chars, _max_tokens)
 

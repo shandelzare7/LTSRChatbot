@@ -156,7 +156,7 @@ class Inputs:
 def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     if os.getenv("ABLATION_MODE"):
         return {
-            "WARMTH": 0.5,
+            "FRIENDLINESS": 0.5,
             "FORMALITY": 0.5,
             "POLITENESS": 0.5,
             "CERTAINTY": 0.5,
@@ -262,7 +262,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         terms={
             # deference / face-saving
             "respect": +0.275,  # 减半：原 +0.55
-            # agreeableness should mostly show up in WARMTH; keep mild here
+            # agreeableness should mostly show up in FRIENDLINESS; keep mild here
             "A": +0.25,  # was +0.60
             "N": +0.10,  # was +0.20
             # when it's safe & familiar => drop pleasantries
@@ -283,8 +283,8 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     )
     POLITENESS = clip01(POLITENESS + j * 0.5)
 
-    # (c) WARMTH
-    WARMTH = lin(
+    # (c) FRIENDLINESS
+    FRIENDLINESS = lin(
         base=0.50,
         terms={
             "A": +0.55,
@@ -302,7 +302,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         values=v,
         gain=0.95,
     )
-    WARMTH = clip01(WARMTH + j * 0.5)
+    FRIENDLINESS = clip01(FRIENDLINESS + j * 0.5)
 
     # (d) CERTAINTY
     CERTAINTY = lin(
@@ -328,9 +328,9 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         certainty_cap = clip01(0.70 + 0.30 * evidence_opt)
     CERTAINTY = min(CERTAINTY, certainty_cap)
 
-    # (e) EMOTIONAL_INTENSITY
-    # 情绪激活强度：Arousal 的 style 出口；与 WARMTH（方向）正交
-    EMOTIONAL_INTENSITY = lin(
+    # (e) EMOTIONAL_TONE
+    # 情绪激活强度：Arousal 的 style 出口；与 FRIENDLINESS（方向）正交
+    EMOTIONAL_TONE = lin(
         base=0.40,
         terms={
             "Ar": +0.50,         # arousal: primary driver
@@ -345,7 +345,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         values=v,
         gain=0.90,
     )
-    EMOTIONAL_INTENSITY = clip01(EMOTIONAL_INTENSITY + j * 0.5)
+    EMOTIONAL_TONE = clip01(EMOTIONAL_TONE + j * 0.5)
 
     # (f) EXPRESSION_MODE
     figurative_bias = clip01(
@@ -416,7 +416,7 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
         v["P"] <= 0.35
         and v["Ar"] >= 0.65
         and v["tension"] <= 0.55      # 有刺但未到对抗/敌意
-        and EMOTIONAL_INTENSITY >= 0.55
+        and EMOTIONAL_TONE >= 0.55
     ):
         EXPRESSION_MODE = 3
 
@@ -424,13 +424,13 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     # EM=3 路径 C：冷静蔑视（contempt）
     # 低 pleasure + 低 arousal + 低 liking → 冷漠刻薄
     # 不需要高情绪激活，蔑视本身是冷的（不同于愤怒路径 B）
-    # 用原始关系变量 liking/closeness 代替计算后的 WARMTH，触发更稳定
+    # 用原始关系变量 liking/closeness 代替计算后的 FRIENDLINESS，触发更稳定
     # -----------------------------------
     _contempt = (
         v["P"] <= 0.30
         and v["Ar"] <= 0.40
         and v["liking"] <= 0.35
-        and EMOTIONAL_INTENSITY <= 0.40
+        and EMOTIONAL_TONE <= 0.40
     )
     if _contempt:
         EXPRESSION_MODE = 3
@@ -458,8 +458,8 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     # -----------------------------
     FORMALITY = contrast_gamma01(FORMALITY, gamma=1.15)
     POLITENESS = contrast_gamma01(POLITENESS, gamma=1.30)
-    WARMTH = contrast_gamma01(WARMTH, gamma=1.10)
-    EMOTIONAL_INTENSITY = contrast_gamma01(EMOTIONAL_INTENSITY, gamma=1.15)
+    FRIENDLINESS = contrast_gamma01(FRIENDLINESS, gamma=1.10)
+    EMOTIONAL_TONE = contrast_gamma01(EMOTIONAL_TONE, gamma=1.15)
 
     # CERTAINTY is safety-sensitive: keep mild, and respect the cap
     CERTAINTY = min(contrast_gamma01(CERTAINTY, gamma=1.05), certainty_cap)
@@ -467,10 +467,10 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     return {
         "FORMALITY": float(FORMALITY),
         "POLITENESS": float(POLITENESS),
-        "WARMTH": float(WARMTH),
+        "FRIENDLINESS": float(FRIENDLINESS),
         "CERTAINTY": float(CERTAINTY),
         "EXPRESSION_MODE": int(EXPRESSION_MODE),
-        "EMOTIONAL_INTENSITY": float(EMOTIONAL_INTENSITY),
+        "EMOTIONAL_TONE": float(EMOTIONAL_TONE),
     }
 
 
@@ -576,14 +576,14 @@ def create_style_node(llm_invoker: Any = None) -> Callable[[AgentState], Dict[st
         style_dict = compute_style_keys(inp)
         llm_instructions = format_style_as_param_list(style_dict)
         logger.info(
-            "[Style] FORMALITY=%.2f POLITENESS=%.2f WARMTH=%.2f CERTAINTY=%.2f "
-            "EXPRESSION_MODE=%d EMOTIONAL_INTENSITY=%.2f | momentum=%.2f topic_appeal=%.2f busy=%.2f",
+            "[Style] FORMALITY=%.2f POLITENESS=%.2f FRIENDLINESS=%.2f CERTAINTY=%.2f "
+            "EXPRESSION_MODE=%d EMOTIONAL_TONE=%.2f | momentum=%.2f topic_appeal=%.2f busy=%.2f",
             style_dict.get("FORMALITY", 0),
             style_dict.get("POLITENESS", 0),
-            style_dict.get("WARMTH", 0),
+            style_dict.get("FRIENDLINESS", 0),
             style_dict.get("CERTAINTY", 0),
             style_dict.get("EXPRESSION_MODE", 0),
-            style_dict.get("EMOTIONAL_INTENSITY", 0),
+            style_dict.get("EMOTIONAL_TONE", 0),
             momentum,
             topic_appeal,
             busy,

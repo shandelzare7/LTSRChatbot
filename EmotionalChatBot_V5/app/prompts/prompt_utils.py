@@ -68,32 +68,32 @@ def build_system_memory_block(state: Dict[str, Any]) -> str:
     return "\n\n".join(parts) if parts else "（无）"
 
 
-# 数值 -> 五档文字（用于 FORMALITY/POLITENESS/WARMTH/CERTAINTY/EMOTIONAL_INTENSITY）
+# 数值 -> 五档文字（用于 FORMALITY/POLITENESS/FRIENDLINESS/CERTAINTY/EMOTIONAL_TONE）
 _STYLE_VALUE_TO_LABEL = (
-    (0.86, 1.01, "extremely_high"),
-    (0.61, 0.86, "high"),
-    (0.41, 0.61, "mid"),
-    (0.16, 0.41, "low"),
-    (0.0, 0.16, "extremely_low"),
+    (0.80, 1.01, "extremely_high"),
+    (0.60, 0.80, "high"),
+    (0.40, 0.60, "mid"),
+    (0.20, 0.40, "low"),
+    (0.0, 0.20, "extremely_low"),
 )
 # 五档中文（注入提示词用）
 _STYLE_VALUE_TO_LABEL_ZH = (
-    (0.86, 1.01, "极高"),
-    (0.61, 0.86, "高"),
-    (0.41, 0.61, "中"),
-    (0.16, 0.41, "低"),
-    (0.0, 0.16, "极低"),
+    (0.80, 1.01, "极高"),
+    (0.60, 0.80, "高"),
+    (0.40, 0.60, "中"),
+    (0.20, 0.40, "低"),
+    (0.0, 0.20, "极低"),
 )
 
 # 新 6 维 style 的 key 顺序与 EXPRESSION_MODE 枚举
-_STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY", "EXPRESSION_MODE")
+_STYLE_6D_ORDER = ("FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE", "EXPRESSION_MODE")
 # 6 维中文名（注入提示词用）
 _STYLE_6D_KEY_ZH = {
     "FORMALITY": "正式度",
     "POLITENESS": "礼貌度",
-    "WARMTH": "温暖度",
+    "FRIENDLINESS": "友善度",
     "CERTAINTY": "确定度",
-    "EMOTIONAL_INTENSITY": "情感强度",
+    "EMOTIONAL_TONE": "情感色调",
     "EXPRESSION_MODE": "表达模式",
 }
 _EXPRESSION_MODE_LABELS = {
@@ -109,38 +109,8 @@ _EXPRESSION_MODE_LABELS_EN = {
     3: "ironic_teasing",
 }
 
-_STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {
-    "WARMTH": {
-        "extremely_low": "底层气质冷淡，即使正面情绪时也不主动流露温情",
-        "low": "底层偏克制，温情需要明显触发才会显现",
-        "mid": "底层气质平和，情感流露随即时情绪自然起伏",
-        "high": "底层偏温暖，正面情绪时情感表达比较顺畅",
-        "extremely_high": "底层气质亲密，情感表达阈值低，容易流露",
-    },
-    "EMOTIONAL_INTENSITY": {
-        "extremely_low": "语气完全平静，无强调、无感叹，情绪完全内敛",
-        "low": "语气偏平，用词克制，情绪不外露",
-        "mid": "情绪适中，偶有强调或感叹",
-        "high": "明显情绪投入，强调副词、感叹号较多",
-        "extremely_high": "强烈情绪激活，大量强调/反复/感叹，语气高度外显",
-    },
-}
-_STYLE_DIM_ANCHORS_EN: Dict[str, Dict[str, str]] = {
-    "WARMTH": {
-        "extremely_low": "cold baseline, little warmth even when positive",
-        "low": "restrained, warmth only when clearly triggered",
-        "mid": "neutral baseline, affect follows context",
-        "high": "warm baseline, fluent positive affect",
-        "extremely_high": "intimate baseline, low threshold for affect",
-    },
-    "EMOTIONAL_INTENSITY": {
-        "extremely_low": "completely flat delivery, no intensifiers or exclamations",
-        "low": "calm, measured, minimal emotional markers",
-        "mid": "moderate intensity, occasional emphasis",
-        "high": "noticeably animated, frequent intensifiers and exclamations",
-        "extremely_high": "highly activated, heavy use of intensifiers/repetition/exclamations",
-    },
-}
+_STYLE_DIM_ANCHORS: Dict[str, Dict[str, str]] = {}
+_STYLE_DIM_ANCHORS_EN: Dict[str, Dict[str, str]] = {}
 
 
 def _style_value_to_label(value: float) -> str:
@@ -184,8 +154,14 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
                     parts.append(f"{key}={label_en} ({anchor})" if anchor else f"{key}={label_en}")
             except (TypeError, ValueError):
                 continue
-        # 始终追加文学性控制
+        # 始终追加硬约束：禁止一切文学化倾向
+        parts.append("文学性修辞=禁止")
         parts.append("文学性=zero")
+        parts.append("散文感=zero")
+        parts.append("抒情性=zero")
+        parts.append("书面语体=禁止")
+        parts.append("意象=禁止")
+        parts.append("押韵=禁止（句尾绝对不要押韵、不要对仗、不要节奏感工整）")
         return "\n".join(parts) if parts else ""
     # 兼容旧 12 维（仅当无新 key 时）
     ORDER_LEGACY = (
@@ -207,7 +183,7 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
 
 
 def build_style_profile(state: Dict[str, Any]) -> Any:
-    """Reply plan / fast_reply 用：优先返回 6 维参数列表字符串（FORMALITY/POLITENESS/WARMTH/CERTAINTY/EMOTIONAL_INTENSITY/EXPRESSION_MODE）；无 state['style'] 时回退到 style_profile / llm_instructions。"""
+    """Reply plan / fast_reply 用：优先返回 6 维参数列表字符串（FORMALITY/POLITENESS/FRIENDLINESS/CERTAINTY/EMOTIONAL_TONE/EXPRESSION_MODE）；无 state['style'] 时回退到 style_profile / llm_instructions。"""
     style_dict = state.get("style")
     if isinstance(style_dict, dict) and style_dict:
         param_list = format_style_as_param_list(style_dict)

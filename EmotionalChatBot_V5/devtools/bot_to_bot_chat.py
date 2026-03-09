@@ -671,14 +671,14 @@ async def main() -> None:
     os.environ["FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED"] = "0"
 
     # 禁用 EM=2（比喻/意象模式）——b2b 正反馈会导致诗意化雪崩
-    # os.environ["BOT2BOT_BAN_EM2"] = "1"  # 临时放开，测试 EM=2 是否为诗意根因
+    os.environ["BOT2BOT_BAN_EM2"] = "1"
 
     # 完整记录生成与评审的 prompt 与输出（含 LATS 27 候选生成、单模型评估）
     os.environ.setdefault("BOT2BOT_FULL_LOGS", "1")
 
     log_dir = PROJECT_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_p{os.getpid()}"
     original_stdout = sys.stdout
     original_stderr = sys.stderr
 
@@ -1314,14 +1314,9 @@ async def main() -> None:
                     s = s.rstrip("？?。！!～~，,")
                     return {s[i:i+2] for i in range(len(s)-1)} if len(s) >= 2 else {s}
 
-                def _jaccard(a: set, b: set) -> float:
-                    if not a or not b:
-                        return 0.0
-                    return len(a & b) / len(a | b)
-
                 _candidates_out = []
-                _kept_bigrams: list[tuple[set[str], str]] = []  # (bigrams, text)
-                _SIMILARITY_THRESHOLD = 0.15  # Jaccard > 0.15 视为意思相近
+                _kept_bigrams: list[set[str]] = []
+                _SIMILARITY_THRESHOLD = 0.15
                 for _c in _candidates:
                     if not isinstance(_c, dict):
                         continue
@@ -1330,13 +1325,15 @@ async def main() -> None:
                         continue
                     _bg = _char_bigrams(_txt)
                     _dup = False
-                    for _prev_bg, _prev_txt in _kept_bigrams:
-                        if _jaccard(_bg, _prev_bg) > _SIMILARITY_THRESHOLD:
+                    for _prev_bg in _kept_bigrams:
+                        inter = len(_bg & _prev_bg)
+                        union = len(_bg | _prev_bg)
+                        if union > 0 and inter / union > _SIMILARITY_THRESHOLD:
                             _dup = True
                             break
                     if _dup:
                         continue
-                    _kept_bigrams.append((_bg, _txt))
+                    _kept_bigrams.append(_bg)
                     _candidates_out.append({
                         "move_id": _c.get("move_id"),
                         "route": _c.get("route", ""),
@@ -1359,19 +1356,23 @@ async def main() -> None:
                     "user_message": current_message,
                     # Move
                     "selected_move_ids": _extract.get("selected_content_move_ids") or [],
+                    "user_act": _extract.get("user_act") or "",
                     # Style 6D
                     "style": {
                         k: _style.get(k)
-                        for k in ("FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY",
-                                  "EMOTIONAL_INTENSITY", "EXPRESSION_MODE",
-                                  "RESPONSE_LENGTH")
+                        for k in ("FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY",
+                                  "EMOTIONAL_TONE", "EXPRESSION_MODE")
                         if _style.get(k) is not None
                     },
                     # 全部候选（含 route 标签）
                     "candidates": _candidates_out,
-                    # Judge 结果
+                    # Judge 结果（winner_index 映射到去重后的 candidates 列表）
                     "judge_result": {
-                        "winner_index": _judge.get("winner_index"),
+                        "winner_index": next(
+                            (i for i, c in enumerate(_candidates_out)
+                             if c.get("text", "").strip() == (final_response or "").strip()),
+                            0,
+                        ),
                         "justification": _judge.get("justification", ""),
                     },
                     "final_response": final_response,

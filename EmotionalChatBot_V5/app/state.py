@@ -417,8 +417,10 @@ class AgentState(TypedDict, total=False):
     inner_monologue: Optional[str]
     # state_prep 节点输出：PAD/busy/momentum/relationship 转换为的自然语言状态描述（纯代码生成）
     state_text: Optional[str]
-    # extract 节点输出：从独白中结构化提取的信号（emotion_tag/bot_stance/topic_appeal/selected_profile_keys/selected_content_move_ids/inferred_gender）
+    # extract 节点输出：从独白中结构化提取的信号（emotion_tag/bot_stance/topic_appeal/selected_profile_keys/move 分类维度/inferred_gender）
     monologue_extract: Optional[Dict[str, Any]]
+    # move 选择历史：最近 N 轮选中的 move id 列表，每轮一个 list，最新在末尾
+    recent_move_history: Optional[List[List[int]]]
     # generate 节点输出：所有路的候选回复列表 [{"move_id": int|None, "route": str, "text": str}, ...]
     generation_candidates: Optional[List[Dict[str, Any]]]
     # judge 节点输出：评审结果 {winner_index: int, justification: str}
@@ -482,7 +484,7 @@ class AgentState(TypedDict, total=False):
     _profile: Annotated[Optional[Dict[str, Any]], _merge_profile]
     
     # --- Output Drivers (Style 节点 6 维输出) ---
-    # style: 节点输出的 6 维 dict（FORMALITY, POLITENESS, WARMTH, CERTAINTY, EMOTIONAL_INTENSITY, EXPRESSION_MODE）
+    # style: 节点输出的 6 维 dict（FORMALITY, POLITENESS, FRIENDLINESS, CERTAINTY, EMOTIONAL_TONE, EXPRESSION_MODE）
     style: Optional[Dict[str, Any]]
     # llm_instructions: 由 format_style_as_param_list 生成的参数字符串，供 reply_plan / fast_reply 注入 prompt
     llm_instructions: Any  # 实际为 str（参数列表字符串）或兼容旧 Dict

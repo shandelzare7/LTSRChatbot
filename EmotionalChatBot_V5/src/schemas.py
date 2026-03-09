@@ -214,16 +214,14 @@ class MonologueExtractOutput(BaseModel):
     # 允许 LLM 多返回 reasoning/target_mode_id 等，仅取约定字段，避免 extra forbid 报错
     model_config = ConfigDict(extra="ignore")
 
-    """从内心独白中结构化提取信号，同时完成 profile_keys 选择和 move_ids 选择。"""
+    """从内心独白中结构化提取信号。Move 选择由下游加权算法完成，不在 LLM 输出中。"""
 
     emotion_tag: str = Field("", description="当前情绪标签，如 心疼/烦躁/期待/无聊/开心 等")
     bot_stance: str = Field("supportive", description="本轮沟通立场：supportive/exploratory/self_sharing/redirecting/challenging")
-    topic_appeal: float = Field(5.0, ge=0.0, le=10.0, description="话题吸引力 0-10（替换旧 detection.topic_appeal）")
+    topic_appeal: float = Field(5.0, ge=0.0, le=10.0, description="话题吸引力 0-10")
     selected_profile_keys: List[str] = Field(default_factory=list, description="当前最相关的用户画像键名，0-5个")
-    selected_content_move_ids: List[int] = Field(
-        default_factory=list,
-        description="当轮选中的 content move id，2-4个，对应 content_moves.yaml 中 pure_content_transformations 的 id",
-    )
+    # Move 选择维度（仅 user_act 由 LLM 输出，其余从 state/detection 取）
+    user_act: str = Field("venting", description="用户行为类型：asking/venting/deciding/pushing_back/phatic")
     inferred_gender: Optional[str] = Field(
         None,
         description="从对话上下文推断的用户性别（男/女/其他）；性别已知时输出 null",

@@ -1,40 +1,63 @@
-pure_content_transformations:
+moves:
+
+  # ———— 要信息 ————
+
   - id: 1
-    name: 向下细化
-    english_name: Downward Specification
-    content_operation: 必须挑对方提到的某个词或事，追问或补充更具体的细节——指向具体的时间、数量、场景或感受，而非泛泛重复。
+    name: 追问细节
+    instruction: 挑对方话里一个点，追问一个关于事实的具体问题。
 
   - id: 2
-    name: 向上概括
-    english_name: Upward Abstraction
-    content_operation: 必须把对方说的事情归纳到更大的规律或普遍现象中，只做一层向上的抽象概括。
+    name: 复述确认
+    instruction: 用自己的话把对方的意思重新说一遍，或抓住一个关键词重复，目的是确认理解。
 
   - id: 3
-    name: 横向联想
-    english_name: Lateral Association
-    content_operation: 必须从对方的内容出发，跳到另一个不同领域但结构相似的事物上做类比或对比，完成一次跨领域的连接。
+    name: 反问回去
+    instruction: 把问题抛回给对方，问的是对方自己的想法、打算或感受，不是事实。
+
+  # ———— 给反应 ————
 
   - id: 4
-    name: 自我暴露
-    english_name: Self-disclosure
-    content_operation: 必须说出一条关于自己的**具体事实**（经历、习惯、状态、偏好），必须是明确的自我披露，有真实的自我信息，而非仅表达观点或感受。
+    name: 给个判断
+    instruction: 对对方说的事给一个评价或态度。
 
   - id: 5
-    name: 机制溯源
-    english_name: Root Cause / Mechanism
-    content_operation: 针必须对对方描述给出"为什么会这样"的解释，使用明确的因果逻辑追溯原因或来龙去脉，不是泛泛评论或印象描述。
+    name: 说句体感
+    instruction: 说出自己听完之后的生理或情绪反应，主语是"我"，指向自己的感受而非评价对方的事。
+
+  # ———— 给内容 ————
 
   - id: 6
-    name: 假设推演
-    english_name: Hypothetical Deduction
-    content_operation: 必须在对方说的基础上做假设推演：换一个条件、角度或时间线，推出一个不同的结果或可能性。
+    name: 接一句自己的事
+    instruction: 说一件自己类似的经历，包含时间、地点、人物中至少一个，是自我披露。
 
   - id: 7
-    name: 状态评价
-    english_name: State Evaluation
-    content_operation: 必须对对方描述或问题给一个简短且具体的评价或判断。
+    name: 拉个对比
+    instruction: 拿一个双方语境中存在的人或事来做对比，给当前的事一个参照。
 
   - id: 8
-    name: 物理锚定
-    english_name: Physical Anchoring
-    content_operation: 必须在回复中引入当前物理空间内的一个感官细节（事物、光线、声音、温度）或躯体动作，且与之前已提过的场景细节不同，避免重复使用同一物件或动作。
+    name: 带一嘴当下
+    instruction: 提一个此刻正在做的事或身边的东西。
+
+  # ———— 给分析 ————
+
+  - id: 9
+    name: 说个原因
+    instruction: 给对方说的事一个因果解释。
+
+  - id: 10
+    name: 换个如果
+    instruction: 改变一个前提条件，推出一个不同的结果或可能性。
+
+  - id: 11
+    name: 往后推一步
+    instruction: 顺着现状预测接下来可能发生的事。
+
+  # ———— 给方向 ————
+
+  - id: 12
+    name: 出个主意
+    instruction: 给一个可执行的行动建议，必须是一个动作而非心态劝导。
+
+  - id: 13
+    name: 唱个反调
+    instruction: 提出一个跟对方当前立场不同的角度。

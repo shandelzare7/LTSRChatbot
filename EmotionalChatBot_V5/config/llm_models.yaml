@@ -1,8 +1,9 @@
 # 所有 LLM 模型配置只改这一处。API Key 仍在 .env，不写在此文件。
 # 环境变量 LTSR_LLM_PRESET / LTSR_LLM_*_MODEL 等可覆盖下方默认（用于按环境区分）。
 
-# 主链路角色：Detection / InnerMonologue / Extract / Judge 等
-# 实际使用的 key/base 由 LTSR_LLM_PRESET 或 LTSR_LLM_<ROLE>_* 决定，此处仅模型名与 base_url 默认
+# main: InnerMonologue / Judge（gpt-4o）
+# fast: Detection / Extract / Safety / Processor / Evolver / MemoryManager（gpt-4o-mini）
+# generate: 并行候选生成（qwen，单独配置见下方）
 roles:
   main:
     model: gpt-4o
