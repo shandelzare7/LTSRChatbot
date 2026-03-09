@@ -1931,11 +1931,228 @@ async def chat_with_bot_b(
 
 _ANNOTATION_OUTPUT = Path(__file__).parent / "scripts" / "output"
 _ANNOTATION_STATIC = Path(__file__).parent / "static" / "annotation"
+_POOL_PATH = _ANNOTATION_OUTPUT / "deduped_pool.json"
+
+# ── Annotation pool cache ──
+_annotation_pool: list[dict] | None = None
+_annotation_pool_indices: dict | None = None
+
+
+def _load_pool():
+    """Load deduped pool into memory (cached)."""
+    global _annotation_pool, _annotation_pool_indices
+    if _annotation_pool is not None:
+        return
+    if not _POOL_PATH.exists():
+        raise FileNotFoundError("deduped_pool.json 不存在，请先运行 devtools/dedup_candidates.py")
+    _annotation_pool = json.loads(_POOL_PATH.read_text("utf-8"))
+    # Build indices
+    from collections import defaultdict
+    _STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
+    by_route: dict[str, list[int]] = defaultdict(list)
+    by_dim_tier: dict[str, dict[str, list[int]]] = {d: defaultdict(list) for d in _STYLE_DIMS}
+    by_em: dict[int, list[int]] = defaultdict(list)
+    for i, r in enumerate(_annotation_pool):
+        by_route[r["route"]].append(i)
+        tiers = r.get("tiers") or {}
+        for d in _STYLE_DIMS:
+            t = tiers.get(d, "M")
+            by_dim_tier[d][t].append(i)
+        by_em[int(r.get("em", 0))].append(i)
+    _annotation_pool_indices = {
+        "by_route": dict(by_route),
+        "by_dim_tier": {d: dict(v) for d, v in by_dim_tier.items()},
+        "by_em": dict(by_em),
+    }
+
+
+def _allocate_tasks(annotator_id: str) -> list[dict]:
+    """Generate 1000 stratified tasks for one annotator, deterministic by ID."""
+    import random as _random
+    from collections import defaultdict
+
+    _load_pool()
+    pool = _annotation_pool
+    idx = _annotation_pool_indices
+    by_route = idx["by_route"]
+    by_dim_tier = idx["by_dim_tier"]
+    by_em = idx["by_em"]
+
+    STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
+    TIERS = ["EL", "L", "M", "H", "EH"]
+    ROUTES = ["move_1", "move_2", "move_3", "move_4", "move_5",
+              "move_6", "move_7", "move_8", "free"]
+    B1_GAP_SPEC = [
+        (1, [("EL", "L"), ("L", "M"), ("M", "H"), ("H", "EH")], 6),
+        (2, [("EL", "M"), ("L", "H"), ("M", "EH")], 8),
+        (3, [("EL", "H"), ("L", "EH")], 8),
+        (4, [("EL", "EH")], 16),
+    ]
+
+    # Deterministic seed from annotator_id
+    h = 0
+    for c in annotator_id:
+        h = ((h * 31) + ord(c)) & 0xFFFFFFFF
+    rng = _random.Random(h)
+    used: set[int] = set()
+    tasks: list[dict] = []
+
+    def _sample(indices, n):
+        avail = [i for i in indices if i not in used]
+        rng.shuffle(avail)
+        return avail[:n]
+
+    # ── Task C: ExprMode (100 = 25 × 4) ──
+    for em in [0, 1, 2, 3]:
+        for i in _sample(by_em.get(em, []), 25):
+            used.add(i)
+            r = pool[i]
+            tasks.append({
+                "task_type": "expr_mode",
+                "task_id": f"C_{len(tasks)}",
+                "context_user_text": r["context"],
+                "bot_text": r["text"],
+                "ground_truth": {"em": r["em"]},
+                "is_repeat": False,
+            })
+
+    # ── Task A: Move (300 = 33 × 9 + 3) ──
+    per_route = 300 // len(ROUTES)
+    remainder = 300 - per_route * len(ROUTES)
+    for ri, route in enumerate(ROUTES):
+        n = per_route + (1 if ri < remainder else 0)
+        for i in _sample(by_route.get(route, []), n):
+            used.add(i)
+            r = pool[i]
+            tasks.append({
+                "task_type": "move",
+                "task_id": f"A_{len(tasks)}",
+                "context_user_text": r["context"],
+                "bot_text": r["text"],
+                "ground_truth": {"route": r["route"]},
+                "is_repeat": False,
+            })
+
+    # ── Task B2: Style label (200 = 5 dims × 40 = 5 × 5 tiers × 8) ──
+    for dim in STYLE_DIMS:
+        for tier in TIERS:
+            tier_indices = by_dim_tier.get(dim, {}).get(tier, [])
+            for i in _sample(tier_indices, 8):
+                used.add(i)
+                r = pool[i]
+                tasks.append({
+                    "task_type": "style_label",
+                    "task_id": f"B2_{len(tasks)}",
+                    "dimension": dim,
+                    "context_user_text": r["context"],
+                    "bot_text": r["text"],
+                    "ground_truth": {"tier": tier, "value": round(r["style"].get(dim, 0), 4)},
+                    "is_repeat": False,
+                })
+
+    # ── Task B1: Style compare (400 = 5 dims × 80) ──
+    for dim in STYLE_DIMS:
+        for gap, combos, per_combo in B1_GAP_SPEC:
+            for tier_lo, tier_hi in combos:
+                avail_lo = [i for i in by_dim_tier.get(dim, {}).get(tier_lo, []) if i not in used]
+                avail_hi = [i for i in by_dim_tier.get(dim, {}).get(tier_hi, []) if i not in used]
+                rng.shuffle(avail_lo)
+                rng.shuffle(avail_hi)
+                n = min(per_combo, len(avail_lo), len(avail_hi))
+                for p in range(n):
+                    idx_lo, idx_hi = avail_lo[p], avail_hi[p]
+                    used.add(idx_lo)
+                    used.add(idx_hi)
+                    r_lo, r_hi = pool[idx_lo], pool[idx_hi]
+                    swap = rng.random() < 0.5
+                    if swap:
+                        da, db, higher = r_hi, r_lo, "a"
+                    else:
+                        da, db, higher = r_lo, r_hi, "b"
+                    tasks.append({
+                        "task_type": "style_compare",
+                        "task_id": f"B1_{len(tasks)}",
+                        "dimension": dim,
+                        "text_a_context": da["context"],
+                        "text_a_bot": da["text"],
+                        "text_b_context": db["context"],
+                        "text_b_bot": db["text"],
+                        "ground_truth": {
+                            "tier_lo": tier_lo, "tier_hi": tier_hi,
+                            "gap": gap, "higher": higher,
+                        },
+                        "is_qc_anchor": gap >= 3,
+                        "is_repeat": False,
+                    })
+
+    # ── 5% hidden repeats ──
+    by_type: dict[str, list[dict]] = defaultdict(list)
+    for t in tasks:
+        by_type[t["task_type"]].append(t)
+    for ttype, ttasks in by_type.items():
+        n_rep = max(1, int(len(ttasks) * 0.05))
+        for src in rng.sample(ttasks, min(n_rep, len(ttasks))):
+            rep = dict(src)
+            rep["is_repeat"] = True
+            rep["task_id"] = f"REP_{len(tasks)}"
+            tasks.append(rep)
+
+    # ── Shuffle & assign final IDs ──
+    rng.shuffle(tasks)
+    for i, t in enumerate(tasks):
+        t["task_id"] = f"{annotator_id}_{i + 1:04d}"
+
+    return tasks
+
+
+def _get_or_create_tasks(annotator_id: str) -> list[dict]:
+    """Get cached tasks file or generate new one."""
+    _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
+    # Use hash of annotator_id for filename
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in annotator_id)
+    task_file = _ANNOTATION_OUTPUT / f"tasks_{safe_name}.json"
+
+    if task_file.exists():
+        return json.loads(task_file.read_text("utf-8"))
+
+    tasks = _allocate_tasks(annotator_id)
+    task_file.write_text(json.dumps(tasks, ensure_ascii=False))
+
+    # Log annotator registration
+    log_file = _ANNOTATION_OUTPUT / "annotator_log.jsonl"
+    with open(log_file, "a", encoding="utf-8") as f:
+        entry = {
+            "annotator_id": annotator_id,
+            "registered_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "total_tasks": len(tasks),
+        }
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    return tasks
+
+
+def _get_submitted_task_ids(annotator_id: str) -> set[str]:
+    """Collect task_ids already submitted by this annotator."""
+    import csv as _csv
+    submitted: set[str] = set()
+    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
+    if not results_path.exists():
+        return submitted
+    try:
+        with open(results_path, "r", encoding="utf-8") as f:
+            for row in _csv.DictReader(f):
+                if row.get("annotator_id", "").strip() == annotator_id:
+                    tid = row.get("task_id", "").strip()
+                    if tid:
+                        submitted.add(tid)
+    except Exception:
+        pass
+    return submitted
 
 
 @app.get("/annotation/", response_class=HTMLResponse)
 async def annotation_page():
-    """标注工具主页面（不在导航中显示）。"""
+    """标注工具主页面。"""
     html_path = _ANNOTATION_STATIC / "index.html"
     if not html_path.exists():
         return HTMLResponse("<h1>标注页面尚未部署</h1><p>请联系管理员。</p>", status_code=503)
@@ -1943,145 +2160,79 @@ async def annotation_page():
 
 
 @app.get("/annotation/tasks")
-async def get_annotation_tasks(task_type: str, annotator_id: str):
+async def get_annotation_tasks(annotator_id: str):
     """
-    读取标注任务列表，过滤掉该标注员已见过的句子（bot_text 跨任务类型去重）。
-    返回随机打乱的剩余任务列表。
+    生成或加载该标注员的任务集，过滤已提交的，返回剩余任务。
+    首次调用时动态生成任务并缓存到文件。
     """
-    import csv as _csv
-    import random as _random
-
-    task_type = task_type.strip().lower()
-    if task_type not in ("move", "style", "expr_mode"):
-        raise HTTPException(status_code=400, detail="task_type 必须是 move / style / expr_mode")
-
     annotator_id = annotator_id.strip()
     if not annotator_id:
         raise HTTPException(status_code=400, detail="annotator_id 不能为空")
 
-    samples_path = _ANNOTATION_OUTPUT / f"annotation_samples_{task_type}.csv"
-    if not samples_path.exists():
+    try:
+        all_tasks = _get_or_create_tasks(annotator_id)
+    except FileNotFoundError as e:
         return JSONResponse({
-            "tasks": [],
-            "total": 0,
-            "remaining": 0,
-            "moves": [],
-            "error": "样本文件不存在，请先运行 export_annotation_samples.py",
+            "tasks": [], "total": 0, "remaining": 0,
+            "error": str(e),
         })
 
-    # 读取样本
-    tasks = []
-    with open(samples_path, "r", encoding="utf-8") as f:
-        reader = _csv.DictReader(f)
-        for row in reader:
-            tasks.append(dict(row))
+    submitted = _get_submitted_task_ids(annotator_id)
+    remaining = [t for t in all_tasks if t["task_id"] not in submitted]
 
-    # 收集该标注员已见过的 bot_text（跨所有任务类型）
-    seen_bot_texts: set = set()
-    for tt in ("move", "style", "expr_mode"):
-        results_path = _ANNOTATION_OUTPUT / f"annotation_results_{tt}.csv"
-        if not results_path.exists():
-            continue
-        try:
-            with open(results_path, "r", encoding="utf-8") as f:
-                reader = _csv.DictReader(f)
-                for row in reader:
-                    if row.get("annotator_id", "").strip() != annotator_id:
-                        continue
-                    for key in ("bot_text", "text_a_bot", "text_b_bot"):
-                        txt = row.get(key, "").strip()
-                        if txt:
-                            seen_bot_texts.add(txt)
-        except Exception:
-            pass
-
-    # 过滤：任务中包含已见句子则排除
-    def _task_seen(task: dict) -> bool:
-        for key in ("bot_text", "text_a_bot", "text_b_bot"):
-            txt = task.get(key, "").strip()
-            if txt and txt in seen_bot_texts:
-                return True
-        return False
-
-    remaining = [t for t in tasks if not _task_seen(t)]
-    _random.shuffle(remaining)
-
-    # Move 任务：嵌入 move 库供前端抽签
+    # Load move definitions for frontend
     moves_data = []
-    if task_type == "move":
-        try:
-            from utils.yaml_loader import load_pure_content_transformations
-            raw = load_pure_content_transformations()
-            if isinstance(raw, dict):
-                raw = raw.get("pure_content_transformations") or []
-            moves_data = [
-                {
-                    "id": int(m.get("id")),
-                    "name": str(m.get("name") or ""),
-                    "desc": str(m.get("content_operation") or "")[:100],
-                }
-                for m in (raw if isinstance(raw, list) else [])
-                if m.get("id") is not None
-            ]
-        except Exception:
-            pass
+    try:
+        from utils.yaml_loader import load_pure_content_transformations
+        raw = load_pure_content_transformations()
+        if isinstance(raw, dict):
+            raw = raw.get("pure_content_transformations") or []
+        moves_data = [
+            {"id": int(m.get("id")), "name": str(m.get("name") or ""),
+             "desc": str(m.get("content_operation") or "")[:100]}
+            for m in (raw if isinstance(raw, list) else [])
+            if m.get("id") is not None
+        ]
+    except Exception:
+        pass
 
     return JSONResponse({
         "tasks": remaining,
-        "total": len(tasks),
+        "total": len(all_tasks),
         "remaining": len(remaining),
+        "done": len(submitted),
         "moves": moves_data,
     })
 
 
 @app.post("/annotation/submit")
 async def submit_annotation(request: Request):
-    """提交一条标注结果，追加写入对应结果 CSV。"""
+    """提交一条标注结果，统一追加到 annotation_results.csv。"""
     import csv as _csv
 
     data = await request.json()
     task_type    = (data.get("task_type") or "").strip().lower()
     annotator_id = (data.get("annotator_id") or "").strip()
+    task_id      = (data.get("task_id") or "").strip()
 
-    if not task_type or not annotator_id:
-        raise HTTPException(status_code=400, detail="task_type 和 annotator_id 不能为空")
-    if task_type not in ("move", "style", "expr_mode"):
-        raise HTTPException(status_code=400, detail="task_type 必须是 move / style / expr_mode")
+    if not task_type or not annotator_id or not task_id:
+        raise HTTPException(status_code=400, detail="task_type / annotator_id / task_id 不能为空")
+    if task_type not in ("move", "style_compare", "style_label", "expr_mode"):
+        raise HTTPException(status_code=400,
+                            detail="task_type 必须是 move / style_compare / style_label / expr_mode")
 
-    results_path = _ANNOTATION_OUTPUT / f"annotation_results_{task_type}.csv"
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-    if task_type == "move":
-        fieldnames = ["annotator_id", "sample_id", "bot_text", "selected_move_id", "timestamp"]
-        row = {
-            "annotator_id":     annotator_id,
-            "sample_id":        data.get("sample_id", ""),
-            "bot_text":         data.get("bot_text", ""),
-            "selected_move_id": data.get("selected_move_id", ""),
-            "timestamp":        ts,
-        }
-    elif task_type == "expr_mode":
-        fieldnames = ["annotator_id", "sample_id", "bot_text", "selected_expr_mode", "timestamp"]
-        row = {
-            "annotator_id":       annotator_id,
-            "sample_id":          data.get("sample_id", ""),
-            "bot_text":           data.get("bot_text", ""),
-            "selected_expr_mode": data.get("selected_expr_mode", ""),
-            "timestamp":          ts,
-        }
-    else:  # style
-        fieldnames = ["annotator_id", "task_id", "dimension", "choice", "text_a_bot", "text_b_bot", "timestamp"]
-        row = {
-            "annotator_id": annotator_id,
-            "task_id":      data.get("task_id", ""),
-            "dimension":    data.get("dimension", ""),
-            "choice":       data.get("choice", ""),
-            "text_a_bot":   data.get("text_a_bot", ""),
-            "text_b_bot":   data.get("text_b_bot", ""),
-            "timestamp":    ts,
-        }
+    fieldnames = ["annotator_id", "task_id", "task_type", "answer", "timestamp"]
+    row = {
+        "annotator_id": annotator_id,
+        "task_id":       task_id,
+        "task_type":     task_type,
+        "answer":        json.dumps(data.get("answer", ""), ensure_ascii=False),
+        "timestamp":     ts,
+    }
 
     _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
+    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
     write_header = not results_path.exists()
     with open(results_path, "a", newline="", encoding="utf-8") as f:
         writer = _csv.DictWriter(f, fieldnames=fieldnames)

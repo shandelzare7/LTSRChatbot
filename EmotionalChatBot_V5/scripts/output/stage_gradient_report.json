@@ -1,0 +1,158 @@
+{
+  "experiment": "4.5A 跨阶段风格梯度对比",
+  "fixed_params": {
+    "big_five": {
+      "E": 0.65,
+      "A": 0.7,
+      "C": 0.55,
+      "O": 0.6,
+      "N": 0.3
+    },
+    "pad": {
+      "P": 0.55,
+      "Ar": 0.25,
+      "D": 0.55
+    },
+    "context": {
+      "busy": 0.3,
+      "momentum": 0.65,
+      "topic_appeal": 0.55,
+      "evidence": null
+    }
+  },
+  "stages": [
+    {
+      "stage": "initiating",
+      "desc": "初识期：默认初始值，关系尚未建立",
+      "relationship": {
+        "closeness": 0.3,
+        "trust": 0.3,
+        "liking": 0.3,
+        "respect": 0.3,
+        "attractiveness": 0.3,
+        "power": 0.5
+      },
+      "style": {
+        "FORMALITY": 0.4475,
+        "POLITENESS": 0.6612,
+        "WARMTH": 0.6815,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 0.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "stage": "experimenting",
+      "desc": "实验期：试探性互动，关系初建（超过 init→exp 阈值）",
+      "relationship": {
+        "closeness": 0.35,
+        "trust": 0.32,
+        "liking": 0.38,
+        "respect": 0.42,
+        "attractiveness": 0.4,
+        "power": 0.5
+      },
+      "style": {
+        "FORMALITY": 0.457,
+        "POLITENESS": 0.6772,
+        "WARMTH": 0.7248,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 0.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "stage": "intensifying",
+      "desc": "强化期：关系加深，自我暴露增多（超过 exp→int 阈值）",
+      "relationship": {
+        "closeness": 0.5,
+        "trust": 0.45,
+        "liking": 0.5,
+        "respect": 0.45,
+        "attractiveness": 0.48,
+        "power": 0.5
+      },
+      "style": {
+        "FORMALITY": 0.414,
+        "POLITENESS": 0.5959,
+        "WARMTH": 0.7948,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "stage": "integrating",
+      "desc": "整合期：关系稳定，深度互相了解（超过 int→integ 阈值）",
+      "relationship": {
+        "closeness": 0.68,
+        "trust": 0.62,
+        "liking": 0.65,
+        "respect": 0.52,
+        "attractiveness": 0.55,
+        "power": 0.5
+      },
+      "style": {
+        "FORMALITY": 0.3697,
+        "POLITENESS": 0.5048,
+        "WARMTH": 0.8765,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "stage": "bonding",
+      "desc": "结合期：高度亲密，彼此信赖（超过 integ→bond 阈值）",
+      "relationship": {
+        "closeness": 0.8,
+        "trust": 0.75,
+        "liking": 0.78,
+        "respect": 0.55,
+        "attractiveness": 0.6,
+        "power": 0.5
+      },
+      "style": {
+        "FORMALITY": 0.3325,
+        "POLITENESS": 0.4288,
+        "WARMTH": 0.9387,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    }
+  ],
+  "trend_checks": [
+    {
+      "dimension": "FORMALITY",
+      "expected": "decrease",
+      "first_stage": "initiating",
+      "last_stage": "bonding",
+      "first_value": 0.4475,
+      "last_value": 0.3325,
+      "delta": -0.115,
+      "passed": true
+    },
+    {
+      "dimension": "POLITENESS",
+      "expected": "decrease",
+      "first_stage": "initiating",
+      "last_stage": "bonding",
+      "first_value": 0.6612,
+      "last_value": 0.4288,
+      "delta": -0.2324,
+      "passed": true
+    },
+    {
+      "dimension": "WARMTH",
+      "expected": "increase",
+      "first_stage": "initiating",
+      "last_stage": "bonding",
+      "first_value": 0.6815,
+      "last_value": 0.9387,
+      "delta": 0.2572,
+      "passed": true
+    }
+  ],
+  "all_pass": true
+}

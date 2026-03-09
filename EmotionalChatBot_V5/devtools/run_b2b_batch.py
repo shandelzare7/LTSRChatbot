@@ -1,17 +1,14 @@
 """
 run_b2b_batch.py
 
-批量运行 bot_to_bot_chat.py 的 30 组会话配置，确保：
-1. Big Five 多样性（随机 / 极低 / 极高 / 混合）
-2. Knapp 阶段多样性（通过不同初始关系分数实现）
-3. 基本信息多样性（每次创建新 Bot，LLM 生成不同人设）
+批量运行 bot_to_bot_chat.py 的会话配置，支持多路并行。
 
 使用:
   cd EmotionalChatBot_V5
-  python devtools/run_b2b_batch.py                    # 运行全部 30 组
-  python devtools/run_b2b_batch.py --start 16 --end 20  # 只运行 16-20 组
-  python devtools/run_b2b_batch.py --ids 1,5,26        # 只运行指定 id
-  python devtools/run_b2b_batch.py --group extreme_low  # 只运行某组
+  python devtools/run_b2b_batch.py --config devtools/b2b_phase6_configs.json
+  python devtools/run_b2b_batch.py --config ... --workers 3   # 3 路并行
+  python devtools/run_b2b_batch.py --ids 1,5,26
+  python devtools/run_b2b_batch.py --group extreme_low
 """
 from __future__ import annotations
 
@@ -22,6 +19,7 @@ import random
 import subprocess
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -54,7 +52,6 @@ def build_env(session: dict) -> dict:
     """Build environment variables for a single session."""
     env = os.environ.copy()
     env["BOT2BOT_NUM_RUNS"] = "1"
-    # 轮数：使用预分配的 _rounds（main 里已确定）
     env["BOT2BOT_ROUNDS_PER_RUN"] = str(session.get("_rounds") or session.get("rounds") or random.randint(10, 30))
     env["BOT2BOT_SESSION_LABEL"] = session.get("label", "")
 
@@ -99,14 +96,44 @@ def build_env(session: dict) -> dict:
     else:
         env.pop("BOT2BOT_INITIAL_PAD", None)
 
-    # Each session uses a different random seed for bot creation diversity
     env.pop("BOT2BOT_SEED", None)
-
-    # Ensure no stale bot IDs (force new bot creation each session)
     env.pop("BOT2BOT_BOT_A_ID", None)
     env.pop("BOT2BOT_BOT_B_ID", None)
 
     return env
+
+
+def run_one_session(session: dict, index: int, total: int) -> dict:
+    """Run a single b2b session. Designed to be called from ProcessPoolExecutor."""
+    sid = session["id"]
+    label = session.get("label", f"session_{sid}")
+    script = str(SCRIPT_DIR / "bot_to_bot_chat.py")
+    env = build_env(session)
+
+    print(f"[{index}/{total}] START  Session {sid}: {label} (rounds={session.get('_rounds', '?')})", flush=True)
+    t0 = time.time()
+    try:
+        proc = subprocess.run(
+            [sys.executable, script],
+            cwd=str(PROJECT_ROOT),
+            env=env,
+            timeout=3600,
+            capture_output=True,
+        )
+        elapsed = time.time() - t0
+        status = "OK" if proc.returncode == 0 else f"FAIL(rc={proc.returncode})"
+        if proc.returncode != 0:
+            stderr = (proc.stderr or b"").decode("utf-8", errors="replace")[-500:]
+            print(f"  [{sid}] STDERR: {stderr}", flush=True)
+    except subprocess.TimeoutExpired:
+        elapsed = time.time() - t0
+        status = "TIMEOUT"
+    except Exception as e:
+        elapsed = time.time() - t0
+        status = f"ERROR({e})"
+
+    print(f"[{index}/{total}] DONE   Session {sid}: {label} -> {status} ({elapsed:.0f}s)", flush=True)
+    return {"id": sid, "label": label, "status": status, "elapsed_s": round(elapsed, 1)}
 
 
 def main():
@@ -115,7 +142,8 @@ def main():
     parser.add_argument("--end", type=int, help="End session id (inclusive)")
     parser.add_argument("--ids", type=str, help="Comma-separated session ids")
     parser.add_argument("--group", type=str, help="Run only sessions in this group")
-    parser.add_argument("--config", type=str, help="Path to config JSON file (default: b2b_batch_configs.json)")
+    parser.add_argument("--config", type=str, help="Path to config JSON file")
+    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers (default: 1)")
     parser.add_argument("--dry-run", action="store_true", help="Print configs without running")
     args = parser.parse_args()
 
@@ -127,13 +155,12 @@ def main():
         print("No sessions matched the filter criteria.")
         sys.exit(1)
 
-    # 预分配轮数（提前确定，便于预览总轮数）
     for s in sessions:
         if not s.get("_rounds"):
             s["_rounds"] = s.get("rounds") or random.randint(10, 30)
 
     total_rounds = sum(s["_rounds"] for s in sessions)
-    print(f"Will run {len(sessions)} session(s), total ~{total_rounds} rounds:")
+    print(f"Will run {len(sessions)} session(s), total ~{total_rounds} rounds, workers={args.workers}:")
     for s in sessions:
         dims = s.get("custom_dims") or s.get("template", "friendly_icebreaker")
         stage = s.get("initial_stage", "initiating")
@@ -142,57 +169,48 @@ def main():
 
     if args.dry_run:
         print("Dry run mode, not executing.")
-        for s in sessions:
-            env = build_env(s)
-            print(f"--- Session {s['id']} ({s['label']}) ---")
-            for k in sorted(env):
-                if k.startswith("BOT2BOT_"):
-                    print(f"  {k}={env[k]}")
-            print()
         return
 
-    script = str(SCRIPT_DIR / "bot_to_bot_chat.py")
     total = len(sessions)
-    results = []
+    t_start = time.time()
 
-    for i, session in enumerate(sessions, 1):
-        sid = session["id"]
-        label = session.get("label", f"session_{sid}")
-        print("=" * 70)
-        print(f"[{i}/{total}] Session {sid}: {label} (group={session.get('group', '')})")
-        print("=" * 70)
+    if args.workers <= 1:
+        # 串行模式
+        results = []
+        for i, session in enumerate(sessions, 1):
+            r = run_one_session(session, i, total)
+            results.append(r)
+    else:
+        # 并行模式
+        results = [None] * total
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            future_to_idx = {}
+            for i, session in enumerate(sessions):
+                f = executor.submit(run_one_session, session, i + 1, total)
+                future_to_idx[f] = i
+            for f in as_completed(future_to_idx):
+                idx = future_to_idx[f]
+                try:
+                    results[idx] = f.result()
+                except Exception as e:
+                    results[idx] = {"id": sessions[idx]["id"], "label": sessions[idx].get("label", ""), "status": f"ERROR({e})", "elapsed_s": 0}
 
-        env = build_env(session)
-        t0 = time.time()
-        try:
-            proc = subprocess.run(
-                [sys.executable, script],
-                cwd=str(PROJECT_ROOT),
-                env=env,
-                timeout=3600,  # 1 hour max per session
-            )
-            elapsed = time.time() - t0
-            status = "OK" if proc.returncode == 0 else f"FAIL(rc={proc.returncode})"
-        except subprocess.TimeoutExpired:
-            elapsed = time.time() - t0
-            status = "TIMEOUT"
-        except Exception as e:
-            elapsed = time.time() - t0
-            status = f"ERROR({e})"
-
-        results.append({"id": sid, "label": label, "status": status, "elapsed_s": round(elapsed, 1)})
-        print(f"\n  -> {status} ({elapsed:.1f}s)\n")
+    total_time = time.time() - t_start
 
     # Summary
     print("\n" + "=" * 70)
     print("BATCH SUMMARY")
     print("=" * 70)
-    ok = sum(1 for r in results if r["status"] == "OK")
+    ok = sum(1 for r in results if r and r["status"] == "OK")
     for r in results:
-        print(f"  [{r['id']:2d}] {r['label']:<30s}  {r['status']:<20s}  {r['elapsed_s']}s")
+        if r:
+            print(f"  [{r['id']:2d}] {r['label']:<30s}  {r['status']:<20s}  {r['elapsed_s']}s")
     print(f"\n  Total: {ok}/{total} succeeded, {total - ok} failed")
-    total_time = sum(r["elapsed_s"] for r in results)
-    print(f"  Total time: {total_time:.1f}s ({total_time/60:.1f}min)")
+    print(f"  Wall time: {total_time:.1f}s ({total_time/60:.1f}min)")
+    sum_time = sum(r["elapsed_s"] for r in results if r)
+    if args.workers > 1:
+        print(f"  Sum of session times: {sum_time:.1f}s ({sum_time/60:.1f}min)")
+        print(f"  Speedup: {sum_time/total_time:.1f}x")
 
 
 if __name__ == "__main__":

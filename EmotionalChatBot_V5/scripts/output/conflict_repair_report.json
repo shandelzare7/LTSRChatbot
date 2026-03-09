@@ -1,0 +1,380 @@
+{
+  "experiment": "4.5C 冲突-修复场景模拟",
+  "scenario": {
+    "phase1_stable": "轮 1-3：experimenting 稳定期",
+    "phase2_conflict": "轮 4：trust 骤降 -0.30（JUMP 触发）",
+    "phase3_low": "轮 5-7：低谷消极互动",
+    "phase4_repair": "轮 8-10：持续正面互动修复"
+  },
+  "turns": [
+    {
+      "turn": 1,
+      "phase": "stable",
+      "desc": "稳定期第1轮：experimenting 阶段正常互动",
+      "stage_before": "experimenting",
+      "stage_after": "experimenting",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "experimenting",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.4,
+        "trust": 0.38,
+        "liking": 0.42,
+        "respect": 0.42,
+        "attractiveness": 0.4,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.55,
+        "Ar": 0.25,
+        "D": 0.55
+      },
+      "momentum": 0.65,
+      "style": {
+        "FORMALITY": 0.4391,
+        "POLITENESS": 0.6437,
+        "WARMTH": 0.7468,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "turn": 2,
+      "phase": "stable",
+      "desc": "稳定期第2轮：experimenting 阶段正常互动",
+      "stage_before": "experimenting",
+      "stage_after": "experimenting",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "experimenting",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.4,
+        "trust": 0.38,
+        "liking": 0.42,
+        "respect": 0.42,
+        "attractiveness": 0.4,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.55,
+        "Ar": 0.25,
+        "D": 0.55
+      },
+      "momentum": 0.65,
+      "style": {
+        "FORMALITY": 0.4391,
+        "POLITENESS": 0.6437,
+        "WARMTH": 0.7468,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "turn": 3,
+      "phase": "stable",
+      "desc": "稳定期第3轮：experimenting 阶段正常互动",
+      "stage_before": "experimenting",
+      "stage_after": "experimenting",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "experimenting",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.4,
+        "trust": 0.38,
+        "liking": 0.42,
+        "respect": 0.42,
+        "attractiveness": 0.4,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.55,
+        "Ar": 0.25,
+        "D": 0.55
+      },
+      "momentum": 0.65,
+      "style": {
+        "FORMALITY": 0.4391,
+        "POLITENESS": 0.6437,
+        "WARMTH": 0.7468,
+        "CERTAINTY": 0.5894,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.295
+      }
+    },
+    {
+      "turn": 4,
+      "phase": "conflict",
+      "desc": "冲突注入：trust 骤降 -0.30（背叛/欺骗事件）",
+      "stage_before": "experimenting",
+      "stage_after": "terminating",
+      "transition_type": "JUMP",
+      "reason": "Catastrophic trust failure (Event Driven). trust_delta=-0.300",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.38,
+        "trust": 0.1,
+        "liking": 0.25,
+        "respect": 0.3,
+        "attractiveness": 0.35,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.2,
+        "Ar": 0.7,
+        "D": 0.4
+      },
+      "momentum": 0.4,
+      "style": {
+        "FORMALITY": 0.4718,
+        "POLITENESS": 0.6859,
+        "WARMTH": 0.4016,
+        "CERTAINTY": 0.5249,
+        "EXPRESSION_MODE": 2.0,
+        "EMOTIONAL_INTENSITY": 0.4991
+      }
+    },
+    {
+      "turn": 5,
+      "phase": "low",
+      "desc": "低谷期第1轮：关系低迷，消极互动",
+      "stage_before": "terminating",
+      "stage_after": "terminating",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.15,
+        "trust": 0.08,
+        "liking": 0.12,
+        "respect": 0.2,
+        "attractiveness": 0.25,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.25,
+        "Ar": 0.35,
+        "D": 0.45
+      },
+      "momentum": 0.35,
+      "style": {
+        "FORMALITY": 0.5197,
+        "POLITENESS": 0.7596,
+        "WARMTH": 0.3782,
+        "CERTAINTY": 0.6562,
+        "EXPRESSION_MODE": 3.0,
+        "EMOTIONAL_INTENSITY": 0.2653
+      }
+    },
+    {
+      "turn": 6,
+      "phase": "low",
+      "desc": "低谷期第2轮：关系低迷，消极互动",
+      "stage_before": "terminating",
+      "stage_after": "terminating",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.15,
+        "trust": 0.08,
+        "liking": 0.12,
+        "respect": 0.2,
+        "attractiveness": 0.25,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.25,
+        "Ar": 0.35,
+        "D": 0.45
+      },
+      "momentum": 0.35,
+      "style": {
+        "FORMALITY": 0.5197,
+        "POLITENESS": 0.7596,
+        "WARMTH": 0.3782,
+        "CERTAINTY": 0.6562,
+        "EXPRESSION_MODE": 3.0,
+        "EMOTIONAL_INTENSITY": 0.2653
+      }
+    },
+    {
+      "turn": 7,
+      "phase": "low",
+      "desc": "低谷期第3轮：关系低迷，消极互动",
+      "stage_before": "terminating",
+      "stage_after": "terminating",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.15,
+        "trust": 0.08,
+        "liking": 0.12,
+        "respect": 0.2,
+        "attractiveness": 0.25,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.25,
+        "Ar": 0.35,
+        "D": 0.45
+      },
+      "momentum": 0.35,
+      "style": {
+        "FORMALITY": 0.5197,
+        "POLITENESS": 0.7596,
+        "WARMTH": 0.3782,
+        "CERTAINTY": 0.6562,
+        "EXPRESSION_MODE": 3.0,
+        "EMOTIONAL_INTENSITY": 0.2653
+      }
+    },
+    {
+      "turn": 8,
+      "phase": "repair",
+      "desc": "修复期第1轮：持续正面互动，关系回暖",
+      "stage_before": "terminating",
+      "stage_after": "terminating",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.22,
+        "trust": 0.18,
+        "liking": 0.2,
+        "respect": 0.28,
+        "attractiveness": 0.3,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.5,
+        "Ar": 0.3,
+        "D": 0.5
+      },
+      "momentum": 0.55,
+      "style": {
+        "FORMALITY": 0.4864,
+        "POLITENESS": 0.734,
+        "WARMTH": 0.596,
+        "CERTAINTY": 0.5671,
+        "EXPRESSION_MODE": 0.0,
+        "EMOTIONAL_INTENSITY": 0.3075
+      }
+    },
+    {
+      "turn": 9,
+      "phase": "repair",
+      "desc": "修复期第2轮：持续正面互动，关系回暖",
+      "stage_before": "terminating",
+      "stage_after": "terminating",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.28,
+        "trust": 0.25,
+        "liking": 0.28,
+        "respect": 0.32,
+        "attractiveness": 0.33,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.5,
+        "Ar": 0.3,
+        "D": 0.5
+      },
+      "momentum": 0.6000000000000001,
+      "style": {
+        "FORMALITY": 0.464,
+        "POLITENESS": 0.7019,
+        "WARMTH": 0.6425,
+        "CERTAINTY": 0.5696,
+        "EXPRESSION_MODE": 0.0,
+        "EMOTIONAL_INTENSITY": 0.3189
+      }
+    },
+    {
+      "turn": 10,
+      "phase": "repair",
+      "desc": "修复期第3轮：持续正面互动，关系回暖",
+      "stage_before": "terminating",
+      "stage_after": "terminating",
+      "transition_type": "STAY",
+      "reason": "Stable state.",
+      "expected_stage": "terminating",
+      "stage_correct": true,
+      "rel": {
+        "closeness": 0.33,
+        "trust": 0.3,
+        "liking": 0.35,
+        "respect": 0.35,
+        "attractiveness": 0.36,
+        "power": 0.5
+      },
+      "pad": {
+        "P": 0.5,
+        "Ar": 0.3,
+        "D": 0.5
+      },
+      "momentum": 0.65,
+      "style": {
+        "FORMALITY": 0.4437,
+        "POLITENESS": 0.6697,
+        "WARMTH": 0.6793,
+        "CERTAINTY": 0.5721,
+        "EXPRESSION_MODE": 0.0,
+        "EMOTIONAL_INTENSITY": 0.3254
+      }
+    }
+  ],
+  "analysis": {
+    "conflict_jump": {
+      "desc": "冲突注入后 stage 是否触发 JUMP → terminating",
+      "passed": true,
+      "actual_type": "JUMP",
+      "actual_stage": "terminating"
+    },
+    "style_response": {
+      "desc": "冲突后 style 响应：WARMTH↓ FORMALITY↑ EI↑",
+      "passed": true,
+      "warmth_delta": -0.3452,
+      "formality_delta": 0.0327,
+      "ei_delta": 0.2041,
+      "warmth_dropped": true,
+      "formality_rose": true,
+      "ei_rose": true
+    },
+    "terminating_absorbing": {
+      "desc": "terminating 是吸收态：后续轮次不应离开",
+      "passed": true,
+      "stages_after_conflict": [
+        "terminating",
+        "terminating",
+        "terminating",
+        "terminating",
+        "terminating",
+        "terminating"
+      ]
+    },
+    "style_recovery": {
+      "desc": "修复期 style 回暖：WARMTH↑ FORMALITY↓（相对低谷期）",
+      "passed": true,
+      "warmth_delta": 0.3011,
+      "formality_delta": -0.076,
+      "warmth_recovered": true,
+      "formality_recovered": true
+    },
+    "all_pass": true
+  }
+}

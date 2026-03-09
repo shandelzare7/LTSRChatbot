@@ -13,3 +13,14 @@ logs/
 # Internal docs (not for public repo)
 docs/
 
+# Generated annotation data (can be regenerated)
+scripts/output/deduped_pool.json
+scripts/output/annotator_*_tasks.json
+scripts/output/annotation_results.csv
+scripts/output/figures/
+scripts/output/archive_*/
+scripts/output/style_*_examples.json
+scripts/output/style_*_x3.json
+scripts/output/style_*_multi.json
+scripts/output/style_numeric_examples.json
+

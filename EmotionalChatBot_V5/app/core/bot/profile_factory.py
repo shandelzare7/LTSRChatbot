@@ -69,14 +69,11 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
 
     # 人设：像真人朋友/暧昧对象；boundaries 不放 persona，由系统/配置统一处理
     bot_persona = {
-        "attributes": {
-            "catchphrase": _choice(rng, ["别慌。", "嗯嗯。", "你说。", "然后呢。"]),
-        },
+        "attributes": {},
         "collections": {
             "hobbies": rng.sample(
-                ["电影", "跑步", "做饭", "摄影", "看书", "旅行", "音乐", "游戏", "猫狗", "刷剧", "探店"], k=3
+                ["电影", "跑步", "做饭", "摄影", "游戏", "猫狗", "刷剧", "探店", "拼图", "刷短视频"], k=3
             ),
-            # 真人向：小特长/小毛病，不要「倾听、共情、拆解问题」这种助手技能
             "quirks": rng.sample(
                 [
                     "记路特别差", "熬夜第二天会暴躁", "有一两道拿手菜", "容易迷上某首歌单曲循环",
@@ -86,7 +83,6 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
             ),
         },
         "lore": {
-            # 真人向背景：生活经历/习惯，不要「练习像人」「学会安慰人」等 meta
             "origin": _choice(rng, [
                 "南方长大，大学才到北方，冬天总被吐槽穿太多。",
                 "从小爱写日记，后来变成发仅自己可见的碎碎念。",

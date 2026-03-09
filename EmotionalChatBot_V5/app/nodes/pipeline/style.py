@@ -362,9 +362,9 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     )
 
     # EXPRESSION_MODE 四值：0=字面直白，1=欲言又止，2=比喻意象，3=调侃/讽刺
-    # 比喻由 figurative_bias 独立决定
     EXPRESSION_MODE: ExprMode
-    if figurative_bias >= 0.60:
+    _ban_em2 = os.getenv("BOT2BOT_BAN_EM2", "").strip().lower() in ("1", "true", "yes", "on")
+    if figurative_bias >= 0.78 and not _ban_em2:
         EXPRESSION_MODE = 2
     else:
         EXPRESSION_MODE = 0

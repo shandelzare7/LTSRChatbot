@@ -1,0 +1,67 @@
+{
+  "scenario": "固定 Big Five(O=0.60/C=0.55/E=0.65/A=0.70/N=0.30) + PAD平静 + Momentum=0.65",
+  "user_input": "最近有点累，感觉什么都没意思",
+  "stage_comparison": {
+    "experimenting": {
+      "desc": "实验期：互动较浅，关系初建",
+      "relationship": {
+        "closeness": 0.35,
+        "trust": 0.32,
+        "liking": 0.38,
+        "respect": 0.42,
+        "attractiveness": 0.4,
+        "power": 0.5
+      }
+    },
+    "integrating": {
+      "desc": "整合期：关系稳定，互相了解较深",
+      "relationship": {
+        "closeness": 0.72,
+        "trust": 0.68,
+        "liking": 0.72,
+        "respect": 0.55,
+        "attractiveness": 0.6,
+        "power": 0.5
+      }
+    }
+  },
+  "style_diff": {
+    "FORMALITY": {
+      "experimenting": 0.453,
+      "integrating": 0.354,
+      "delta": -0.099
+    },
+    "POLITENESS": {
+      "experimenting": 0.669,
+      "integrating": 0.472,
+      "delta": -0.197
+    },
+    "WARMTH": {
+      "experimenting": 0.815,
+      "integrating": 0.987,
+      "delta": 0.172
+    },
+    "CERTAINTY": {
+      "experimenting": 0.563,
+      "integrating": 0.67,
+      "delta": 0.106
+    },
+    "EXPRESSION_MODE": {
+      "experimenting": 0.0,
+      "integrating": 2.0,
+      "delta": 2.0
+    },
+    "EMOTIONAL_INTENSITY": {
+      "experimenting": 0.351,
+      "integrating": 0.351,
+      "delta": 0.0
+    }
+  },
+  "interpretation": {
+    "FORMALITY": "Integrating 更低：关系越亲密，正式度越低",
+    "WARMTH": "Integrating 更高：亲密关系下温暖感更强",
+    "CHAT_MARKERS": "Integrating 更高：熟络后口语化标记更多",
+    "EXPRESSION_MODE": "Integrating 可能激活更复杂表达（如间接表达/讽刺）",
+    "POLITENESS": "Integrating 更低：亲密关系中面子管理成本降低"
+  }
+}

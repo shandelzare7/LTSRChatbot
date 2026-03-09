@@ -367,6 +367,7 @@ def _generate_monologue(state: AgentState, llm_invoker: Any) -> str:
 - 规划你的回复方式或措辞
 - 列清单或分条目
 - 输出 JSON 或其他结构化格式
+- 用诗意、文学化的语言写独白——你是普通人在心里想事情，不是在写散文
 
 就是意识流。你的思绪。此刻。
 """

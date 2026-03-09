@@ -1,0 +1,15 @@
+id,desc,input_stage,output_stage,output_type,expected_stage,expected_type,pass
+1,任意阶段：信任 delta≤-0.25 → JUMP 到 terminating,intensifying,terminating,JUMP,terminating,JUMP,PASS
+2,任意阶段：尊重 delta≤-0.25 → JUMP 到 differentiating,integrating,differentiating,JUMP,differentiating,JUMP,PASS
+3,initiating：SPT深度≥3+喜爱>0.4 → JUMP 到 intensifying,initiating,intensifying,JUMP,intensifying,JUMP,PASS
+4,initiating：条件未达到，维持不变,initiating,initiating,STAY,initiating,STAY,PASS
+5,experimenting：条件达到但确认轮数不够(只有1轮),experimenting,experimenting,STAY,experimenting,STAY,PASS
+6,intensifying：关系维度在中间，无明显变化信号,intensifying,intensifying,STAY,intensifying,STAY,PASS
+7,initiating→experimenting：亲密≥0.20+信任≥0.15+喜爱≥0.22+深度≥1+话题≥2，连续2轮,initiating,experimenting,GROWTH,experimenting,GROWTH,PASS
+8,experimenting→intensifying：亲密≥0.42+信任≥0.38+深度≥2+话题≥4+画像≥3，连续2轮,experimenting,intensifying,GROWTH,intensifying,GROWTH,PASS
+9,experimenting DECAY：好感≤0.08，连续3轮,experimenting,initiating,DECAY,initiating,DECAY,PASS
+10,intensifying DECAY：SPT深度退缩信号，连续3轮,intensifying,experimenting,DECAY,experimenting,DECAY,PASS
+11,differentiating DECAY：信任≤0.45，连续3轮,differentiating,circumscribing,DECAY,circumscribing,DECAY,PASS
+12,hysteresis：升级条件满足但连续轮数只有1轮→STAY,intensifying,intensifying,STAY,intensifying,STAY,PASS
+13,power_balance veto：权力失衡>0.3，即使满足升级条件→STAY（仅integrating→bonding生效）,integrating,integrating,STAY,integrating,STAY,PASS
+14,terminating：终态，无论如何都 STAY,terminating,terminating,STAY,terminating,STAY,PASS

@@ -45,7 +45,7 @@ body {
   font-size: 13px; color: #888;
 }
 
-/* ── Card ── */
+/* ── Card (legacy) ── */
 .card {
   background: #fff; border-radius: 14px;
   box-shadow: 0 2px 12px rgba(0,0,0,.07);
@@ -64,6 +64,42 @@ body {
   border-left: 3px solid #4f6ef7;
 }
 .card-text.user-text { border-left-color: #aaa; }
+
+/* ── Chat bubbles ── */
+.chat-wrap {
+  background: #fff; border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.bubble-row {
+  display: flex; align-items: flex-end; gap: 8px;
+}
+.bubble-row.user { justify-content: flex-start; }
+.bubble-row.bot  { justify-content: flex-end; }
+.bubble-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  font-size: 13px; font-weight: 700; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.bubble-row.user .bubble-avatar { background: #aab; }
+.bubble-row.bot  .bubble-avatar { background: #4f6ef7; }
+.bubble {
+  max-width: 78%; padding: 10px 14px;
+  font-size: 14px; line-height: 1.65; color: #222;
+  border-radius: 14px; word-break: break-word;
+}
+.bubble-row.user .bubble {
+  background: #f0f1f3; border-bottom-left-radius: 4px;
+}
+.bubble-row.bot .bubble {
+  background: #eef1ff; border-bottom-right-radius: 4px;
+}
+.bubble-row.bot.highlight .bubble {
+  background: #dde3ff; border: 2px solid #4f6ef7;
+}
 
 /* ── Login ── */
 .login-wrap {
@@ -86,29 +122,6 @@ body {
   transition: border-color .2s;
 }
 .login-box input:focus { border-color: #4f6ef7; }
-
-/* ── Task Select ── */
-.task-select-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
-.task-select-sub   { font-size: 14px; color: #666; margin-bottom: 28px; }
-.task-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-@media (max-width: 600px) { .task-cards { grid-template-columns: 1fr; } }
-.task-card {
-  background: #fff; border-radius: 14px;
-  box-shadow: 0 2px 10px rgba(0,0,0,.07);
-  padding: 24px 20px; cursor: pointer;
-  border: 2px solid transparent;
-  transition: border-color .2s, transform .15s;
-}
-.task-card:hover { border-color: #4f6ef7; transform: translateY(-2px); }
-.task-card .tc-icon { font-size: 28px; margin-bottom: 10px; }
-.task-card h2 { font-size: 16px; margin-bottom: 6px; }
-.task-card p  { font-size: 13px; color: #666; line-height: 1.5; }
-.task-card .tc-badge {
-  display: inline-block; margin-top: 12px;
-  font-size: 12px; color: #4f6ef7;
-  background: #eef1ff; border-radius: 20px;
-  padding: 3px 10px;
-}
 
 /* ── Style pairs ── */
 .pairs-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 0; }
@@ -145,34 +158,30 @@ body {
   color: #4f6ef7; font-size: 20px;
 }
 
-/* ── Radio options ── */
-.options-list { display: flex; flex-direction: column; gap: 10px; }
-.option-item {
-  display: flex; align-items: flex-start;
-  gap: 12px; cursor: pointer;
-  padding: 12px 16px;
-  border: 1.5px solid #e0e4ef; border-radius: 10px;
-  transition: border-color .15s, background .15s;
+/* ── Choice buttons ── */
+.choice-grid { display: grid; gap: 10px; }
+.choice-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.choice-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.choice-grid.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+.choice-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 600px) {
+  .choice-grid.cols-3, .choice-grid.cols-4, .choice-grid.cols-5 { grid-template-columns: 1fr 1fr; }
 }
-.option-item:hover { background: #f0f3ff; border-color: #b0bcf7; }
-.option-item.selected { background: #eef1ff; border-color: #4f6ef7; }
-.option-item input[type=radio] { margin-top: 3px; accent-color: #4f6ef7; flex-shrink: 0; }
-.option-label { font-size: 15px; font-weight: 600; color: #222; }
-.option-desc  { font-size: 13px; color: #666; margin-top: 3px; line-height: 1.4; }
-
-/* ── AB buttons ── */
-.ab-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.ab-btn {
-  padding: 18px; border-radius: 10px;
+.choice-btn {
+  padding: 14px 10px; border-radius: 10px;
   border: 2px solid #e0e4ef;
   background: #f8f9fb; cursor: pointer;
-  font-size: 22px; font-weight: 800; color: #4f6ef7;
   text-align: center;
   transition: border-color .15s, background .15s;
 }
-.ab-btn:hover   { background: #eef1ff; border-color: #b0bcf7; }
-.ab-btn.selected { background: #eef1ff; border-color: #4f6ef7; }
-.ab-btn span    { display: block; font-size: 13px; font-weight: 500; color: #888; margin-top: 4px; }
+.choice-btn:hover { background: #eef1ff; border-color: #b0bcf7; }
+.choice-btn.selected { background: #eef1ff; border-color: #4f6ef7; }
+.choice-btn .choice-name {
+  font-size: 15px; font-weight: 700; color: #4f6ef7;
+}
+.choice-btn .choice-desc {
+  font-size: 12px; color: #888; margin-top: 4px; line-height: 1.3;
+}
 
 /* ── Action buttons ── */
 .action-row {
@@ -215,16 +224,15 @@ body {
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
 const S = {
-  screen: 'login',      // 'login' | 'task_select' | 'task' | 'done'
+  screen: 'login',      // 'login' | 'task' | 'done'
   annotatorId: '',
-  taskType: null,       // 'move' | 'style' | 'expr_mode'
-  tasks: [],
+  tasks: [],            // mixed: each task has .task_type
   moves: [],
   currentIdx: 0,
-  totalInDB: 0,
-  remainingCount: 0,
+  totalTasks: 0,
+  doneCount: 0,         // already submitted before this session
   sessionDone: 0,       // completed this session
-  selection: null,      // current selection value
+  selection: null,
 };
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -236,17 +244,26 @@ const EXPR_MODES = [
 ];
 
 const DIM_LABELS = {
-  formality:    '正式',
-  politeness:   '礼貌',
-  warmth:       '温暖',
-  certainty:    '确定/笃定',
-  chat_markers: '口语化',
+  FORMALITY:           '正式',
+  POLITENESS:          '礼貌',
+  WARMTH:              '温暖',
+  CERTAINTY:           '确定/笃定',
+  EMOTIONAL_INTENSITY: '情绪强度',
 };
 
+const TIER_LABELS = [
+  { id: 'EL', name: '极低' },
+  { id: 'L',  name: '低' },
+  { id: 'M',  name: '中' },
+  { id: 'H',  name: '高' },
+  { id: 'EH', name: '极高' },
+];
+
 const TASK_META = {
-  move:      { icon: '🎯', title: 'Move 标注',    sub: '判断 bot 回复用了哪种推进方式' },
-  style:     { icon: '🎨', title: 'Style 对比',   sub: '比较两组对话哪组风格更突出' },
-  expr_mode: { icon: '💬', title: '表达方式标注',  sub: '判断 bot 回复用了哪种表达方式' },
+  move:          { icon: '🎯', title: 'Move 标注' },
+  style_compare: { icon: '🎨', title: 'Style 对比' },
+  style_label:   { icon: '📊', title: 'Style 评级' },
+  expr_mode:     { icon: '💬', title: '表达方式标注' },
 };
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -254,11 +271,10 @@ function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Deterministic move selection per sample_id (ensures all annotators see same options)
-function pickMoves(sampleId, allMoves, n) {
+function pickMoves(taskId, allMoves, n) {
   if (!allMoves.length) return [];
   let h = 0;
-  for (let c of String(sampleId)) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0;
+  for (let c of String(taskId)) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0;
   h = Math.abs(h);
   const arr = allMoves.map((m, i) => ({ m, sort: (h * (i + 7919)) % 999983 }));
   arr.sort((a, b) => a.sort - b.sort);
@@ -268,7 +284,6 @@ function pickMoves(sampleId, allMoves, n) {
 function render() {
   const app = document.getElementById('app');
   if (S.screen === 'login')       app.innerHTML = renderLogin();
-  else if (S.screen === 'task_select') app.innerHTML = renderTaskSelect();
   else if (S.screen === 'task')   app.innerHTML = renderTask();
   else if (S.screen === 'done')   app.innerHTML = renderDone();
 }
@@ -277,77 +292,57 @@ function render() {
 function renderLogin() {
   return `
   <div class="login-wrap">
-    <h1>📋 标注工具</h1>
+    <h1>标注工具</h1>
     <p>对话情感机器人研究 · 人工标注平台</p>
     <div class="login-box">
       <label for="aid">标注员 ID（姓名缩写或代号）</label>
       <input id="aid" type="text" placeholder="如：张三、ann_1" autocomplete="off">
       <div class="error-msg" id="login-err"></div>
-      <button class="btn btn-primary" style="width:100%;margin-top:16px" onclick="doLogin()">
-        进入标注 →
+      <button class="btn btn-primary" style="width:100%;margin-top:16px;padding:14px 24px;font-size:17px" onclick="doLogin()">
+        开始标注
       </button>
     </div>
   </div>`;
 }
 
-function doLogin() {
+async function doLogin() {
   const val = (document.getElementById('aid').value || '').trim();
   if (!val) { document.getElementById('login-err').textContent = '请填写标注员 ID'; return; }
   S.annotatorId = val;
   localStorage.setItem('annotation_annotator_id', val);
-  S.screen = 'task_select';
-  render();
-}
-
-// ── Task Select ──────────────────────────────────────────────────────────────
-function renderTaskSelect() {
-  const cards = Object.entries(TASK_META).map(([type, meta]) => `
-    <div class="task-card" onclick="selectTask('${type}')">
-      <div class="tc-icon">${meta.icon}</div>
-      <h2>${meta.title}</h2>
-      <p>${meta.sub}</p>
-      <div class="tc-badge">点击开始</div>
-    </div>`).join('');
-  return `
-  <div>
-    <div style="margin-bottom:24px">
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <div class="task-select-title">选择标注任务</div>
-          <div class="task-select-sub">标注员：<strong>${esc(S.annotatorId)}</strong></div>
-        </div>
-        <button class="btn btn-back" onclick="goLogin()">换人</button>
-      </div>
-    </div>
-    <div class="task-cards">${cards}</div>
-  </div>`;
+  await loadTasks();
 }
 
 function goLogin() {
+  localStorage.removeItem('annotation_annotator_id');
   S.screen = 'login';
   render();
 }
 
-async function selectTask(type) {
-  S.taskType = type;
+// ── Load Tasks ───────────────────────────────────────────────────────────────
+async function loadTasks() {
   S.tasks = [];
   S.currentIdx = 0;
   S.sessionDone = 0;
   S.selection = null;
-  document.getElementById('app').innerHTML = '<div class="loading-msg">加载任务中…</div>';
+  document.getElementById('app').innerHTML = '<div class="loading-msg">正在生成任务…</div>';
   try {
-    const url = `/annotation/tasks?task_type=${type}&annotator_id=${encodeURIComponent(S.annotatorId)}`;
-    const resp = await fetch(url);
+    const resp = await fetch(
+      `/annotation/tasks?annotator_id=${encodeURIComponent(S.annotatorId)}`
+    );
     const data = await resp.json();
-    if (data.error && !data.tasks.length) {
+
+    if (data.error) {
       document.getElementById('app').innerHTML =
         `<div class="loading-msg" style="color:#e53e3e">${esc(data.error)}</div>`;
       return;
     }
+
     S.tasks = data.tasks || [];
-    S.moves = data.moves || [];
-    S.totalInDB = data.total || 0;
-    S.remainingCount = data.remaining || 0;
+    S.totalTasks = data.total || 0;
+    S.doneCount = data.done || 0;
+    if (data.moves) S.moves = data.moves;
+
     if (!S.tasks.length) {
       S.screen = 'done';
     } else {
@@ -364,17 +359,16 @@ async function selectTask(type) {
 function renderTask() {
   if (S.currentIdx >= S.tasks.length) { S.screen = 'done'; return renderDone(); }
   const task = S.tasks[S.currentIdx];
-  const total = S.tasks.length;
-  const done  = S.currentIdx;
-  const pct   = total ? Math.round(done / total * 100) : 0;
-  const meta  = TASK_META[S.taskType];
+  const taskType = task.task_type;
+  const globalDone = S.doneCount + S.sessionDone;
+  const pct = S.totalTasks ? Math.round(globalDone / S.totalTasks * 100) : 0;
+  const meta = TASK_META[taskType] || { icon: '?', title: taskType };
 
   let body = '';
-  if (S.taskType === 'move')      body = renderMoveBody(task);
-  else if (S.taskType === 'style') body = renderStyleBody(task);
-  else                             body = renderExprModeBody(task);
-
-  const submitDisabled = S.selection === null ? 'disabled' : '';
+  if (taskType === 'move')               body = renderMoveBody(task);
+  else if (taskType === 'style_compare') body = renderStyleCompareBody(task);
+  else if (taskType === 'style_label')   body = renderStyleLabelBody(task);
+  else                                   body = renderExprModeBody(task);
 
   return `
   <div>
@@ -383,133 +377,163 @@ function renderTask() {
     </div>
     <div class="header-strip">
       <span class="annotator-tag">${meta.icon} ${meta.title} · ${esc(S.annotatorId)}</span>
-      <span class="task-counter">本批 ${done + 1} / ${total}</span>
+      <span class="task-counter">${globalDone + 1} / ${S.totalTasks}</span>
     </div>
     ${body}
-    <div class="action-row">
-      <button class="btn btn-skip" onclick="skipTask()">跳过</button>
-      <button class="btn btn-primary" id="submit-btn" onclick="submitTask()" ${submitDisabled}>
-        提交 →
+    <div class="action-row" style="justify-content:space-between">
+      <button class="btn btn-back" onclick="goBack()" ${S.currentIdx === 0 ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>
+        ← 上一题
       </button>
-    </div>
-    <div style="margin-top:10px;text-align:right">
-      <button class="btn btn-back" onclick="backToSelect()" style="font-size:13px;padding:6px 16px">
-        ← 换任务类型
-      </button>
+      <button class="btn btn-skip" onclick="skipTask()">跳过 →</button>
     </div>
   </div>`;
-}
-
-function backToSelect() {
-  S.screen = 'task_select';
-  S.selection = null;
-  render();
 }
 
 // ── Move ─────────────────────────────────────────────────────────────────────
 function renderMoveBody(task) {
-  const pickedMoves = pickMoves(task.sample_id, S.moves, 3);
-  // Store picked moves on the task for submit use
+  const pickedMoves = pickMoves(task.task_id, S.moves, 3);
   task._pickedMoves = pickedMoves;
 
-  const opts = pickedMoves.map(m => `
-    <label class="option-item${S.selection == m.id ? ' selected' : ''}"
-           onclick="selectOption(${m.id})">
-      <input type="radio" name="move_opt" value="${m.id}" ${S.selection == m.id ? 'checked' : ''}>
-      <div>
-        <div class="option-label">${esc(m.name)}</div>
-        <div class="option-desc">${esc(m.desc)}</div>
-      </div>
-    </label>`).join('');
+  const btns = pickedMoves.map(m => `
+    <div class="choice-btn${S.selection == m.id ? ' selected' : ''}"
+         onclick="selectOption(${m.id})">
+      <div class="choice-name">${esc(m.name)}</div>
+      <div class="choice-desc">${esc(m.desc)}</div>
+    </div>`).join('');
 
-  const noneSelected = S.selection === 0;
   return `
-  <div class="card">
-    <div class="card-title">用户消息（语境）</div>
-    <div class="card-text user-text">${esc(task.context_user_text || '（无）')}</div>
-  </div>
-  <div class="card">
-    <div class="card-title">Bot 回复</div>
-    <div class="card-text">${esc(task.bot_text || '')}</div>
+  <div class="chat-wrap">
+    <div class="bubble-row user">
+      <div class="bubble-avatar">Ta</div>
+      <div class="bubble">${esc(task.context_user_text || '（无）')}</div>
+    </div>
+    <div class="bubble-row bot highlight">
+      <div class="bubble">${esc(task.bot_text || '')}</div>
+      <div class="bubble-avatar">Bot</div>
+    </div>
   </div>
   <div class="question-block">
     <div class="question-text">这句 Bot 回复用了哪种<span class="dim-highlight">推进方式</span>？</div>
-    <div class="options-list">
-      ${opts}
-      <label class="option-item${noneSelected ? ' selected' : ''}" onclick="selectOption(0)">
-        <input type="radio" name="move_opt" value="0" ${noneSelected ? 'checked' : ''}>
-        <div>
-          <div class="option-label">以上都不是</div>
-          <div class="option-desc">上面三个选项都不符合这句话的推进方式</div>
-        </div>
-      </label>
+    <div class="choice-grid cols-2">
+      ${btns}
+      <div class="choice-btn${S.selection === 0 ? ' selected' : ''}"
+           onclick="selectOption(0)">
+        <div class="choice-name" style="color:#888">都不是</div>
+      </div>
     </div>
   </div>`;
 }
 
-// ── Style ────────────────────────────────────────────────────────────────────
-function renderStyleBody(task) {
+// ── Style Compare (B1) ──────────────────────────────────────────────────────
+function renderStyleCompareBody(task) {
   const dimLabel = DIM_LABELS[task.dimension] || task.dimension;
   return `
   <div class="pairs-wrap">
     <div class="pair-card">
       <div class="pair-label">组 A</div>
-      <div class="pair-user">用户：${esc(task.text_a_user)}</div>
-      <div class="pair-bot">Bot：${esc(task.text_a_bot)}</div>
+      <div class="chat-wrap" style="box-shadow:none;padding:8px 0;margin:0">
+        <div class="bubble-row user">
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
+          <div class="bubble" style="font-size:13px">${esc(task.text_a_context)}</div>
+        </div>
+        <div class="bubble-row bot">
+          <div class="bubble" style="font-size:13px">${esc(task.text_a_bot)}</div>
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Bot</div>
+        </div>
+      </div>
     </div>
     <div class="pair-card">
       <div class="pair-label">组 B</div>
-      <div class="pair-user">用户：${esc(task.text_b_user)}</div>
-      <div class="pair-bot">Bot：${esc(task.text_b_bot)}</div>
+      <div class="chat-wrap" style="box-shadow:none;padding:8px 0;margin:0">
+        <div class="bubble-row user">
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
+          <div class="bubble" style="font-size:13px">${esc(task.text_b_context)}</div>
+        </div>
+        <div class="bubble-row bot">
+          <div class="bubble" style="font-size:13px">${esc(task.text_b_bot)}</div>
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Bot</div>
+        </div>
+      </div>
     </div>
   </div>
   <div class="question-block">
     <div class="question-text">
       哪组 Bot 回复更<span class="dim-highlight">【${esc(dimLabel)}】</span>？
     </div>
-    <div class="ab-buttons">
-      <div class="ab-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
-        A
-        <span>选组 A</span>
+    <div class="choice-grid cols-3">
+      <div class="choice-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
+        <div class="choice-name">A 更强</div>
       </div>
-      <div class="ab-btn${S.selection === 'B' ? ' selected' : ''}" onclick="selectOption('B')">
-        B
-        <span>选组 B</span>
+      <div class="choice-btn${S.selection === 'same' ? ' selected' : ''}" onclick="selectOption('same')">
+        <div class="choice-name" style="color:#888">差不多</div>
+      </div>
+      <div class="choice-btn${S.selection === 'B' ? ' selected' : ''}" onclick="selectOption('B')">
+        <div class="choice-name">B 更强</div>
       </div>
     </div>
   </div>`;
 }
 
-// ── ExprMode ──────────────────────────────────────────────────────────────────
-function renderExprModeBody(task) {
-  const opts = EXPR_MODES.map(m => `
-    <label class="option-item${S.selection == m.id ? ' selected' : ''}"
-           onclick="selectOption(${m.id})">
-      <input type="radio" name="expr_opt" value="${m.id}" ${S.selection == m.id ? 'checked' : ''}>
-      <div>
-        <div class="option-label">${esc(m.name)}</div>
-        <div class="option-desc">${esc(m.desc)}</div>
-      </div>
-    </label>`).join('');
+// ── Style Label (B2) ────────────────────────────────────────────────────────
+function renderStyleLabelBody(task) {
+  const dimLabel = DIM_LABELS[task.dimension] || task.dimension;
+  const btns = TIER_LABELS.map(t => `
+    <div class="choice-btn${S.selection === t.id ? ' selected' : ''}"
+         onclick="selectOption('${t.id}')">
+      <div class="choice-name">${esc(t.name)}</div>
+    </div>`).join('');
+
   return `
-  <div class="card">
-    <div class="card-title">用户消息（语境）</div>
-    <div class="card-text user-text">${esc(task.context_user_text || '（无）')}</div>
+  <div class="chat-wrap">
+    <div class="bubble-row user">
+      <div class="bubble-avatar">Ta</div>
+      <div class="bubble">${esc(task.context_user_text || '（无）')}</div>
+    </div>
+    <div class="bubble-row bot highlight">
+      <div class="bubble">${esc(task.bot_text || '')}</div>
+      <div class="bubble-avatar">Bot</div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-title">Bot 回复</div>
-    <div class="card-text">${esc(task.bot_text || '')}</div>
+  <div class="question-block">
+    <div class="question-text">
+      这句 Bot 回复的<span class="dim-highlight">【${esc(dimLabel)}】</span>程度如何？
+    </div>
+    <div class="choice-grid cols-5">${btns}</div>
+  </div>`;
+}
+
+// ── ExprMode ─────────────────────────────────────────────────────────────────
+function renderExprModeBody(task) {
+  const btns = EXPR_MODES.map(m => `
+    <div class="choice-btn${S.selection == m.id ? ' selected' : ''}"
+         onclick="selectOption(${m.id})">
+      <div class="choice-name">${esc(m.name)}</div>
+      <div class="choice-desc">${esc(m.desc)}</div>
+    </div>`).join('');
+  return `
+  <div class="chat-wrap">
+    <div class="bubble-row user">
+      <div class="bubble-avatar">Ta</div>
+      <div class="bubble">${esc(task.context_user_text || '（无）')}</div>
+    </div>
+    <div class="bubble-row bot highlight">
+      <div class="bubble">${esc(task.bot_text || '')}</div>
+      <div class="bubble-avatar">Bot</div>
+    </div>
   </div>
   <div class="question-block">
     <div class="question-text">这句 Bot 回复用了哪种<span class="dim-highlight">表达方式</span>？</div>
-    <div class="options-list">${opts}</div>
+    <div class="choice-grid cols-4">${btns}</div>
   </div>`;
 }
 
 // ── Selection & Submit ───────────────────────────────────────────────────────
+let _submitting = false;
 function selectOption(val) {
+  if (_submitting) return;
   S.selection = val;
   render();
+  setTimeout(() => submitTask(), 250);
 }
 
 function skipTask() {
@@ -518,29 +542,24 @@ function skipTask() {
   render();
 }
 
-async function submitTask() {
-  if (S.selection === null) return;
-  const task = S.tasks[S.currentIdx];
-  let body = { task_type: S.taskType, annotator_id: S.annotatorId };
-
-  if (S.taskType === 'move') {
-    body.sample_id       = task.sample_id;
-    body.bot_text        = task.bot_text;
-    body.selected_move_id = S.selection;
-  } else if (S.taskType === 'style') {
-    body.task_id    = task.task_id;
-    body.dimension  = task.dimension;
-    body.choice     = S.selection;
-    body.text_a_bot = task.text_a_bot;
-    body.text_b_bot = task.text_b_bot;
-  } else {
-    body.sample_id          = task.sample_id;
-    body.bot_text           = task.bot_text;
-    body.selected_expr_mode = S.selection;
+function goBack() {
+  if (S.currentIdx > 0) {
+    S.currentIdx--;
+    S.selection = null;
+    render();
   }
+}
 
-  const btn = document.getElementById('submit-btn');
-  if (btn) btn.disabled = true;
+async function submitTask() {
+  if (S.selection === null || _submitting) return;
+  _submitting = true;
+  const task = S.tasks[S.currentIdx];
+  const body = {
+    task_type:    task.task_type,
+    annotator_id: S.annotatorId,
+    task_id:      task.task_id,
+    answer:       S.selection,
+  };
 
   try {
     await fetch('/annotation/submit', {
@@ -554,43 +573,41 @@ async function submitTask() {
     if (S.currentIdx >= S.tasks.length) S.screen = 'done';
     render();
   } catch (e) {
-    if (btn) btn.disabled = false;
     alert('提交失败，请检查网络：' + String(e));
+  } finally {
+    _submitting = false;
   }
 }
 
 // ── Done ─────────────────────────────────────────────────────────────────────
 function renderDone() {
-  const meta = TASK_META[S.taskType] || { icon: '✅', title: '标注' };
+  const totalDone = S.doneCount + S.sessionDone;
   return `
   <div class="done-wrap">
     <div class="done-icon">🎉</div>
-    <h2>本轮完成！</h2>
+    <h2>全部完成！</h2>
     <p>感谢您的参与，您的标注数据已保存。</p>
     <div class="stats-row">
       <div class="stat-pill"><strong>${S.sessionDone}</strong>本次完成</div>
-      <div class="stat-pill"><strong>${S.totalInDB}</strong>库中总量</div>
+      <div class="stat-pill"><strong>${totalDone}</strong>累计完成</div>
+      <div class="stat-pill"><strong>${S.totalTasks}</strong>总题数</div>
     </div>
     <div style="margin-top:28px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-      <button class="btn btn-primary" onclick="continueAnnotation()">继续标注（同类型）</button>
-      <button class="btn btn-back" onclick="backToSelect()">选其他任务类型</button>
+      <button class="btn btn-primary" onclick="loadTasks()">刷新任务</button>
+      <button class="btn btn-back" onclick="goLogin()">换人</button>
     </div>
   </div>`;
 }
 
-async function continueAnnotation() {
-  if (S.taskType) await selectTask(S.taskType);
-  else backToSelect();
-}
-
 // ── Init ─────────────────────────────────────────────────────────────────────
-(function init() {
+(async function init() {
   const saved = localStorage.getItem('annotation_annotator_id');
   if (saved) {
     S.annotatorId = saved;
-    S.screen = 'task_select';
+    await loadTasks();
+  } else {
+    render();
   }
-  render();
 })();
 </script>
 </body>

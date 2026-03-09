@@ -1,0 +1,66 @@
+{
+  "_doc": "Phase 7C: 9 sessions, 独立并行路3",
+  "sessions": [
+    {
+      "id": 721, "label": "sarcastic_duo_1", "group": "sarcastic",
+      "rounds": 20,
+      "custom_dims": {"closeness": 0.50, "trust": 0.40, "liking": 0.45, "respect": 0.40, "attractiveness": 0.45, "power": 0.55},
+      "big_five_a": {"openness": 0.65, "conscientiousness": 0.35, "extraversion": 0.70, "agreeableness": 0.15, "neuroticism": 0.55},
+      "big_five_b": {"openness": 0.70, "conscientiousness": 0.40, "extraversion": 0.65, "agreeableness": 0.20, "neuroticism": 0.50}
+    },
+    {
+      "id": 722, "label": "nurturing_1", "group": "nurturing",
+      "rounds": 22,
+      "custom_dims": {"closeness": 0.65, "trust": 0.70, "liking": 0.72, "respect": 0.68, "attractiveness": 0.60, "power": 0.35},
+      "big_five_a": {"openness": 0.55, "conscientiousness": 0.65, "extraversion": 0.55, "agreeableness": 0.90, "neuroticism": 0.20},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.60, "extraversion": 0.45, "agreeableness": 0.85, "neuroticism": 0.30}
+    },
+    {
+      "id": 723, "label": "anxious_attach_1", "group": "anxious_attach",
+      "rounds": 20,
+      "initial_pad": {"P": -0.20, "Ar": 0.70, "D": -0.40, "busyness": 0.30},
+      "custom_dims": {"closeness": 0.55, "trust": 0.30, "liking": 0.60, "respect": 0.40, "attractiveness": 0.55, "power": 0.30},
+      "big_five_a": {"openness": 0.60, "conscientiousness": 0.40, "extraversion": 0.55, "agreeableness": 0.70, "neuroticism": 0.85},
+      "big_five_b": {"openness": 0.50, "conscientiousness": 0.65, "extraversion": 0.60, "agreeableness": 0.50, "neuroticism": 0.40}
+    },
+    {
+      "id": 724, "label": "terminating_1", "group": "terminating",
+      "rounds": 15,
+      "initial_stage": "terminating",
+      "custom_dims": {"closeness": 0.10, "trust": 0.08, "liking": 0.15, "respect": 0.25, "attractiveness": 0.15, "power": 0.55},
+      "big_five_a": {"openness": 0.35, "conscientiousness": 0.55, "extraversion": 0.30, "agreeableness": 0.30, "neuroticism": 0.60},
+      "big_five_b": {"openness": 0.40, "conscientiousness": 0.50, "extraversion": 0.35, "agreeableness": 0.35, "neuroticism": 0.55}
+    },
+    {
+      "id": 725, "label": "flirty_vibe_1", "group": "flirty",
+      "rounds": 22,
+      "initial_stage": "intensifying",
+      "custom_dims": {"closeness": 0.70, "trust": 0.60, "liking": 0.78, "respect": 0.55, "attractiveness": 0.80, "power": 0.42},
+      "big_five_a": {"openness": 0.75, "conscientiousness": 0.35, "extraversion": 0.80, "agreeableness": 0.60, "neuroticism": 0.35},
+      "big_five_b": {"openness": 0.70, "conscientiousness": 0.40, "extraversion": 0.75, "agreeableness": 0.65, "neuroticism": 0.30}
+    },
+    {
+      "id": 726, "label": "random_wild_5", "group": "random",
+      "rounds": 20
+    },
+    {
+      "id": 727, "label": "random_wild_6", "group": "random",
+      "rounds": 18
+    },
+    {
+      "id": 728, "label": "low_energy_1", "group": "low_energy",
+      "rounds": 18,
+      "initial_pad": {"P": -0.10, "Ar": -0.60, "D": -0.20, "busyness": 0.20},
+      "custom_dims": {"closeness": 0.40, "trust": 0.40, "liking": 0.45, "respect": 0.50, "attractiveness": 0.40, "power": 0.45},
+      "big_five_a": {"openness": 0.35, "conscientiousness": 0.50, "extraversion": 0.20, "agreeableness": 0.55, "neuroticism": 0.50},
+      "big_five_b": {"openness": 0.40, "conscientiousness": 0.55, "extraversion": 0.25, "agreeableness": 0.60, "neuroticism": 0.45}
+    },
+    {
+      "id": 729, "label": "mixed_extreme_1", "group": "extreme",
+      "rounds": 22,
+      "custom_dims": {"closeness": 0.50, "trust": 0.50, "liking": 0.50, "respect": 0.50, "attractiveness": 0.50, "power": 0.50},
+      "big_five_a": {"openness": 0.10, "conscientiousness": 0.95, "extraversion": 0.85, "agreeableness": 0.10, "neuroticism": 0.90},
+      "big_five_b": {"openness": 0.90, "conscientiousness": 0.10, "extraversion": 0.10, "agreeableness": 0.90, "neuroticism": 0.10}
+    }
+  ]
+}

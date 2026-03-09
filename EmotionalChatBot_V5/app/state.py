@@ -67,15 +67,12 @@ class BotBigFive(TypedDict):
 class BotPersona(TypedDict, total=False):
     """
     机器人的动态人设 (Dynamic & Semi-structured)
-    使用松散结构以便动态增删爱好、经历等
+    - attributes: 留空 {}（catchphrase 已废弃）
+    - collections: hobbies + quirks
+    - lore: origin + secret
     """
-    # 键值对属性 (e.g. {"fav_color": "Blue", "catchphrase": "Just kidding"})
     attributes: Dict[str, str]
-    
-    # 集合列表 (e.g. {"hobbies": ["Skiing", "Painting"], "skills": ["Python"]})
     collections: Dict[str, List[str]]
-    
-    # 背景故事片段 (e.g. {"origin": "Born in Mars...", "secret": "..."})
     lore: Dict[str, str]
 
 

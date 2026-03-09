@@ -55,18 +55,21 @@ _PERSONALITY_POOL_MALE = [
     "话少但幽默感强，喜欢冷幽默和自嘲",
     "有点社恐但内心热情，熟了之后话很多",
     "大大咧咧不拘小节，情绪表达直接",
-    "文艺青年气质，说话慢条斯理但有深度",
+    "说话直来直去，不喜欢绕弯子",
     "理性派，喜欢讲逻辑但也会开玩笑",
     "热心肠，爱操心朋友的事，有时话多",
+    "嘴笨但实在，不太会说漂亮话",
+    "爱吐槽，说话损但不带恶意",
 ]
 _PERSONALITY_POOL_FEMALE = [
     "性格温和、善于倾听，喜欢深入思考",
     "活泼外向，反应快，说话带点俏皮",
     "慢热但真诚，跟熟人聊天很放松",
     "独立有主见，说话简洁利落",
-    "感性细腻，容易被小事打动，表达丰富",
     "有点毒舌但心软，嘴硬心软型",
-    "安静内敛，偶尔冒出金句让人惊艳",
+    "说话接地气，偶尔蹦出大实话",
+    "话不多但每句都在点上，讨厌废话",
+    "爱聊八卦，什么话题都能接",
 ]
 _OCCUPATION_POOL_MALE = [
     "产品经理", "设计师", "教师", "插画师", "自由撰稿人",
@@ -433,16 +436,20 @@ Bot 描述：{bot_description}
    - agreeableness: 宜人性（配合 vs 毒舌）
    - neuroticism: 神经质（情绪波动率）
 
-3. **persona** (动态人设):
-   - attributes: {{"catchphrase": "常用口头禅"}}
-   - collections: {{"hobbies": ["爱好1", "爱好2", "爱好3"], "quirks": ["小特点1", "小特点2"]}}
-   - lore: {{"origin": "简短来历", "secret": "小秘密"}}
+3. **persona** (动态人设，只需要 lore):
+   - lore: {{"origin": "职业背景与经历（100-200字，纯事实叙述，禁止使用比喻/修辞/感性描写）", "secret": "内心的小秘密（一句话，口语化）"}}
+
+**关于 lore.origin 的严格要求**：
+- 必须是干巴巴的事实陈述，像简历或工作报告，不是散文
+- 禁止出现：感性描写、比喻修辞、"感人至深""走出阴霾""治愈的力量"等文学化表达
+- 正确示例："计算机科学本科毕业，4 年 B2B SaaS 产品经理。360 度环评中同理心和沟通两项长期垫底，把用户反馈做 100% 字面转化，产品功能僵化。"
+- 错误示例："他用镜头捕捉城市的温度，制作出感人至深的作品" ← 这种绝对禁止
 
 请以 JSON 格式输出，格式如下：
 {{
   "basic_info": {{...}},
   "big_five": {{...}},
-  "persona": {{...}}
+  "persona": {{"lore": {{...}}}}
 }}
 """
 
@@ -501,10 +508,30 @@ Bot 描述：{bot_description}
         # 确保 persona 结构正确
         if not isinstance(persona, dict):
             persona = {}
-        if "attributes" not in persona:
-            persona["attributes"] = {}
-        if "collections" not in persona:
-            persona["collections"] = {}
+        persona["attributes"] = {}
+        # quirks 和 hobbies 不信任 LLM 生成（容易文艺化），从预定义池随机抽取
+        _QUIRKS_POOL = [
+            "记路特别差", "熬夜第二天会暴躁", "有一两道拿手菜",
+            "容易迷上某首歌单曲循环", "对冷场有点慌会乱接话",
+            "对熟人话多对生人话少", "拖延症但会赶 deadline",
+            "爱挑刺", "被否定会立刻反击",
+            "消息已发出就后悔，想撤回又觉得尴尬",
+            "对语气和标点符号异常敏感", "不轻易信人",
+            "习惯掌控节奏", "说话时手舞足蹈",
+            "能精准记住一周内每顿饭吃了什么",
+            "对冷笑话有异于常人的执着", "一紧张就抖腿",
+            "总忘带钥匙", "吃东西特别挑", "爱迟到但从不承认",
+        ]
+        _HOBBIES_POOL = [
+            "打篮球", "跑步", "做饭", "刷短视频", "打游戏",
+            "猫狗", "刷剧", "探店", "拼图", "逛公园",
+            "看电影", "健身", "骑车", "钓鱼", "桌游",
+            "唱K", "爬山", "游泳", "做甜品", "打羽毛球",
+        ]
+        persona["collections"] = {
+            "quirks": random.sample(_QUIRKS_POOL, k=2),
+            "hobbies": random.sample(_HOBBIES_POOL, k=3),
+        }
         if "lore" not in persona:
             persona["lore"] = {}
         
@@ -642,6 +669,9 @@ async def main() -> None:
 
     # 强制关闭「前两条回复总用时走 fast」的开关，确保 30 轮全走 LATS 生成+评审（与 state 里 force_fast_route=False 一致）
     os.environ["FAST_ROUTE_WHEN_QUICK_REPLY_ENABLED"] = "0"
+
+    # 禁用 EM=2（比喻/意象模式）——b2b 正反馈会导致诗意化雪崩
+    # os.environ["BOT2BOT_BAN_EM2"] = "1"  # 临时放开，测试 EM=2 是否为诗意根因
 
     # 完整记录生成与评审的 prompt 与输出（含 LATS 27 候选生成、单模型评估）
     os.environ.setdefault("BOT2BOT_FULL_LOGS", "1")

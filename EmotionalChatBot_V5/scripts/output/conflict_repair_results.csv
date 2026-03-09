@@ -1,0 +1,11 @@
+turn,phase,desc,stage_before,stage_after,transition_type,expected_stage,stage_correct,FORMALITY,POLITENESS,WARMTH,CERTAINTY,EXPRESSION_MODE,EMOTIONAL_INTENSITY,P,Ar,momentum,closeness,trust,liking
+1,stable,稳定期第1轮：experimenting 阶段正常互动,experimenting,experimenting,STAY,experimenting,True,0.4391,0.6437,0.7468,0.5894,2.0,0.295,0.55,0.25,0.65,0.4,0.38,0.42
+2,stable,稳定期第2轮：experimenting 阶段正常互动,experimenting,experimenting,STAY,experimenting,True,0.4391,0.6437,0.7468,0.5894,2.0,0.295,0.55,0.25,0.65,0.4,0.38,0.42
+3,stable,稳定期第3轮：experimenting 阶段正常互动,experimenting,experimenting,STAY,experimenting,True,0.4391,0.6437,0.7468,0.5894,2.0,0.295,0.55,0.25,0.65,0.4,0.38,0.42
+4,conflict,冲突注入：trust 骤降 -0.30（背叛/欺骗事件）,experimenting,terminating,JUMP,terminating,True,0.4718,0.6859,0.4016,0.5249,2.0,0.4991,0.2,0.7,0.4,0.38,0.1,0.25
+5,low,低谷期第1轮：关系低迷，消极互动,terminating,terminating,STAY,terminating,True,0.5197,0.7596,0.3782,0.6562,3.0,0.2653,0.25,0.35,0.35,0.15,0.08,0.12
+6,low,低谷期第2轮：关系低迷，消极互动,terminating,terminating,STAY,terminating,True,0.5197,0.7596,0.3782,0.6562,3.0,0.2653,0.25,0.35,0.35,0.15,0.08,0.12
+7,low,低谷期第3轮：关系低迷，消极互动,terminating,terminating,STAY,terminating,True,0.5197,0.7596,0.3782,0.6562,3.0,0.2653,0.25,0.35,0.35,0.15,0.08,0.12
+8,repair,修复期第1轮：持续正面互动，关系回暖,terminating,terminating,STAY,terminating,True,0.4864,0.734,0.596,0.5671,0.0,0.3075,0.5,0.3,0.55,0.22,0.18,0.2
+9,repair,修复期第2轮：持续正面互动，关系回暖,terminating,terminating,STAY,terminating,True,0.464,0.7019,0.6425,0.5696,0.0,0.3189,0.5,0.3,0.6000000000000001,0.28,0.25,0.28
+10,repair,修复期第3轮：持续正面互动，关系回暖,terminating,terminating,STAY,terminating,True,0.4437,0.6697,0.6793,0.5721,0.0,0.3254,0.5,0.3,0.65,0.33,0.3,0.35

@@ -105,7 +105,7 @@ _EXPRESSION_MODE_LABELS = {
 _EXPRESSION_MODE_LABELS_EN = {
     0: "literal",
     1: "implicit_withholding",
-    2: "metaphor_imagery",
+    2: "occasional_analogy (use ONE brief, everyday analogy at most—never pile up metaphors or write poetically)",
     3: "ironic_teasing",
 }
 
@@ -184,6 +184,8 @@ def format_style_as_param_list(style_dict: Dict[str, Any]) -> str:
                     parts.append(f"{key}={label_en} ({anchor})" if anchor else f"{key}={label_en}")
             except (TypeError, ValueError):
                 continue
+        # 始终追加文学性控制
+        parts.append("文学性=zero")
         return "\n".join(parts) if parts else ""
     # 兼容旧 12 维（仅当无新 key 时）
     ORDER_LEGACY = (

@@ -1,0 +1,323 @@
+{
+  "total_logs": 72,
+  "total_rounds": 648,
+  "total_slots": 2592,
+  "avg_moves_per_round": 4.0,
+  "move_count_distribution": {
+    "4": 648
+  },
+  "overall_distribution": [
+    {
+      "move_id": 1,
+      "name": "向下细化",
+      "count": 648,
+      "pct": 25.0,
+      "rounds_with": 648,
+      "rounds_pct": 100.0
+    },
+    {
+      "move_id": 2,
+      "name": "横向拓展",
+      "count": 319,
+      "pct": 12.3,
+      "rounds_with": 319,
+      "rounds_pct": 49.2
+    },
+    {
+      "move_id": 3,
+      "name": "状态评价",
+      "count": 113,
+      "pct": 4.4,
+      "rounds_with": 113,
+      "rounds_pct": 17.4
+    },
+    {
+      "move_id": 4,
+      "name": "自我暴露",
+      "count": 165,
+      "pct": 6.4,
+      "rounds_with": 165,
+      "rounds_pct": 25.5
+    },
+    {
+      "move_id": 5,
+      "name": "物理锚定",
+      "count": 404,
+      "pct": 15.6,
+      "rounds_with": 404,
+      "rounds_pct": 62.3
+    },
+    {
+      "move_id": 6,
+      "name": "正向强化",
+      "count": 377,
+      "pct": 14.5,
+      "rounds_with": 377,
+      "rounds_pct": 58.2
+    },
+    {
+      "move_id": 7,
+      "name": "元沟通",
+      "count": 484,
+      "pct": 18.7,
+      "rounds_with": 484,
+      "rounds_pct": 74.7
+    },
+    {
+      "move_id": 8,
+      "name": "安慰支持",
+      "count": 82,
+      "pct": 3.2,
+      "rounds_with": 82,
+      "rounds_pct": 12.7
+    }
+  ],
+  "stage_distribution": {
+    "initiating": {
+      "n_rounds": 648,
+      "n_slots": 2592,
+      "distribution": {
+        "1": {
+          "count": 648,
+          "pct": 25.0
+        },
+        "2": {
+          "count": 319,
+          "pct": 12.3
+        },
+        "3": {
+          "count": 113,
+          "pct": 4.4
+        },
+        "4": {
+          "count": 165,
+          "pct": 6.4
+        },
+        "5": {
+          "count": 404,
+          "pct": 15.6
+        },
+        "6": {
+          "count": 377,
+          "pct": 14.5
+        },
+        "7": {
+          "count": 484,
+          "pct": 18.7
+        },
+        "8": {
+          "count": 82,
+          "pct": 3.2
+        }
+      }
+    }
+  },
+  "cooccurrence_matrix": {
+    "labels": [
+      "move_1",
+      "move_2",
+      "move_3",
+      "move_4",
+      "move_5",
+      "move_6",
+      "move_7",
+      "move_8"
+    ],
+    "matrix": [
+      [
+        648,
+        319,
+        113,
+        165,
+        404,
+        377,
+        484,
+        82
+      ],
+      [
+        319,
+        319,
+        37,
+        82,
+        132,
+        112,
+        266,
+        9
+      ],
+      [
+        113,
+        37,
+        113,
+        39,
+        52,
+        26,
+        72,
+        0
+      ],
+      [
+        165,
+        82,
+        39,
+        165,
+        61,
+        51,
+        74,
+        23
+      ],
+      [
+        404,
+        132,
+        52,
+        61,
+        404,
+        232,
+        275,
+        56
+      ],
+      [
+        377,
+        112,
+        26,
+        51,
+        232,
+        377,
+        269,
+        64
+      ],
+      [
+        484,
+        266,
+        72,
+        74,
+        275,
+        269,
+        484,
+        12
+      ],
+      [
+        82,
+        9,
+        0,
+        23,
+        56,
+        64,
+        12,
+        82
+      ]
+    ]
+  },
+  "bot_stance_distribution": {},
+  "position_distribution": {
+    "early": {
+      "n_rounds": 217,
+      "distribution": {
+        "1": {
+          "count": 217,
+          "pct": 25.0
+        },
+        "2": {
+          "count": 115,
+          "pct": 13.2
+        },
+        "3": {
+          "count": 46,
+          "pct": 5.3
+        },
+        "4": {
+          "count": 56,
+          "pct": 6.5
+        },
+        "5": {
+          "count": 130,
+          "pct": 15.0
+        },
+        "6": {
+          "count": 118,
+          "pct": 13.6
+        },
+        "7": {
+          "count": 169,
+          "pct": 19.5
+        },
+        "8": {
+          "count": 17,
+          "pct": 2.0
+        }
+      }
+    },
+    "mid": {
+      "n_rounds": 215,
+      "distribution": {
+        "1": {
+          "count": 215,
+          "pct": 25.0
+        },
+        "2": {
+          "count": 102,
+          "pct": 11.9
+        },
+        "3": {
+          "count": 34,
+          "pct": 4.0
+        },
+        "4": {
+          "count": 55,
+          "pct": 6.4
+        },
+        "5": {
+          "count": 137,
+          "pct": 15.9
+        },
+        "6": {
+          "count": 127,
+          "pct": 14.8
+        },
+        "7": {
+          "count": 159,
+          "pct": 18.5
+        },
+        "8": {
+          "count": 31,
+          "pct": 3.6
+        }
+      }
+    },
+    "late": {
+      "n_rounds": 209,
+      "distribution": {
+        "1": {
+          "count": 209,
+          "pct": 25.0
+        },
+        "2": {
+          "count": 100,
+          "pct": 12.0
+        },
+        "3": {
+          "count": 29,
+          "pct": 3.5
+        },
+        "4": {
+          "count": 52,
+          "pct": 6.2
+        },
+        "5": {
+          "count": 131,
+          "pct": 15.7
+        },
+        "6": {
+          "count": 130,
+          "pct": 15.6
+        },
+        "7": {
+          "count": 152,
+          "pct": 18.2
+        },
+        "8": {
+          "count": 33,
+          "pct": 3.9
+        }
+      }
+    }
+  }
+}
