@@ -1938,11 +1938,38 @@ _annotation_pool: list[dict] | None = None
 _annotation_pool_indices: dict | None = None
 
 
+def _pool_version() -> str:
+    """Return a version hash based on pool file mtime+size, for cache invalidation."""
+    if not _POOL_PATH.exists():
+        return "missing"
+    st = _POOL_PATH.stat()
+    return f"{int(st.st_mtime)}_{st.st_size}"
+
+
+def _invalidate_old_task_caches():
+    """Delete all task cache files generated from an older pool version."""
+    ver_file = _ANNOTATION_OUTPUT / ".pool_version"
+    current_ver = _pool_version()
+    old_ver = ver_file.read_text().strip() if ver_file.exists() else ""
+    if old_ver == current_ver:
+        return
+    # Pool changed — wipe all cached task files
+    import glob as _glob
+    removed = 0
+    for f in _glob.glob(str(_ANNOTATION_OUTPUT / "tasks_*.json")):
+        Path(f).unlink(missing_ok=True)
+        removed += 1
+    if removed:
+        logger.info("[Annotation] Pool updated, removed %d stale task caches", removed)
+    ver_file.write_text(current_ver)
+
+
 def _load_pool():
     """Load deduped pool into memory (cached)."""
     global _annotation_pool, _annotation_pool_indices
     if _annotation_pool is not None:
         return
+    _invalidate_old_task_caches()
     if not _POOL_PATH.exists():
         raise FileNotFoundError("deduped_pool.json 不存在，请先运行 devtools/dedup_candidates.py")
     _annotation_pool = json.loads(_POOL_PATH.read_text("utf-8"))
