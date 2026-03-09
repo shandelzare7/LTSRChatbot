@@ -259,6 +259,17 @@ const TIER_LABELS = [
   { id: 'EH', name: '极高' },
 ];
 
+const MOVE_LABELS = {
+  1: { name: '向下细化', desc: '追问或补充对方提到的某个具体细节' },
+  2: { name: '向上概括', desc: '把对方说的事归纳到更大的规律或现象中' },
+  3: { name: '横向联想', desc: '跳到另一个不同领域做类比或对比' },
+  4: { name: '自我暴露', desc: '说出一条关于自己的具体经历或事实' },
+  5: { name: '机制溯源', desc: '用因果逻辑解释"为什么会这样"' },
+  6: { name: '假设推演', desc: '换一个条件或角度，推出不同的结果' },
+  7: { name: '状态评价', desc: '对对方描述给一个简短的评价或判断' },
+  8: { name: '物理锚定', desc: '引入具体的感官细节或躯体动作' },
+};
+
 const TASK_META = {
   move:          { icon: '🎯', title: 'Move 标注' },
   style_compare: { icon: '🎨', title: 'Style 对比' },
@@ -271,12 +282,12 @@ function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function pickMoves(taskId, allMoves, n) {
-  if (!allMoves.length) return [];
+function pickMoves(taskId, n) {
+  const all = Object.entries(MOVE_LABELS).map(([id, m]) => ({ id: Number(id), ...m }));
   let h = 0;
   for (let c of String(taskId)) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0;
   h = Math.abs(h);
-  const arr = allMoves.map((m, i) => ({ m, sort: (h * (i + 7919)) % 999983 }));
+  const arr = all.map((m, i) => ({ m, sort: (h * (i + 7919)) % 999983 }));
   arr.sort((a, b) => a.sort - b.sort);
   return arr.slice(0, n).map(x => x.m);
 }
@@ -399,7 +410,7 @@ function renderTask() {
 
 // ── Move ─────────────────────────────────────────────────────────────────────
 function renderMoveBody(task) {
-  const pickedMoves = pickMoves(task.task_id, S.moves, 3);
+  const pickedMoves = pickMoves(task.task_id, 3);
   task._pickedMoves = pickedMoves;
 
   const btns = pickedMoves.map(m => `

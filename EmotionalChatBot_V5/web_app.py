@@ -2097,8 +2097,17 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
             rep["task_id"] = f"REP_{len(tasks)}"
             tasks.append(rep)
 
-    # ── Shuffle & assign final IDs ──
-    rng.shuffle(tasks)
+    # ── Sort by task type (grouped, not shuffled) ──
+    type_order = {"move": 0, "style_compare": 1, "style_label": 2, "expr_mode": 3}
+    tasks.sort(key=lambda t: type_order.get(t["task_type"], 9))
+    # Shuffle within each group
+    from itertools import groupby
+    sorted_tasks = []
+    for _key, group in groupby(tasks, key=lambda t: t["task_type"]):
+        g = list(group)
+        rng.shuffle(g)
+        sorted_tasks.extend(g)
+    tasks = sorted_tasks
     for i, t in enumerate(tasks):
         t["task_id"] = f"{annotator_id}_{i + 1:04d}"
 
