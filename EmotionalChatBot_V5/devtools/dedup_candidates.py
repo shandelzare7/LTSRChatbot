@@ -66,6 +66,7 @@ def load_candidates(log_dir: Path, min_len: int = 5) -> list[dict]:
                     continue
                 records.append({
                     "text": text,
+                    "context": row.get("user_message") or row.get("context") or "",
                     "route": cand.get("route", "unknown"),
                     "session": row.get("session_label", ""),
                     "round": row.get("round", 0),
