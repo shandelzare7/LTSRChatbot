@@ -468,12 +468,9 @@ function renderStyleCompareBody(task) {
     <div class="question-text">
       哪组 Bot 回复更<span class="dim-highlight">【${esc(dimLabel)}】</span>？
     </div>
-    <div class="choice-grid cols-3">
+    <div class="choice-grid cols-2">
       <div class="choice-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
         <div class="choice-name">A 更强</div>
-      </div>
-      <div class="choice-btn${S.selection === 'same' ? ' selected' : ''}" onclick="selectOption('same')">
-        <div class="choice-name" style="color:#888">差不多</div>
       </div>
       <div class="choice-btn${S.selection === 'B' ? ' selected' : ''}" onclick="selectOption('B')">
         <div class="choice-name">B 更强</div>
