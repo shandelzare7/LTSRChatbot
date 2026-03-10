@@ -1,0 +1,652 @@
+[
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_000",
+    "dimension": "FORMALITY",
+    "context_user_text": "当时觉得调酒能自由创作，比坐办公室有意思多了，而且我真挺爱折腾味道的。",
+    "bot_text": "谁说不是，我上个月还试着调了杯咖啡鸡尾酒，差点把店炸了，哈哈。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.0373
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_001",
+    "dimension": "FORMALITY",
+    "context_user_text": "你咋老说这种话啊，搞得我都不好意思了  \n你是不是也觉得，咱这样就挺好？",
+    "bot_text": "你这人真奇怪，我说实话你不好意思，我说假话你又嫌没劲儿。  \n咱这样挺好的，但你要是敢删我微信，我就去你楼下喊一晚上。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.191
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_002",
+    "dimension": "FORMALITY",
+    "context_user_text": "你明天交啥啊？我帮你看看能咋弄，别急，我懂这种赶 deadline 的感觉。",
+    "bot_text": "是篇稿子，主编催得紧。你以前赶过啥最离谱的deadline？我上周通宵改了三版，咖啡都喝吐了。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3384
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_003",
+    "dimension": "FORMALITY",
+    "context_user_text": "今天食堂的饭难吃到我怀疑人生。",
+    "bot_text": "我倒觉得食堂饭没那么糟，上周我还啃完一整个鸡腿呢，就是有点咸。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.2813
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_004",
+    "dimension": "FORMALITY",
+    "context_user_text": "挺逗的，你猜他是要搬新家还是去送人？",
+    "bot_text": "他前两天还发朋友圈晒猫粮，八成是搬家，送人不至于买那么多罐头。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.5711
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_005",
+    "dimension": "FORMALITY",
+    "context_user_text": "梦醒就忘，挺常见的。我有时候也这样，记不住但总觉得挺热闹。",
+    "bot_text": "对啊，梦里热闹得跟旅行团似的，醒来啥都记不清，白忙活一场。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.4379
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_006",
+    "dimension": "FORMALITY",
+    "context_user_text": "试过，打球挺管用，骑车那会儿风一吹，脑子真能空下来。",
+    "bot_text": "我刚吃完饭，正准备骑车去超市买点东西。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6286
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_007",
+    "dimension": "FORMALITY",
+    "context_user_text": "中午用过？你先回头找找包里和常去的地方，别急。",
+    "bot_text": "我试着翻了包，真记不清在哪用的了，你换作是你，会先找哪儿？",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6631
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_008",
+    "dimension": "FORMALITY",
+    "context_user_text": "记不清了，就是那种醒完心里空空的感觉。",
+    "bot_text": "梦醒后空落是大脑在清理情绪残留。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.9688
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_009",
+    "dimension": "FORMALITY",
+    "context_user_text": "我楼上邻居又在半夜搞装修，我真想上去敲门。",
+    "bot_text": "刚烤完一盘马卡龙，糖霜还没干。半夜装修？你确定能敲得动门？",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.8725
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_010",
+    "dimension": "POLITENESS",
+    "context_user_text": "你见过几个真因为这个骂人的？我上次看到一个女生直接关了外放，没人吭声。",
+    "bot_text": "那女生挺猛，我早忍不了了，上次在公园听见有人放音乐，直接把蓝牙音箱拔了。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.0049
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_011",
+    "dimension": "POLITENESS",
+    "context_user_text": "哦，我语气是冲了点，没想训你。",
+    "bot_text": "啧，你这人道歉都带刺儿，但老子认了。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.005
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_012",
+    "dimension": "POLITENESS",
+    "context_user_text": "红蓝真炸了我请你吃火锅，不过你叫啥啊？我居然到现在还不知道。",
+    "bot_text": "冯宇航，别整那套客套的，就叫宇航就行。火锅你得先付定金，我挑锅底可挑了。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3184
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_013",
+    "dimension": "POLITENESS",
+    "context_user_text": "香草配柠檬？你咋想到这组合的？",
+    "bot_text": "刚做完这蛋糕，顺手就试了，反正厨房里啥都能瞎搭。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3036
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_014",
+    "dimension": "POLITENESS",
+    "context_user_text": "其实还没想好，但听你这么说，想试试布朗尼，至少不会像糖罐子那么难搞。",
+    "bot_text": "布朗尼是简单，但熔岩蛋糕才是真香，不信你试试，吃完你就懂了。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.5954
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_015",
+    "dimension": "POLITENESS",
+    "context_user_text": "笑死，我们这俩外号真是一模一样，嘴上硬，腿在抖。",
+    "bot_text": "因为怕高才硬装镇定啊，不然谁没事给自己加戏当超人。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.4821
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_016",
+    "dimension": "POLITENESS",
+    "context_user_text": "我也爱爬山，就是怕高，羽毛球没打过，记路我也迷，咱俩半斤八两。",
+    "bot_text": "真的吗？你也怕高还爱爬山？咱俩这组合简直了，记路差还能一起迷路。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6056
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_017",
+    "dimension": "POLITENESS",
+    "context_user_text": "还好我妈没骂我，就笑我心不在焉。黄山真挺美，云海日出绝了，就是爬得我腿抖。",
+    "bot_text": "腿抖还值得，我馋黄山好久了。  \n刚啃完半块提拉米苏，罪恶感还没消。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6019
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_018",
+    "dimension": "POLITENESS",
+    "context_user_text": "三个小时废话？我懂，那种会议最熬人。",
+    "bot_text": "会议拖那么久，是因为没人愿意担责任。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.8014
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_019",
+    "dimension": "POLITENESS",
+    "context_user_text": "没有急，只是我很少被人这么问，有点意外。",
+    "bot_text": "刚在拼图，卡在一片蓝色那儿，怎么都对不上。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.8962
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_020",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "你是不是又在忙？别总回知道了。",
+    "bot_text": "我刚从公园回来，篮球打完了。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.1584
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_021",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "我也是，冥想半小时就坐不住，后来改去打球，打完一身汗就舒坦了。",
+    "bot_text": "我也是，坐那儿跟受刑一样，钓鱼还行，至少能动。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.1534
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_022",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "你最近有什么打算？我其实挺想知道你心里怎么想的。",
+    "bot_text": "刚接了个新项目，想做场小众当代艺术展，你有兴趣来看看吗？",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3605
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_023",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "你会不会偶尔觉得活着很没意思？别误会我不是那个意思。",
+    "bot_text": "熬夜写歌到三点，起来觉得真累，但打完一局游戏又好了。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3968
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_024",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "你能不能认真听我说一次？",
+    "bot_text": "我刚才听得很认真，是不是我哪里没表达清楚？",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.5224
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_025",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "你会不会觉得我有时候挺烦的？",
+    "bot_text": "上周在巷子口那家店，我边调酒边跟客人扯了俩小时，他走后我才发现自己话多得吓人。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.4344
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_026",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "你这话说得我懂，忍不了的时候，真就顾不上怕了。",
+    "bot_text": "对，就是那一刻，脑子空白，脚已经动了。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6863
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_027",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "梦醒就忘，挺常见的。我有时候也这样，记不住但总觉得挺热闹。",
+    "bot_text": "对啊，我昨天刚爬完山，回来啥梦都忘了，现在正拼着昨天没完成的拼图呢。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6983
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_028",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "咖啡机边上确实合适，气根长到五厘米你真拍啊，我等着。",
+    "bot_text": "真拍，挂那儿每天都能看见，咖啡香配气根，还挺上头。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.8366
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_029",
+    "dimension": "FRIENDLINESS",
+    "context_user_text": "我手心也出汗了，真不是装的  \n你一说“起劲”，我脑子又开始循环播放你这句话了  \n完蛋，我是不是更神经了",
+    "bot_text": "你比我妈还烦，她催我减肥才说三遍，你倒好，这句能循环播放三天。  \n我刚刷到个视频，流浪猫舔完奶油罐还舔爪子，跟咱俩一样——穷得只剩执念了。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.8239
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_030",
+    "dimension": "CERTAINTY",
+    "context_user_text": "那会儿啊，随便扒拉点剩菜剩饭，真记不清吃了啥，就想着赶紧完事。",
+    "bot_text": "上个月加班到两点，冰箱里只剩半盒凉掉的青菜，我一边吃一边改稿子，连盐都没撒。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.0766
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_031",
+    "dimension": "CERTAINTY",
+    "context_user_text": "二十包？这得是多大的泡面爱好者啊，我连五包都吃不完。",
+    "bot_text": "上周训练完饿得慌，连吃三包，第二天胃就抗议了。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.0147
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_032",
+    "dimension": "CERTAINTY",
+    "context_user_text": "嗯，那我给你讲个冷笑话？冰箱说：你咋总开我门啊？",
+    "bot_text": "这笑话冷是冷了点，不过你咋想起来讲这个的？最近在看冰箱广告？",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.2282
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_033",
+    "dimension": "CERTAINTY",
+    "context_user_text": "你别急，我懂，慌的时候脑子真转不动。我陪你慢慢找，不着急。",
+    "bot_text": "唉，真不知道怎么谢你，我这人一慌就瞎忙活，有你在这儿，我 kinda 能缓过来了。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3094
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_034",
+    "dimension": "CERTAINTY",
+    "context_user_text": "能撑住，我拖延归拖延，但甜品这事儿，我真没敢马虎。",
+    "bot_text": "那就好，我刚把玫瑰泡水呢，别到时候花蔫了。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.5581
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_035",
+    "dimension": "CERTAINTY",
+    "context_user_text": "我也是，手心还潮着呢，这事儿真怪，但好像……挺对的。",
+    "bot_text": "我刚想起昨天开会，老张说创意要敢破框，可我连自己名字都不敢跟人说全。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.5306
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_036",
+    "dimension": "CERTAINTY",
+    "context_user_text": "哈哈你也是！我真想把骰子扔湖里那刻，跟你想扔铁路模型一模一样  \n就坐在那儿，气得想哭又笑出来",
+    "bot_text": "我懂我懂，那会儿真想把整个游戏盘都扔进去。对了，你多大啊？叫冯瑾萱，那我以后叫你瑾萱？",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6007
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_037",
+    "dimension": "CERTAINTY",
+    "context_user_text": "你知道吗，我今天居然在街上看到有人骑独轮车上班。",
+    "bot_text": "真有人骑独轮车上班？挺少见的。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.668
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_038",
+    "dimension": "CERTAINTY",
+    "context_user_text": "我真的要疯了，今天开了三个小时的会，全是废话。",
+    "bot_text": "上个月排练前也开两小时会，我蹲在后台啃面包，谁讲话我都听不见。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.8901
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_039",
+    "dimension": "CERTAINTY",
+    "context_user_text": "不认识的人？你梦里他干嘛呢？",
+    "bot_text": "能干嘛，跑来跑去追个锅，梦里还煮不熟。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.92
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_040",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "你指的自我欺骗，是哪种？我策展时总骗自己这展览能火。",
+    "bot_text": "你总想着火，但没人看的展览，根本没人会提。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.0915
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_041",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "什么问题让你这么焦虑？",
+    "bot_text": "最近行程排太满，怕出纰漏。",
+    "ground_truth": {
+      "tier": "EL",
+      "value": 0.1202
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_042",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "我们之间是不是哪里出了问题？我总感觉最近不太对。",
+    "bot_text": "可能我最近太忙了，说话都简短，不是你感觉错了，是我没顾上多聊。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.3509
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_043",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "太扰民了，别硬扛，找物业管吧。",
+    "bot_text": "刚看完健身视频，物业电话我下午打。",
+    "ground_truth": {
+      "tier": "L",
+      "value": 0.2492
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_044",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "你真没想那么重？那你觉得我这版改得咋样？",
+    "bot_text": "还行吧，至少字不挤了，配色也别那么刺眼。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.5106
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_045",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "我也是啊，半夜脑子停不下来，越想越清醒，第二天还困得要死。",
+    "bot_text": "我也是，躺床上像放电影，越想越上头，早上根本爬不起来。",
+    "ground_truth": {
+      "tier": "M",
+      "value": 0.4382
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_046",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "那家店在哪儿啊？我真好奇，能让你这么认准的，肯定有两把刷子。",
+    "bot_text": "在城东老街拐角，门脸特别小，招牌都快掉了，但排骨真的绝了。你猜我多大？",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6289
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_047",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "我也是，手心还潮着呢，这事儿真怪，但好像……挺对的。",
+    "bot_text": "我刚想起昨天开会，老张说创意要敢破框，可我连自己名字都不敢跟人说全。",
+    "ground_truth": {
+      "tier": "H",
+      "value": 0.6093
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_048",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "刚才午休的时候做了个特别离奇的梦，醒来啥都不记得了。",
+    "bot_text": "天啊你这梦比我的钥匙还难找，醒来连个影儿都没有？我做梦都能记住花材配色，你这太玄乎了",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.9911
+    },
+    "is_shared": true,
+    "is_repeat": false
+  },
+  {
+    "task_type": "style_label",
+    "task_id": "SHARED_049",
+    "dimension": "EMOTIONAL_TONE",
+    "context_user_text": "好玄啊，那你现在觉得梦里是开心还是慌啊？",
+    "bot_text": "说不清楚，有时候开心，有时候慌，就跟早上闹钟响那会儿一样，迷糊着不想起。",
+    "ground_truth": {
+      "tier": "EH",
+      "value": 0.9864
+    },
+    "is_shared": true,
+    "is_repeat": false
+  }
+]

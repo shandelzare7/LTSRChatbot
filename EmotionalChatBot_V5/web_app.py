@@ -2121,33 +2121,13 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
                 "is_repeat": False,
             })
 
-    # ── Shared B2: 50 题固定 pool index，所有标注员完全相同（用于 IAA）──
-    # 预生成：5维 × 5档 × 2 = 50，顺序对应 STYLE_DIMS × TIERS
-    _SHARED_INDICES = [
-        4039, 3150, 1587, 2218, 4399, 197, 3503, 4363, 3228, 4052,
-        4072, 3537, 951, 2636, 808, 2933, 225, 2097, 3696, 3273,
-        3805, 3961, 3277, 4499, 4082, 3730, 533, 198, 1659, 3318,
-        3032, 3911, 4328, 317, 760, 2056, 1910, 3352, 4568, 4285,
-        4200, 3103, 1299, 4535, 3186, 3391, 2471, 2056, 3609, 3615,
-    ]
-    _sh_pos = 0
-    for dim in STYLE_DIMS:
-        for tier in TIERS:
-            for _ in range(2):
-                i = _SHARED_INDICES[_sh_pos]
-                _sh_pos += 1
-                used.add(i)
-                r = pool[i]
-                tasks.append({
-                    "task_type": "style_label",
-                    "task_id": f"SHARED_{len(tasks)}",
-                    "dimension": dim,
-                    "context_user_text": r["context"],
-                    "bot_text": r["text"],
-                    "ground_truth": {"tier": tier, "value": round(r["style"].get(dim, 0), 4)},
-                    "is_shared": True,
-                    "is_repeat": False,
-                })
+    # ── Shared B2: 50 题从固定文件加载，所有标注员完全相同（用于 IAA）──
+    _shared_path = Path(__file__).parent / "scripts" / "output" / "shared_b2_tasks.json"
+    if _shared_path.exists():
+        _shared_tasks = json.loads(_shared_path.read_text("utf-8"))
+        for st in _shared_tasks:
+            st["task_id"] = f"SHARED_{len(tasks)}"
+            tasks.append(st)
 
     # ── Sort by task type (grouped, not shuffled) ──
     type_order = {"style_label": 0, "style_compare": 1, "expr_mode": 2, "move": 3}
@@ -2316,6 +2296,85 @@ async def reset_annotator_tasks(annotator_id: str):
         task_file.unlink()
         return JSONResponse({"ok": True, "message": f"已删除 {task_file.name}，下次访问将重新生成任务"})
     return JSONResponse({"ok": True, "message": "缓存文件不存在，无需删除"})
+
+
+@app.get("/annotation/shared_quality")
+async def shared_quality_report():
+    """对比所有标注员在 50 道共享 B2 题上的答案，返回 IAA 报告。"""
+    import csv as _csv
+    from collections import defaultdict
+
+    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
+    if not results_path.exists():
+        return JSONResponse({"error": "尚无标注结果"})
+
+    # 收集 SHARED 题的回答: task_id -> {annotator_id -> answer}
+    shared_answers: dict[str, dict[str, str]] = defaultdict(dict)
+    all_annotators: set[str] = set()
+    with open(results_path, "r", encoding="utf-8") as f:
+        for row in _csv.DictReader(f):
+            tid = row.get("task_id", "").strip()
+            if "SHARED" not in tid:
+                continue
+            aid = row.get("annotator_id", "").strip()
+            ans = row.get("answer", "").strip()
+            shared_answers[tid][aid] = ans
+            all_annotators.add(aid)
+
+    if not shared_answers:
+        return JSONResponse({"error": "尚无共享题标注结果", "annotators": sorted(all_annotators)})
+
+    # 加载 ground truth
+    shared_path = _ANNOTATION_OUTPUT / "shared_b2_tasks.json"
+    gt_map: dict[str, dict] = {}
+    if shared_path.exists():
+        for t in json.loads(shared_path.read_text("utf-8")):
+            gt_map[t["task_id"]] = t.get("ground_truth", {})
+
+    # 统计
+    annotators = sorted(all_annotators)
+    total_shared = len(shared_answers)
+    agreement_pairs = 0
+    agree_count = 0
+
+    # 两两一致性
+    for tid, answers in shared_answers.items():
+        aids = sorted(answers.keys())
+        for i in range(len(aids)):
+            for j in range(i + 1, len(aids)):
+                agreement_pairs += 1
+                if answers[aids[i]] == answers[aids[j]]:
+                    agree_count += 1
+
+    # 每个标注员的完成数和与 ground truth 的匹配
+    per_annotator = {}
+    for aid in annotators:
+        done = 0
+        match_gt = 0
+        for tid, answers in shared_answers.items():
+            if aid in answers:
+                done += 1
+                gt = gt_map.get(tid, {})
+                if gt:
+                    try:
+                        user_ans = json.loads(answers[aid]) if isinstance(answers[aid], str) else answers[aid]
+                        if isinstance(user_ans, dict) and user_ans.get("tier") == gt.get("tier"):
+                            match_gt += 1
+                        elif str(user_ans) == str(gt.get("tier")):
+                            match_gt += 1
+                    except Exception:
+                        pass
+        per_annotator[aid] = {"done": done, "match_gt": match_gt,
+                              "accuracy": round(match_gt / done, 3) if done else 0}
+
+    return JSONResponse({
+        "annotators": annotators,
+        "total_shared_tasks": 50,
+        "tasks_with_responses": total_shared,
+        "pairwise_agreement": round(agree_count / agreement_pairs, 3) if agreement_pairs else None,
+        "agreement_pairs": agreement_pairs,
+        "per_annotator": per_annotator,
+    })
 
 
 if __name__ == "__main__":
