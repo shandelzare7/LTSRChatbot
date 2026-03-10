@@ -248,7 +248,30 @@ const DIM_LABELS = {
   POLITENESS:          '礼貌',
   FRIENDLINESS:        '友善',
   CERTAINTY:           '确定',
-  EMOTIONAL_TONE:      '情绪色彩',
+  EMOTIONAL_TONE:      '情绪强度',
+};
+
+const DIM_EXAMPLES = {
+  FORMALITY: {
+    high: '"您说得对，我下次注意。"',
+    low:  '"行行行知道了，别念了。"',
+  },
+  POLITENESS: {
+    high: '"麻烦你了，辛苦辛苦。"',
+    low:  '"你自己看着办吧。"',
+  },
+  FRIENDLINESS: {
+    high: '"哈哈没事儿，我帮你弄就行。"',
+    low:  '"跟我没关系，你找别人。"',
+  },
+  CERTAINTY: {
+    high: '"肯定是这样，没问题。"',
+    low:  '"我也不太确定……可能吧。"',
+  },
+  EMOTIONAL_TONE: {
+    high: '"天哪我要气炸了！！"',
+    low:  '"嗯，知道了。"',
+  },
 };
 
 const TIER_LABELS = [
@@ -465,6 +488,15 @@ function renderMoveBody(task) {
 }
 
 // ── Style Compare (B1) ──────────────────────────────────────────────────────
+function dimExampleHtml(dim) {
+  const ex = DIM_EXAMPLES[dim];
+  if (!ex) return '';
+  return `<div style="font-size:13px;color:#666;margin-top:8px;line-height:1.6">
+    <span style="color:#2d8a4e">▲ 高</span>：${esc(ex.high)}<br>
+    <span style="color:#c0392b">▼ 低</span>：${esc(ex.low)}
+  </div>`;
+}
+
 function renderStyleCompareBody(task) {
   const dimLabel = DIM_LABELS[task.dimension] || task.dimension;
   return `
@@ -499,6 +531,7 @@ function renderStyleCompareBody(task) {
   <div class="question-block">
     <div class="question-text">
       哪组 Bot 回复更<span class="dim-highlight">【${esc(dimLabel)}】</span>？
+      ${dimExampleHtml(task.dimension)}
     </div>
     <div class="choice-grid cols-2">
       <div class="choice-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
@@ -534,6 +567,7 @@ function renderStyleLabelBody(task) {
   <div class="question-block">
     <div class="question-text">
       这句 Bot 回复的<span class="dim-highlight">【${esc(dimLabel)}】</span>程度如何？
+      ${dimExampleHtml(task.dimension)}
     </div>
     <div class="choice-grid cols-5">${btns}</div>
   </div>`;
