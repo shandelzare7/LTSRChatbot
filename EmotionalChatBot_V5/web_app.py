@@ -2121,14 +2121,21 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
                 "is_repeat": False,
             })
 
-    # ── Shared B2: 50 题固定种子，所有标注员共享（用于计算 inter-annotator agreement）──
-    shared_rng = _random.Random(0xB2_SHARED)
+    # ── Shared B2: 50 题固定 pool index，所有标注员完全相同（用于 IAA）──
+    # 预生成：5维 × 5档 × 2 = 50，顺序对应 STYLE_DIMS × TIERS
+    _SHARED_INDICES = [
+        4039, 3150, 1587, 2218, 4399, 197, 3503, 4363, 3228, 4052,
+        4072, 3537, 951, 2636, 808, 2933, 225, 2097, 3696, 3273,
+        3805, 3961, 3277, 4499, 4082, 3730, 533, 198, 1659, 3318,
+        3032, 3911, 4328, 317, 760, 2056, 1910, 3352, 4568, 4285,
+        4200, 3103, 1299, 4535, 3186, 3391, 2471, 2056, 3609, 3615,
+    ]
+    _sh_pos = 0
     for dim in STYLE_DIMS:
         for tier in TIERS:
-            tier_indices = by_dim_tier.get(dim, {}).get(tier, [])
-            avail = [i for i in tier_indices if i not in used]
-            shared_rng.shuffle(avail)
-            for i in avail[:2]:  # 5 dims × 5 tiers × 2 = 50
+            for _ in range(2):
+                i = _SHARED_INDICES[_sh_pos]
+                _sh_pos += 1
                 used.add(i)
                 r = pool[i]
                 tasks.append({
