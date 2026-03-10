@@ -2341,6 +2341,113 @@ def _extract_tier(ans) -> str | None:
     return str(ans) if ans else None
 
 
+@app.get("/annotation/annotator_stats")
+async def annotator_stats(annotator_id: str):
+    """统计某标注员各题型的命中率，含 B1 style_compare 按维度/gap 细分。"""
+    import csv as _csv
+    from collections import defaultdict
+
+    annotator_id = annotator_id.strip()
+    if not annotator_id:
+        raise HTTPException(status_code=400, detail="annotator_id 不能为空")
+
+    # 加载该标注员的任务（含 ground_truth）
+    try:
+        all_tasks = _get_or_create_tasks(annotator_id)
+    except FileNotFoundError as e:
+        return JSONResponse({"error": str(e)})
+    task_map = {t["task_id"]: t for t in all_tasks}
+
+    # 读取提交结果
+    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
+    if not results_path.exists():
+        return JSONResponse({"error": "尚无标注结果"})
+
+    submissions: dict[str, str] = {}  # task_id -> answer
+    with open(results_path, "r", encoding="utf-8") as f:
+        for row in _csv.DictReader(f):
+            if row.get("annotator_id", "").strip() == annotator_id:
+                submissions[row["task_id"].strip()] = row.get("answer", "")
+
+    # ── B1: style_compare ──
+    b1_total = 0
+    b1_correct = 0
+    b1_by_dim: dict[str, dict] = defaultdict(lambda: {"total": 0, "correct": 0})
+    b1_by_gap: dict[int, dict] = defaultdict(lambda: {"total": 0, "correct": 0})
+
+    for tid, ans_raw in submissions.items():
+        task = task_map.get(tid)
+        if not task:
+            continue
+        if task["task_type"] != "style_compare":
+            continue
+        gt = task.get("ground_truth", {})
+        gt_higher = gt.get("higher", "")
+        ans = _parse_answer(ans_raw)
+        if isinstance(ans, dict):
+            user_ans = ans.get("higher", "")
+        else:
+            user_ans = str(ans)
+
+        dim = task.get("dimension", "")
+        gap = gt.get("gap", 0)
+        b1_total += 1
+        b1_by_dim[dim]["total"] += 1
+        b1_by_gap[gap]["total"] += 1
+        if user_ans == gt_higher:
+            b1_correct += 1
+            b1_by_dim[dim]["correct"] += 1
+            b1_by_gap[gap]["correct"] += 1
+
+    # ── B2: style_label ──
+    b2_total = 0
+    b2_correct = 0
+    b2_within1 = 0
+    tier_order = {"EL": 0, "L": 1, "M": 2, "H": 3, "EH": 4}
+
+    for tid, ans_raw in submissions.items():
+        task = task_map.get(tid)
+        if not task or task["task_type"] != "style_label":
+            continue
+        gt_tier = task.get("ground_truth", {}).get("tier", "")
+        ans = _parse_answer(ans_raw)
+        user_tier = _extract_tier(ans) or str(ans)
+        b2_total += 1
+        if user_tier == gt_tier:
+            b2_correct += 1
+            b2_within1 += 1
+        elif abs(tier_order.get(user_tier, -1) - tier_order.get(gt_tier, -1)) <= 1:
+            b2_within1 += 1
+
+    # ── 汇总 ──
+    def _rate(c, t):
+        return round(c / t, 3) if t > 0 else None
+
+    by_dim_out = {}
+    for dim in ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]:
+        d = b1_by_dim[dim]
+        by_dim_out[dim] = {"total": d["total"], "correct": d["correct"], "accuracy": _rate(d["correct"], d["total"])}
+
+    by_gap_out = {}
+    for gap in sorted(b1_by_gap):
+        d = b1_by_gap[gap]
+        by_gap_out[f"gap_{gap}"] = {"total": d["total"], "correct": d["correct"], "accuracy": _rate(d["correct"], d["total"])}
+
+    return JSONResponse({
+        "annotator_id": annotator_id,
+        "style_compare_b1": {
+            "total": b1_total, "correct": b1_correct, "accuracy": _rate(b1_correct, b1_total),
+            "by_dimension": by_dim_out,
+            "by_gap": by_gap_out,
+        },
+        "style_label_b2": {
+            "total": b2_total, "correct": b2_correct, "accuracy": _rate(b2_correct, b2_total),
+            "within_1_tier": b2_within1, "within_1_accuracy": _rate(b2_within1, b2_total),
+        },
+        "total_submitted": len(submissions),
+    })
+
+
 @app.get("/annotation/shared_quality")
 async def shared_quality_report():
     """50 道共享 B2 题的完整 IAA 报告。"""
