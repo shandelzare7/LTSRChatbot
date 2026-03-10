@@ -2125,9 +2125,11 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
     _shared_path = Path(__file__).parent / "scripts" / "output" / "shared_b2_tasks.json"
     if _shared_path.exists():
         _shared_tasks = json.loads(_shared_path.read_text("utf-8"))
-        for st in _shared_tasks:
-            st["task_id"] = f"SHARED_{len(tasks)}"
-            tasks.append(st)
+        for si, st in enumerate(_shared_tasks):
+            task = dict(st)
+            task["task_id"] = f"SHARED_{si:03d}"  # 固定 ID，跨标注员一致
+            task["is_shared"] = True
+            tasks.append(task)
 
     # ── Sort by task type (grouped, not shuffled) ──
     type_order = {"style_label": 0, "style_compare": 1, "expr_mode": 2, "move": 3}
@@ -2140,8 +2142,14 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
         rng.shuffle(g)
         sorted_tasks.extend(g)
     tasks = sorted_tasks
-    for i, t in enumerate(tasks):
-        t["task_id"] = f"{annotator_id}_{i + 1:04d}"
+    # 重写 task_id：shared 题保留固定 ID，其他题用 annotator 前缀
+    _non_shared_seq = 0
+    for t in tasks:
+        if t.get("is_shared"):
+            pass  # 保留 SHARED_xxx
+        else:
+            _non_shared_seq += 1
+            t["task_id"] = f"{annotator_id}_{_non_shared_seq:04d}"
 
     return tasks
 
