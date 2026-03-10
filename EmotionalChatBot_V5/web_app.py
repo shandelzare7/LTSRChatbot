@@ -2134,7 +2134,7 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
             tasks.append(rep)
 
     # ── Sort by task type (grouped, not shuffled) ──
-    type_order = {"style_compare": 0, "style_label": 1, "expr_mode": 2, "move": 3}
+    type_order = {"style_label": 0, "style_compare": 1, "expr_mode": 2, "move": 3}
     tasks.sort(key=lambda t: type_order.get(t["task_type"], 9))
     # Shuffle within each group
     from itertools import groupby
