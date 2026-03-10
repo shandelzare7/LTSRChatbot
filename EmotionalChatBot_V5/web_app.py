@@ -2271,23 +2271,33 @@ async def submit_annotation(request: Request):
                             detail="task_type 必须是 move / style_compare / style_label / expr_mode")
 
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # answer 直接存原始值（字符串/数字），不做 json.dumps 避免双重引号
+    raw_answer = data.get("answer", "")
+    if isinstance(raw_answer, (dict, list)):
+        answer_str = json.dumps(raw_answer, ensure_ascii=False)
+    else:
+        answer_str = str(raw_answer)
+
     fieldnames = ["annotator_id", "task_id", "task_type", "answer", "timestamp"]
     row = {
         "annotator_id": annotator_id,
         "task_id":       task_id,
         "task_type":     task_type,
-        "answer":        json.dumps(data.get("answer", ""), ensure_ascii=False),
+        "answer":        answer_str,
         "timestamp":     ts,
     }
 
     _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
     results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
-    write_header = not results_path.exists()
-    with open(results_path, "a", newline="", encoding="utf-8") as f:
-        writer = _csv.DictWriter(f, fieldnames=fieldnames)
-        if write_header:
-            writer.writeheader()
-        writer.writerow(row)
+    import threading
+    _csv_lock = threading.Lock()
+    with _csv_lock:
+        write_header = not results_path.exists()
+        with open(results_path, "a", newline="", encoding="utf-8") as f:
+            writer = _csv.DictWriter(f, fieldnames=fieldnames)
+            if write_header:
+                writer.writeheader()
+            writer.writerow(row)
 
     return JSONResponse({"ok": True})
 
@@ -2307,9 +2317,19 @@ async def reset_annotator_tasks(annotator_id: str):
 
 
 def _parse_answer(raw: str):
-    """Parse answer string from CSV, return dict or str."""
+    """Parse answer string from CSV. Handles both plain strings and JSON-encoded values."""
+    if not raw:
+        return raw
+    # 尝试 JSON 解析（处理旧数据中的 json.dumps 双重引号）
     try:
-        return json.loads(raw) if raw.startswith(("{", "[", '"')) else raw
+        parsed = json.loads(raw)
+        # 如果解析结果还是字符串且像 JSON，再解析一次（双重编码）
+        if isinstance(parsed, str):
+            try:
+                return json.loads(parsed)
+            except Exception:
+                return parsed
+        return parsed
     except Exception:
         return raw
 
@@ -2466,27 +2486,25 @@ async def shared_quality_report():
                 row[idx] += 1
             rating_matrix.append(row)
 
-        if rating_matrix:
-            N = len(rating_matrix)
-            n_raters = sum(rating_matrix[0])  # 假设每题标注人数相同
-            if n_raters >= 2:
-                # P_i for each task
-                P_i_list = []
-                for row in rating_matrix:
-                    n_j = sum(row)
-                    if n_j < 2:
-                        continue
-                    P_i = (sum(r * r for r in row) - n_j) / (n_j * (n_j - 1))
-                    P_i_list.append(P_i)
-                P_bar = sum(P_i_list) / len(P_i_list) if P_i_list else 0
+        # 只保留至少 2 人标注的题
+        valid_matrix = [row for row in rating_matrix if sum(row) >= 2]
+        if valid_matrix:
+            N = len(valid_matrix)
+            # P_i for each task (支持不等量标注)
+            P_i_list = []
+            for row in valid_matrix:
+                n_j = sum(row)
+                P_i = (sum(r * r for r in row) - n_j) / (n_j * (n_j - 1))
+                P_i_list.append(P_i)
+            P_bar = sum(P_i_list) / N if N else 0
 
-                # P_e: expected agreement
-                col_totals = [sum(rating_matrix[i][j] for i in range(N)) for j in range(n_cat)]
-                total_ratings = sum(col_totals)
-                P_e = sum((c / total_ratings) ** 2 for c in col_totals) if total_ratings else 0
+            # P_e: expected agreement
+            col_totals = [sum(valid_matrix[i][j] for i in range(N)) for j in range(n_cat)]
+            total_ratings = sum(col_totals)
+            P_e = sum((c / total_ratings) ** 2 for c in col_totals) if total_ratings else 0
 
-                if P_e < 1:
-                    fleiss_kappa = round((P_bar - P_e) / (1 - P_e), 4)
+            if P_e < 1:
+                fleiss_kappa = round((P_bar - P_e) / (1 - P_e), 4)
     except Exception:
         pass
 
