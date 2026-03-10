@@ -2306,9 +2306,24 @@ async def reset_annotator_tasks(annotator_id: str):
     return JSONResponse({"ok": True, "message": "缓存文件不存在，无需删除"})
 
 
+def _parse_answer(raw: str):
+    """Parse answer string from CSV, return dict or str."""
+    try:
+        return json.loads(raw) if raw.startswith(("{", "[", '"')) else raw
+    except Exception:
+        return raw
+
+
+def _extract_tier(ans) -> str | None:
+    """Extract tier label from an answer."""
+    if isinstance(ans, dict):
+        return ans.get("tier") or ans.get("label") or ans.get("answer")
+    return str(ans) if ans else None
+
+
 @app.get("/annotation/shared_quality")
 async def shared_quality_report():
-    """对比所有标注员在 50 道共享 B2 题上的答案，返回 IAA 报告。"""
+    """50 道共享 B2 题的完整 IAA 报告。"""
     import csv as _csv
     from collections import defaultdict
 
@@ -2316,13 +2331,13 @@ async def shared_quality_report():
     if not results_path.exists():
         return JSONResponse({"error": "尚无标注结果"})
 
-    # 收集 SHARED 题的回答: task_id -> {annotator_id -> answer}
-    shared_answers: dict[str, dict[str, str]] = defaultdict(dict)
+    # ── 1. 收集 SHARED 题的回答 ──
+    shared_answers: dict[str, dict[str, str]] = defaultdict(dict)  # tid -> {aid -> raw_answer}
     all_annotators: set[str] = set()
     with open(results_path, "r", encoding="utf-8") as f:
         for row in _csv.DictReader(f):
             tid = row.get("task_id", "").strip()
-            if "SHARED" not in tid:
+            if not tid.startswith("SHARED_"):
                 continue
             aid = row.get("annotator_id", "").strip()
             ans = row.get("answer", "").strip()
@@ -2332,56 +2347,182 @@ async def shared_quality_report():
     if not shared_answers:
         return JSONResponse({"error": "尚无共享题标注结果", "annotators": sorted(all_annotators)})
 
-    # 加载 ground truth
+    # ── 2. 加载 ground truth ──
     shared_path = _ANNOTATION_OUTPUT / "shared_b2_tasks.json"
-    gt_map: dict[str, dict] = {}
+    gt_map: dict[str, dict] = {}   # tid -> ground_truth
+    task_meta: dict[str, dict] = {}  # tid -> {dimension, tier, value, bot_text}
     if shared_path.exists():
-        for t in json.loads(shared_path.read_text("utf-8")):
-            gt_map[t["task_id"]] = t.get("ground_truth", {})
+        for si, t in enumerate(json.loads(shared_path.read_text("utf-8"))):
+            tid = f"SHARED_{si:03d}"
+            gt_map[tid] = t.get("ground_truth", {})
+            task_meta[tid] = {
+                "dimension": t.get("dimension", ""),
+                "tier": t.get("ground_truth", {}).get("tier", ""),
+                "value": t.get("ground_truth", {}).get("value", 0),
+                "bot_text_preview": (t.get("bot_text") or "")[:60],
+            }
 
-    # 统计
     annotators = sorted(all_annotators)
-    total_shared = len(shared_answers)
-    agreement_pairs = 0
-    agree_count = 0
+    DIMS = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
+    TIERS = ["EL", "L", "M", "H", "EH"]
 
-    # 两两一致性
-    for tid, answers in shared_answers.items():
-        aids = sorted(answers.keys())
-        for i in range(len(aids)):
-            for j in range(i + 1, len(aids)):
-                agreement_pairs += 1
-                if answers[aids[i]] == answers[aids[j]]:
-                    agree_count += 1
+    # ── 3. 逐题分析 ──
+    per_task = {}
+    for tid in sorted(shared_answers.keys()):
+        answers = shared_answers[tid]
+        gt = gt_map.get(tid, {})
+        gt_tier = gt.get("tier", "")
+        meta = task_meta.get(tid, {})
 
-    # 每个标注员的完成数和与 ground truth 的匹配
+        # 每个人的回答
+        annotator_answers = {}
+        correct_count = 0
+        for aid in annotators:
+            if aid not in answers:
+                annotator_answers[aid] = None
+                continue
+            user_tier = _extract_tier(_parse_answer(answers[aid]))
+            annotator_answers[aid] = user_tier
+            if user_tier == gt_tier:
+                correct_count += 1
+
+        responded = sum(1 for v in annotator_answers.values() if v is not None)
+        # 回答分布
+        tier_dist = defaultdict(int)
+        for v in annotator_answers.values():
+            if v is not None:
+                tier_dist[v] += 1
+
+        per_task[tid] = {
+            "dimension": meta.get("dimension", ""),
+            "gt_tier": gt_tier,
+            "gt_value": meta.get("value", 0),
+            "bot_text_preview": meta.get("bot_text_preview", ""),
+            "responded": responded,
+            "correct": correct_count,
+            "accuracy": round(correct_count / responded, 3) if responded else 0,
+            "answer_distribution": dict(tier_dist),
+            "annotator_answers": annotator_answers,
+        }
+
+    # ── 4. 按维度拆分准确率 ──
+    per_dimension = {}
+    for dim in DIMS:
+        dim_tasks = [t for t in per_task.values() if t["dimension"] == dim]
+        total_resp = sum(t["responded"] for t in dim_tasks)
+        total_correct = sum(t["correct"] for t in dim_tasks)
+        per_dimension[dim] = {
+            "tasks": len(dim_tasks),
+            "accuracy": round(total_correct / total_resp, 3) if total_resp else 0,
+        }
+
+    # ── 5. 按档位拆分准确率 ──
+    per_tier = {}
+    for tier in TIERS:
+        tier_tasks = [t for t in per_task.values() if t["gt_tier"] == tier]
+        total_resp = sum(t["responded"] for t in tier_tasks)
+        total_correct = sum(t["correct"] for t in tier_tasks)
+        per_tier[tier] = {
+            "tasks": len(tier_tasks),
+            "accuracy": round(total_correct / total_resp, 3) if total_resp else 0,
+        }
+
+    # ── 6. 两两标注员一致率矩阵 ──
+    pairwise_matrix = {}
+    for i, a1 in enumerate(annotators):
+        for j, a2 in enumerate(annotators):
+            if j <= i:
+                continue
+            agree = 0
+            total = 0
+            for tid, answers in shared_answers.items():
+                if a1 in answers and a2 in answers:
+                    total += 1
+                    t1 = _extract_tier(_parse_answer(answers[a1]))
+                    t2 = _extract_tier(_parse_answer(answers[a2]))
+                    if t1 == t2:
+                        agree += 1
+            pairwise_matrix[f"{a1}_vs_{a2}"] = {
+                "total": total,
+                "agree": agree,
+                "agreement": round(agree / total, 3) if total else None,
+            }
+
+    # ── 7. Cohen's Kappa (多标注员 Fleiss' Kappa 近似) ──
+    # 简化版：用所有标注员在 shared 题上的回答算 Fleiss' Kappa
+    fleiss_kappa = None
+    try:
+        n_tasks = len(shared_answers)
+        categories = TIERS + ["other"]
+        cat_idx = {c: i for i, c in enumerate(categories)}
+        n_cat = len(categories)
+        # 构建 n_tasks × n_cat 矩阵
+        rating_matrix = []
+        for tid in sorted(shared_answers.keys()):
+            row = [0] * n_cat
+            for aid, raw in shared_answers[tid].items():
+                t = _extract_tier(_parse_answer(raw))
+                idx = cat_idx.get(t, cat_idx["other"])
+                row[idx] += 1
+            rating_matrix.append(row)
+
+        if rating_matrix:
+            N = len(rating_matrix)
+            n_raters = sum(rating_matrix[0])  # 假设每题标注人数相同
+            if n_raters >= 2:
+                # P_i for each task
+                P_i_list = []
+                for row in rating_matrix:
+                    n_j = sum(row)
+                    if n_j < 2:
+                        continue
+                    P_i = (sum(r * r for r in row) - n_j) / (n_j * (n_j - 1))
+                    P_i_list.append(P_i)
+                P_bar = sum(P_i_list) / len(P_i_list) if P_i_list else 0
+
+                # P_e: expected agreement
+                col_totals = [sum(rating_matrix[i][j] for i in range(N)) for j in range(n_cat)]
+                total_ratings = sum(col_totals)
+                P_e = sum((c / total_ratings) ** 2 for c in col_totals) if total_ratings else 0
+
+                if P_e < 1:
+                    fleiss_kappa = round((P_bar - P_e) / (1 - P_e), 4)
+    except Exception:
+        pass
+
+    # ── 8. 每个标注员统计 ──
     per_annotator = {}
     for aid in annotators:
         done = 0
         match_gt = 0
         for tid, answers in shared_answers.items():
-            if aid in answers:
-                done += 1
-                gt = gt_map.get(tid, {})
-                if gt:
-                    try:
-                        user_ans = json.loads(answers[aid]) if isinstance(answers[aid], str) else answers[aid]
-                        if isinstance(user_ans, dict) and user_ans.get("tier") == gt.get("tier"):
-                            match_gt += 1
-                        elif str(user_ans) == str(gt.get("tier")):
-                            match_gt += 1
-                    except Exception:
-                        pass
-        per_annotator[aid] = {"done": done, "match_gt": match_gt,
-                              "accuracy": round(match_gt / done, 3) if done else 0}
+            if aid not in answers:
+                continue
+            done += 1
+            gt_tier = gt_map.get(tid, {}).get("tier", "")
+            user_tier = _extract_tier(_parse_answer(answers[aid]))
+            if user_tier == gt_tier:
+                match_gt += 1
+        per_annotator[aid] = {
+            "done": done,
+            "match_gt": match_gt,
+            "accuracy": round(match_gt / done, 3) if done else 0,
+        }
+
+    # ── 9. 争议最大的题（准确率最低的 top 10）──
+    controversial = sorted(per_task.values(), key=lambda t: t["accuracy"])[:10]
 
     return JSONResponse({
         "annotators": annotators,
         "total_shared_tasks": 50,
-        "tasks_with_responses": total_shared,
-        "pairwise_agreement": round(agree_count / agreement_pairs, 3) if agreement_pairs else None,
-        "agreement_pairs": agreement_pairs,
+        "tasks_with_responses": len(shared_answers),
+        "fleiss_kappa": fleiss_kappa,
         "per_annotator": per_annotator,
+        "per_dimension": per_dimension,
+        "per_tier": per_tier,
+        "pairwise_matrix": pairwise_matrix,
+        "controversial_tasks_top10": controversial,
+        "all_tasks": per_task,
     })
 
 
