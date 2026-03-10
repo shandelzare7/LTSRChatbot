@@ -175,8 +175,8 @@ def load_content_moves(config_path: Union[str, Path, None] = None) -> List[Dict[
 
 
 def load_pure_content_transformations(config_path: Union[str, Path, None] = None) -> List[Dict[str, Any]]:
-    """加载 config/content_moves.yaml 中的 pure_content_transformations，供 inner_monologue 选当轮可执行的 content move。
-    返回列表，每项含 id, name, english_name(可选), content_operation。"""
+    """加载 config/content_moves.yaml 中的 moves，供 inner_monologue 选当轮可执行的 content move。
+    返回列表，每项含 id, name, content_operation（兼容旧字段名）。"""
     if config_path is None:
         root = get_project_root()
         config_path = root / "config" / "content_moves.yaml"
@@ -186,7 +186,10 @@ def load_pure_content_transformations(config_path: Union[str, Path, None] = None
         return []
     try:
         data = load_yaml(config_path)
-        raw = data.get("pure_content_transformations") if isinstance(data, dict) else None
+        if not isinstance(data, dict):
+            return []
+        # 兼容新旧格式：新版 "moves"，旧版 "pure_content_transformations"
+        raw = data.get("moves") or data.get("pure_content_transformations")
         if not isinstance(raw, list):
             return []
         out: List[Dict[str, Any]] = []
@@ -196,11 +199,13 @@ def load_pure_content_transformations(config_path: Union[str, Path, None] = None
             id_val = m.get("id")
             if id_val is None:
                 continue
+            # 新版用 instruction，旧版用 content_operation
+            desc = str(m.get("instruction") or m.get("content_operation") or "").strip()
             out.append({
                 "id": int(id_val) if isinstance(id_val, (int, float)) else id_val,
                 "name": str(m.get("name") or "").strip(),
                 "english_name": str(m.get("english_name") or "").strip(),
-                "content_operation": str(m.get("content_operation") or "").strip(),
+                "content_operation": desc,
             })
         return out
     except Exception:

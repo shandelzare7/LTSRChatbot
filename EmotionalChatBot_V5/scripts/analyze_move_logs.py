@@ -24,16 +24,21 @@ LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# 与 config/content_moves.yaml 中 pure_content_transformations 保持一致
+# 与 config/content_moves.yaml 中 moves 保持一致
 MOVE_NAMES = {
-    1: "向下细化",
-    2: "向上概括",
-    3: "横向联想",
-    4: "自我暴露",
-    5: "机制溯源",
-    6: "假设推演",
-    7: "状态评价",
-    8: "物理锚定",
+    1: "追问细节",
+    2: "复述确认",
+    3: "反问回去",
+    4: "给个判断",
+    5: "说句体感",
+    6: "接一句自己的事",
+    7: "拉个对比",
+    8: "带一嘴当下",
+    9: "说个原因",
+    10: "换个如果",
+    11: "往后推一步",
+    12: "出个主意",
+    13: "唱个反调",
 }
 
 

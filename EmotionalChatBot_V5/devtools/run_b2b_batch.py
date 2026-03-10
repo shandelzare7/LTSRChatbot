@@ -96,9 +96,24 @@ def build_env(session: dict) -> dict:
     else:
         env.pop("BOT2BOT_INITIAL_PAD", None)
 
+    # empty_user_profile: 0 = bots know each other's info, 1(default) = empty
+    empty_profile = session.get("empty_user_profile")
+    if empty_profile is not None:
+        env["BOT2BOT_EMPTY_USER_PROFILE"] = str(int(empty_profile))
+    else:
+        env.pop("BOT2BOT_EMPTY_USER_PROFILE", None)
+
+    # reuse existing bots
+    bot_a_id = session.get("bot_a_id")
+    bot_b_id = session.get("bot_b_id")
+    if bot_a_id and bot_b_id:
+        env["BOT2BOT_BOT_A_ID"] = str(bot_a_id)
+        env["BOT2BOT_BOT_B_ID"] = str(bot_b_id)
+    else:
+        env.pop("BOT2BOT_BOT_A_ID", None)
+        env.pop("BOT2BOT_BOT_B_ID", None)
+
     env.pop("BOT2BOT_SEED", None)
-    env.pop("BOT2BOT_BOT_A_ID", None)
-    env.pop("BOT2BOT_BOT_B_ID", None)
 
     return env
 

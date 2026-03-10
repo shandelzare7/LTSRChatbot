@@ -29,7 +29,7 @@ TASK_B2_COUNT = 200       # Style 直接标签
 TASK_C_COUNT = 100        # ExprMode
 REPEAT_RATIO = 0.05       # 5% 隐藏重复
 
-STYLE_DIMS = ["FORMALITY", "POLITENESS", "WARMTH", "CERTAINTY", "EMOTIONAL_INTENSITY"]
+STYLE_DIMS = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
 TIERS = ["EL", "L", "M", "H", "EH"]
 EM_VALUES = [0, 1, 2, 3]
 ROUTES = ["move_1", "move_2", "move_3", "move_4", "move_5",

@@ -21,6 +21,6 @@ generate:
   model: qwen3-next-80b-a3b-instruct
   base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
   temperature: 1.0
-  top_p: 0.75
+  top_p: 0.95
   presence_penalty: 0.3
   n: 4

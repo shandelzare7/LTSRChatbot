@@ -461,8 +461,8 @@ def compute_style_keys(inp: Inputs) -> Dict[str, float | int]:
     FRIENDLINESS = contrast_gamma01(FRIENDLINESS, gamma=1.10)
     EMOTIONAL_TONE = contrast_gamma01(EMOTIONAL_TONE, gamma=1.15)
 
-    # CERTAINTY is safety-sensitive: keep mild, and respect the cap
-    CERTAINTY = min(contrast_gamma01(CERTAINTY, gamma=1.05), certainty_cap)
+    # CERTAINTY: gamma 1.30 拉开极值，cap 仍限制上界
+    CERTAINTY = min(contrast_gamma01(CERTAINTY, gamma=1.30), certainty_cap)
 
     return {
         "FORMALITY": float(FORMALITY),
