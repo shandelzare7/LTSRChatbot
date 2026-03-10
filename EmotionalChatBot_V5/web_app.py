@@ -2121,17 +2121,26 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
                 "is_repeat": False,
             })
 
-    # ── 5% hidden repeats ──
-    by_type: dict[str, list[dict]] = defaultdict(list)
-    for t in tasks:
-        by_type[t["task_type"]].append(t)
-    for ttype, ttasks in by_type.items():
-        n_rep = max(1, int(len(ttasks) * 0.05))
-        for src in rng.sample(ttasks, min(n_rep, len(ttasks))):
-            rep = dict(src)
-            rep["is_repeat"] = True
-            rep["task_id"] = f"REP_{len(tasks)}"
-            tasks.append(rep)
+    # ── Shared B2: 50 题固定种子，所有标注员共享（用于计算 inter-annotator agreement）──
+    shared_rng = _random.Random(0xB2_SHARED)
+    for dim in STYLE_DIMS:
+        for tier in TIERS:
+            tier_indices = by_dim_tier.get(dim, {}).get(tier, [])
+            avail = [i for i in tier_indices if i not in used]
+            shared_rng.shuffle(avail)
+            for i in avail[:2]:  # 5 dims × 5 tiers × 2 = 50
+                used.add(i)
+                r = pool[i]
+                tasks.append({
+                    "task_type": "style_label",
+                    "task_id": f"SHARED_{len(tasks)}",
+                    "dimension": dim,
+                    "context_user_text": r["context"],
+                    "bot_text": r["text"],
+                    "ground_truth": {"tier": tier, "value": round(r["style"].get(dim, 0), 4)},
+                    "is_shared": True,
+                    "is_repeat": False,
+                })
 
     # ── Sort by task type (grouped, not shuffled) ──
     type_order = {"style_label": 0, "style_compare": 1, "expr_mode": 2, "move": 3}
