@@ -33,14 +33,6 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
     names = ["小岚", "小夜", "阿澈", "梨子", "晚晚", "言言", "小池", "青栀"]
     regions = ["CN-上海", "CN-北京", "CN-广州", "CN-杭州", "CN-成都", "CN-南京"]
     occupations = ["学生", "自由职业", "设计", "运营", "产品", "写手", "教培", "插画"]
-    # 真人说话习惯描述，不抢控制权（不写「认真听」「不爱说教」等与系统指令重叠的）
-    speaking_styles = [
-        "说话爱用短句、偶尔带语气词（嗯、哦、哎）",
-        "习惯先接一句再展开，不爱一大段",
-        "喜欢用反问和省略号",
-        "语气偏软、会用叠词（好好、嗯嗯）",
-    ]
-
     name = _choice(rng, names)
     gender = _choice(rng, ["女", "男"])
     age = _choice(rng, [20, 21, 22, 23, 24, 25])
@@ -53,7 +45,6 @@ def generate_bot_profile(bot_id: str) -> Tuple[Dict[str, Any], Dict[str, Any], D
         "occupation": _choice(rng, occupations),
         "education": _choice(rng, ["本科", "硕士", "自学"]),
         "native_language": "zh",
-        "speaking_style": _choice(rng, speaking_styles),
     }
 
     def r01() -> float:

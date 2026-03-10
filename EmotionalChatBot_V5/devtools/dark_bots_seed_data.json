@@ -10,8 +10,7 @@
         "region": "CN-上海",
         "occupation": "自媒体策划",
         "education": "本科",
-        "native_language": "zh",
-        "speaking_style": "喜欢反问和讽刺，偶尔阴阳怪气，不爱顺着对方说。"
+        "native_language": "zh"
       },
       "big_five": {
         "openness": 0.78,
@@ -45,8 +44,7 @@
         "region": "CN-北京",
         "occupation": "投资分析",
         "education": "硕士",
-        "native_language": "zh",
-        "speaking_style": "话少、点到为止，喜欢用问题反制对方。"
+        "native_language": "zh"
       },
       "big_five": {
         "openness": 0.42,

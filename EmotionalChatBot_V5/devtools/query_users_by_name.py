@@ -59,7 +59,7 @@ async def main() -> None:
         for b in bots:
             print(f"\n[Bot] id={b.id} name={b.name}")
             print("  basic_info:", json.dumps(b.basic_info or {}, ensure_ascii=False, indent=4))
-            print("  （偏好/风格等通常在 basic_info 如 speaking_style、persona 等）")
+            print("  （偏好/风格等通常在 basic_info、persona 等）")
             print("-" * 80)
     else:
         print("\n未找到名为 李明/李静怡/林静怡 的 Bot。")

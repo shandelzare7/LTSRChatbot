@@ -51,8 +51,6 @@ class BotBasicInfo(TypedDict):
     occupation: str
     education: str
     native_language: str
-    # 核心设定，如 "说话喜欢用倒装句"
-    speaking_style: str
 
 
 class BotBigFive(TypedDict):

@@ -2010,11 +2010,12 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
     ROUTES = ["move_1", "move_2", "move_3", "move_4", "move_5",
               "move_6", "move_7", "move_8", "move_9", "move_10",
               "move_11", "move_12", "move_13", "free"]
+    # B1: 10 种组合 × 12 对/格 × 5 维度 = 600 总（每维度 120 对）
     B1_GAP_SPEC = [
-        (1, [("EL", "L"), ("L", "M"), ("M", "H"), ("H", "EH")], 6),
-        (2, [("EL", "M"), ("L", "H"), ("M", "EH")], 8),
-        (3, [("EL", "H"), ("L", "EH")], 8),
-        (4, [("EL", "EH")], 16),
+        (1, [("EL", "L"), ("L", "M"), ("M", "H"), ("H", "EH")], 12),  # 4×12=48
+        (2, [("EL", "M"), ("L", "H"), ("M", "EH")], 12),              # 3×12=36
+        (3, [("EL", "H"), ("L", "EH")], 12),                           # 2×12=24
+        (4, [("EL", "EH")], 12),                                       # 1×12=12
     ]
 
     # Deterministic seed from annotator_id
@@ -2030,59 +2031,9 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
         rng.shuffle(avail)
         return avail[:n]
 
-    # ── Task C: ExprMode (100 = 25 × 4) ──
-    for em in [0, 1, 2, 3]:
-        for i in _sample(by_em.get(em, []), 25):
-            used.add(i)
-            r = pool[i]
-            tasks.append({
-                "task_type": "expr_mode",
-                "task_id": f"C_{len(tasks)}",
-                "context_user_text": r["context"],
-                "bot_text": r["text"],
-                "ground_truth": {"em": r["em"]},
-                "is_repeat": False,
-            })
+    # ── 分配顺序：B1(style_compare) 优先，保证极端 tier 多样性 ──
 
-    # ── Task A: Move (300 = 33 × 9 + 3) ──
-    per_route = 300 // len(ROUTES)
-    remainder = 300 - per_route * len(ROUTES)
-    for ri, route in enumerate(ROUTES):
-        n = per_route + (1 if ri < remainder else 0)
-        for i in _sample(by_route.get(route, []), n):
-            used.add(i)
-            r = pool[i]
-            # Extract move_id from route string (e.g. "move_2" -> 2)
-            _route = r["route"]
-            _mid = int(_route.split("_")[1]) if _route.startswith("move_") else 0
-            tasks.append({
-                "task_type": "move",
-                "task_id": f"A_{len(tasks)}",
-                "context_user_text": r["context"],
-                "bot_text": r["text"],
-                "ground_truth": {"route": _route},
-                "must_include_move": _mid,
-                "is_repeat": False,
-            })
-
-    # ── Task B2: Style label (200 = 5 dims × 40 = 5 × 5 tiers × 8) ──
-    for dim in STYLE_DIMS:
-        for tier in TIERS:
-            tier_indices = by_dim_tier.get(dim, {}).get(tier, [])
-            for i in _sample(tier_indices, 8):
-                used.add(i)
-                r = pool[i]
-                tasks.append({
-                    "task_type": "style_label",
-                    "task_id": f"B2_{len(tasks)}",
-                    "dimension": dim,
-                    "context_user_text": r["context"],
-                    "bot_text": r["text"],
-                    "ground_truth": {"tier": tier, "value": round(r["style"].get(dim, 0), 4)},
-                    "is_repeat": False,
-                })
-
-    # ── Task B1: Style compare (400 = 5 dims × 80) ──
+    # ── Task B1: Style compare (400 = 5 dims × 80) ── 【最先分配】
     for dim in STYLE_DIMS:
         for gap, combos, per_combo in B1_GAP_SPEC:
             for tier_lo, tier_hi in combos:
@@ -2116,6 +2067,59 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
                         "is_qc_anchor": gap >= 3,
                         "is_repeat": False,
                     })
+
+    # ── Task B2: Style label (100 = 5 dims × 20 = 5 × 5 tiers × 4) ──
+    for dim in STYLE_DIMS:
+        for tier in TIERS:
+            tier_indices = by_dim_tier.get(dim, {}).get(tier, [])
+            for i in _sample(tier_indices, 4):
+                used.add(i)
+                r = pool[i]
+                tasks.append({
+                    "task_type": "style_label",
+                    "task_id": f"B2_{len(tasks)}",
+                    "dimension": dim,
+                    "context_user_text": r["context"],
+                    "bot_text": r["text"],
+                    "ground_truth": {"tier": tier, "value": round(r["style"].get(dim, 0), 4)},
+                    "is_repeat": False,
+                })
+
+    # ── Task C: ExprMode (100, 纯随机) ──
+    all_em_indices = []
+    for em_list in by_em.values():
+        all_em_indices.extend(em_list)
+    for i in _sample(all_em_indices, 100):
+        used.add(i)
+        r = pool[i]
+        tasks.append({
+            "task_type": "expr_mode",
+            "task_id": f"C_{len(tasks)}",
+            "context_user_text": r["context"],
+            "bot_text": r["text"],
+            "ground_truth": {"em": r["em"]},
+            "is_repeat": False,
+        })
+
+    # ── Task A: Move (150) ──
+    per_route = 150 // len(ROUTES)
+    remainder = 150 - per_route * len(ROUTES)
+    for ri, route in enumerate(ROUTES):
+        n = per_route + (1 if ri < remainder else 0)
+        for i in _sample(by_route.get(route, []), n):
+            used.add(i)
+            r = pool[i]
+            _route = r["route"]
+            _mid = int(_route.split("_")[1]) if _route.startswith("move_") else 0
+            tasks.append({
+                "task_type": "move",
+                "task_id": f"A_{len(tasks)}",
+                "context_user_text": r["context"],
+                "bot_text": r["text"],
+                "ground_truth": {"route": _route},
+                "must_include_move": _mid,
+                "is_repeat": False,
+            })
 
     # ── 5% hidden repeats ──
     by_type: dict[str, list[dict]] = defaultdict(list)
@@ -2282,6 +2286,20 @@ async def submit_annotation(request: Request):
         writer.writerow(row)
 
     return JSONResponse({"ok": True})
+
+
+@app.delete("/annotation/reset_tasks")
+async def reset_annotator_tasks(annotator_id: str):
+    """删除某个标注员的缓存任务文件，下次访问时重新生成。"""
+    annotator_id = annotator_id.strip()
+    if not annotator_id:
+        raise HTTPException(status_code=400, detail="annotator_id 不能为空")
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in annotator_id)
+    task_file = _ANNOTATION_OUTPUT / f"tasks_{safe_name}.json"
+    if task_file.exists():
+        task_file.unlink()
+        return JSONResponse({"ok": True, "message": f"已删除 {task_file.name}，下次访问将重新生成任务"})
+    return JSONResponse({"ok": True, "message": "缓存文件不存在，无需删除"})
 
 
 if __name__ == "__main__":
