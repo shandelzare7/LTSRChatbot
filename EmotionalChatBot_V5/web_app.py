@@ -1933,6 +1933,164 @@ _ANNOTATION_OUTPUT = Path(__file__).parent / "scripts" / "output"
 _ANNOTATION_STATIC = Path(__file__).parent / "static" / "annotation"
 _POOL_PATH = _ANNOTATION_OUTPUT / "deduped_pool.json"
 
+# ── Annotation DB helpers (persist to PostgreSQL so data survives Render restarts) ──
+_annotation_db_ready = False
+
+
+async def _ensure_annotation_tables():
+    """Create annotation tables if they don't exist, and migrate CSV data once."""
+    global _annotation_db_ready
+    if _annotation_db_ready:
+        return
+    try:
+        db = get_db_manager()
+    except Exception:
+        return  # no DB, fall through to file mode
+    from sqlalchemy import text
+    async with db.engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS annotation_results (
+                id SERIAL PRIMARY KEY,
+                annotator_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                answer TEXT NOT NULL DEFAULT '',
+                timestamp TEXT NOT NULL,
+                UNIQUE(annotator_id, task_id)
+            )
+        """))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS annotation_task_cache (
+                annotator_id TEXT PRIMARY KEY,
+                tasks_json TEXT NOT NULL,
+                pool_version TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            )
+        """))
+        # ── Migrate existing CSV if DB is empty ──
+        row = await conn.execute(text("SELECT COUNT(*) FROM annotation_results"))
+        count = row.scalar()
+        if count == 0:
+            import csv as _csv
+            csv_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
+            if csv_path.exists():
+                migrated = 0
+                with open(csv_path, "r", encoding="utf-8") as f:
+                    for r in _csv.DictReader(f):
+                        aid = (r.get("annotator_id") or "").strip()
+                        tid = (r.get("task_id") or "").strip()
+                        if not aid or not tid:
+                            continue
+                        await conn.execute(text("""
+                            INSERT INTO annotation_results (annotator_id, task_id, task_type, answer, timestamp)
+                            VALUES (:aid, :tid, :tt, :ans, :ts)
+                            ON CONFLICT (annotator_id, task_id) DO NOTHING
+                        """), {"aid": aid, "tid": tid, "tt": r.get("task_type", ""),
+                               "ans": r.get("answer", ""), "ts": r.get("timestamp", "")})
+                        migrated += 1
+                logger.info("[Annotation] Migrated %d rows from CSV to DB", migrated)
+    _annotation_db_ready = True
+
+
+async def _db_get_submitted(annotator_id: str) -> dict[str, str]:
+    """Return {task_id: answer} for an annotator from DB."""
+    await _ensure_annotation_tables()
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        async with db.engine.connect() as conn:
+            rows = await conn.execute(
+                text("SELECT task_id, answer FROM annotation_results WHERE annotator_id = :aid"),
+                {"aid": annotator_id},
+            )
+            return {r[0]: r[1] for r in rows}
+    except Exception:
+        # Fallback to CSV
+        return {tid: "" for tid in _get_submitted_task_ids_csv(annotator_id)}
+
+
+async def _db_insert_result(annotator_id: str, task_id: str, task_type: str, answer: str, ts: str):
+    """Insert one annotation result into DB (+ CSV backup)."""
+    await _ensure_annotation_tables()
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        async with db.engine.begin() as conn:
+            await conn.execute(text("""
+                INSERT INTO annotation_results (annotator_id, task_id, task_type, answer, timestamp)
+                VALUES (:aid, :tid, :tt, :ans, :ts)
+                ON CONFLICT (annotator_id, task_id) DO UPDATE SET answer = :ans, timestamp = :ts
+            """), {"aid": annotator_id, "tid": task_id, "tt": task_type, "ans": answer, "ts": ts})
+    except Exception as e:
+        logger.warning("[Annotation] DB insert failed, CSV only: %s", e)
+    # Always write CSV as backup
+    import csv as _csv
+    _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
+    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
+    fieldnames = ["annotator_id", "task_id", "task_type", "answer", "timestamp"]
+    write_header = not results_path.exists()
+    with open(results_path, "a", newline="", encoding="utf-8") as f:
+        writer = _csv.DictWriter(f, fieldnames=fieldnames)
+        if write_header:
+            writer.writeheader()
+        writer.writerow({"annotator_id": annotator_id, "task_id": task_id,
+                         "task_type": task_type, "answer": answer, "timestamp": ts})
+
+
+async def _db_get_all_shared_answers() -> dict[str, dict[str, str]]:
+    """Return {task_id: {annotator_id: answer}} for all SHARED_ tasks."""
+    await _ensure_annotation_tables()
+    from collections import defaultdict
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        async with db.engine.connect() as conn:
+            rows = await conn.execute(
+                text("SELECT annotator_id, task_id, answer FROM annotation_results WHERE task_id LIKE 'SHARED_%'")
+            )
+            result: dict[str, dict[str, str]] = defaultdict(dict)
+            for aid, tid, ans in rows:
+                result[tid][aid] = ans
+            return dict(result)
+    except Exception:
+        return {}
+
+
+async def _db_get_task_cache(annotator_id: str, current_pool_ver: str) -> list[dict] | None:
+    """Load cached tasks from DB. Returns None if not found or pool version mismatch."""
+    await _ensure_annotation_tables()
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        async with db.engine.connect() as conn:
+            row = await conn.execute(
+                text("SELECT tasks_json, pool_version FROM annotation_task_cache WHERE annotator_id = :aid"),
+                {"aid": annotator_id},
+            )
+            r = row.first()
+            if r and r[1] == current_pool_ver:
+                return json.loads(r[0])
+            return None
+    except Exception:
+        return None
+
+
+async def _db_save_task_cache(annotator_id: str, tasks: list[dict], pool_ver: str):
+    """Save task cache to DB."""
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        async with db.engine.begin() as conn:
+            await conn.execute(text("""
+                INSERT INTO annotation_task_cache (annotator_id, tasks_json, pool_version, created_at)
+                VALUES (:aid, :tj, :pv, :ts)
+                ON CONFLICT (annotator_id) DO UPDATE SET tasks_json = :tj, pool_version = :pv, created_at = :ts
+            """), {"aid": annotator_id, "tj": json.dumps(tasks, ensure_ascii=False), "pv": pool_ver, "ts": ts})
+    except Exception as e:
+        logger.warning("[Annotation] DB task cache save failed: %s", e)
+
+
 # ── Annotation pool cache ──
 _annotation_pool: list[dict] | None = None
 _annotation_pool_indices: dict | None = None
@@ -2154,18 +2312,29 @@ def _allocate_tasks(annotator_id: str) -> list[dict]:
     return tasks
 
 
-def _get_or_create_tasks(annotator_id: str) -> list[dict]:
-    """Get cached tasks file or generate new one."""
+async def _get_or_create_tasks(annotator_id: str) -> list[dict]:
+    """Get cached tasks from DB/file or generate new one."""
+    pool_ver = _pool_version()
+    # Try DB cache first
+    cached = await _db_get_task_cache(annotator_id, pool_ver)
+    if cached:
+        return cached
+
+    # Try local file cache
     _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
-    # Use hash of annotator_id for filename
     safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in annotator_id)
     task_file = _ANNOTATION_OUTPUT / f"tasks_{safe_name}.json"
 
     if task_file.exists():
-        return json.loads(task_file.read_text("utf-8"))
+        tasks = json.loads(task_file.read_text("utf-8"))
+        # Persist to DB for durability
+        await _db_save_task_cache(annotator_id, tasks, pool_ver)
+        return tasks
 
     tasks = _allocate_tasks(annotator_id)
+    # Save to both file and DB
     task_file.write_text(json.dumps(tasks, ensure_ascii=False))
+    await _db_save_task_cache(annotator_id, tasks, pool_ver)
 
     # Log annotator registration
     log_file = _ANNOTATION_OUTPUT / "annotator_log.jsonl"
@@ -2180,8 +2349,8 @@ def _get_or_create_tasks(annotator_id: str) -> list[dict]:
     return tasks
 
 
-def _get_submitted_task_ids(annotator_id: str) -> set[str]:
-    """Collect task_ids already submitted by this annotator."""
+def _get_submitted_task_ids_csv(annotator_id: str) -> set[str]:
+    """Collect task_ids already submitted by this annotator (CSV fallback)."""
     import csv as _csv
     submitted: set[str] = set()
     results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
@@ -2219,14 +2388,14 @@ async def get_annotation_tasks(annotator_id: str):
         raise HTTPException(status_code=400, detail="annotator_id 不能为空")
 
     try:
-        all_tasks = _get_or_create_tasks(annotator_id)
+        all_tasks = await _get_or_create_tasks(annotator_id)
     except FileNotFoundError as e:
         return JSONResponse({
             "tasks": [], "total": 0, "remaining": 0,
             "error": str(e),
         })
 
-    submitted = _get_submitted_task_ids(annotator_id)
+    submitted = await _db_get_submitted(annotator_id)
     remaining = [t for t in all_tasks if t["task_id"] not in submitted]
 
     # Load move definitions for frontend
@@ -2256,9 +2425,7 @@ async def get_annotation_tasks(annotator_id: str):
 
 @app.post("/annotation/submit")
 async def submit_annotation(request: Request):
-    """提交一条标注结果，统一追加到 annotation_results.csv。"""
-    import csv as _csv
-
+    """提交一条标注结果，写入 DB + CSV 备份。"""
     data = await request.json()
     task_type    = (data.get("task_type") or "").strip().lower()
     annotator_id = (data.get("annotator_id") or "").strip()
@@ -2271,40 +2438,20 @@ async def submit_annotation(request: Request):
                             detail="task_type 必须是 move / style_compare / style_label / expr_mode")
 
     ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    # answer 直接存原始值（字符串/数字），不做 json.dumps 避免双重引号
     raw_answer = data.get("answer", "")
     if isinstance(raw_answer, (dict, list)):
         answer_str = json.dumps(raw_answer, ensure_ascii=False)
     else:
         answer_str = str(raw_answer)
 
-    fieldnames = ["annotator_id", "task_id", "task_type", "answer", "timestamp"]
-    row = {
-        "annotator_id": annotator_id,
-        "task_id":       task_id,
-        "task_type":     task_type,
-        "answer":        answer_str,
-        "timestamp":     ts,
-    }
-
-    _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
-    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
-    import threading
-    _csv_lock = threading.Lock()
-    with _csv_lock:
-        write_header = not results_path.exists()
-        with open(results_path, "a", newline="", encoding="utf-8") as f:
-            writer = _csv.DictWriter(f, fieldnames=fieldnames)
-            if write_header:
-                writer.writeheader()
-            writer.writerow(row)
+    await _db_insert_result(annotator_id, task_id, task_type, answer_str, ts)
 
     return JSONResponse({"ok": True})
 
 
 @app.delete("/annotation/reset_tasks")
 async def reset_annotator_tasks(annotator_id: str):
-    """删除某个标注员的缓存任务文件，下次访问时重新生成。"""
+    """删除某个标注员的缓存任务文件和DB缓存，下次访问时重新生成。"""
     annotator_id = annotator_id.strip()
     if not annotator_id:
         raise HTTPException(status_code=400, detail="annotator_id 不能为空")
@@ -2312,8 +2459,15 @@ async def reset_annotator_tasks(annotator_id: str):
     task_file = _ANNOTATION_OUTPUT / f"tasks_{safe_name}.json"
     if task_file.exists():
         task_file.unlink()
-        return JSONResponse({"ok": True, "message": f"已删除 {task_file.name}，下次访问将重新生成任务"})
-    return JSONResponse({"ok": True, "message": "缓存文件不存在，无需删除"})
+    # Also clear DB cache
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        async with db.engine.begin() as conn:
+            await conn.execute(text("DELETE FROM annotation_task_cache WHERE annotator_id = :aid"), {"aid": annotator_id})
+    except Exception:
+        pass
+    return JSONResponse({"ok": True, "message": "已清除任务缓存，下次访问将重新生成"})
 
 
 def _parse_answer(raw: str):
@@ -2344,7 +2498,6 @@ def _extract_tier(ans) -> str | None:
 @app.get("/annotation/annotator_stats")
 async def annotator_stats(annotator_id: str):
     """统计某标注员各题型的命中率，含 B1 style_compare 按维度/gap 细分。"""
-    import csv as _csv
     from collections import defaultdict
 
     annotator_id = annotator_id.strip()
@@ -2353,21 +2506,15 @@ async def annotator_stats(annotator_id: str):
 
     # 加载该标注员的任务（含 ground_truth）
     try:
-        all_tasks = _get_or_create_tasks(annotator_id)
+        all_tasks = await _get_or_create_tasks(annotator_id)
     except FileNotFoundError as e:
         return JSONResponse({"error": str(e)})
     task_map = {t["task_id"]: t for t in all_tasks}
 
-    # 读取提交结果
-    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
-    if not results_path.exists():
+    # 读取提交结果（从 DB）
+    submissions = await _db_get_submitted(annotator_id)
+    if not submissions:
         return JSONResponse({"error": "尚无标注结果"})
-
-    submissions: dict[str, str] = {}  # task_id -> answer
-    with open(results_path, "r", encoding="utf-8") as f:
-        for row in _csv.DictReader(f):
-            if row.get("annotator_id", "").strip() == annotator_id:
-                submissions[row["task_id"].strip()] = row.get("answer", "")
 
     # ── B1: style_compare ──
     b1_total = 0
@@ -2451,25 +2598,13 @@ async def annotator_stats(annotator_id: str):
 @app.get("/annotation/shared_quality")
 async def shared_quality_report():
     """50 道共享 B2 题的完整 IAA 报告。"""
-    import csv as _csv
     from collections import defaultdict
 
-    results_path = _ANNOTATION_OUTPUT / "annotation_results.csv"
-    if not results_path.exists():
-        return JSONResponse({"error": "尚无标注结果"})
-
-    # ── 1. 收集 SHARED 题的回答 ──
-    shared_answers: dict[str, dict[str, str]] = defaultdict(dict)  # tid -> {aid -> raw_answer}
+    # ── 1. 收集 SHARED 题的回答（从 DB）──
+    shared_answers = await _db_get_all_shared_answers()
     all_annotators: set[str] = set()
-    with open(results_path, "r", encoding="utf-8") as f:
-        for row in _csv.DictReader(f):
-            tid = row.get("task_id", "").strip()
-            if not tid.startswith("SHARED_"):
-                continue
-            aid = row.get("annotator_id", "").strip()
-            ans = row.get("answer", "").strip()
-            shared_answers[tid][aid] = ans
-            all_annotators.add(aid)
+    for tid_answers in shared_answers.values():
+        all_annotators.update(tid_answers.keys())
 
     if not shared_answers:
         return JSONResponse({"error": "尚无共享题标注结果", "annotators": sorted(all_annotators)})
