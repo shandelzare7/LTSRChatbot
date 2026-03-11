@@ -231,7 +231,8 @@ const S = {
   currentIdx: 0,
   totalTasks: 0,
   doneCount: 0,         // already submitted before this session
-  sessionDone: 0,       // completed this session
+  sessionDone: 0,       // distinct tasks completed this session
+  submittedTaskIds: {}, // { task_id: true } 本 session 已提交过的题，避免上一题再做一遍重复 +1
   selection: null,
 };
 
@@ -444,6 +445,7 @@ async function loadTasks() {
   S.tasks = [];
   S.currentIdx = 0;
   S.sessionDone = 0;
+  S.submittedTaskIds = {};
   S.selection = null;
   document.getElementById('app').innerHTML = '<div class="loading-msg">正在生成任务…</div>';
   try {
@@ -702,7 +704,10 @@ async function submitTask() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    S.sessionDone++;
+    if (!S.submittedTaskIds[task.task_id]) {
+      S.submittedTaskIds[task.task_id] = true;
+      S.sessionDone++;
+    }
     S.currentIdx++;
     S.selection = null;
     if (S.currentIdx >= S.tasks.length) S.screen = 'done';
