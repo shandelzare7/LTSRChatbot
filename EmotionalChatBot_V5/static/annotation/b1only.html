@@ -192,6 +192,11 @@ const DIM_LABELS = {
   EMOTIONAL_TONE: '情感浓度',
 };
 
+// 成对比较按钮文字，部分维度"更X"不通顺时单独指定
+const DIM_COMPARE_LABELS = {
+  EMOTIONAL_TONE: '情感更浓烈',
+};
+
 const DIM_EXAMPLES = {
   FORMALITY: {
     desc: '说话的书面感 / 口语感程度',
@@ -444,10 +449,10 @@ function renderTask() {
     </div>
     <div class="choice-grid cols-2">
       <div class="choice-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
-        <div class="choice-name">A 更${esc(dimLabel)}</div>
+        <div class="choice-name">A ${esc(DIM_COMPARE_LABELS[task.dimension] || ('更' + dimLabel))}</div>
       </div>
       <div class="choice-btn${S.selection === 'B' ? ' selected' : ''}" onclick="selectOption('B')">
-        <div class="choice-name">B 更${esc(dimLabel)}</div>
+        <div class="choice-name">B ${esc(DIM_COMPARE_LABELS[task.dimension] || ('更' + dimLabel))}</div>
       </div>
     </div>
   </div>`;
