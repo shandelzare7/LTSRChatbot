@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>标注工具 · B1 对比</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+               "Microsoft YaHei", sans-serif;
+  background: #f0f2f5;
+  color: #1a1a1a;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 16px 64px;
+}
+
+#app { width: 100%; max-width: 820px; }
+
+/* ── Progress bar ── */
+.progress-bar-wrap {
+  height: 6px; background: #e0e0e0; border-radius: 3px;
+  margin-bottom: 24px; overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%; background: #4f6ef7; border-radius: 3px;
+  transition: width .3s ease;
+}
+
+/* ── Header strip ── */
+.header-strip {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.header-strip .annotator-tag {
+  font-size: 13px; color: #666;
+  background: #fff; border: 1px solid #ddd; border-radius: 20px;
+  padding: 3px 12px;
+}
+.header-strip .task-counter { font-size: 13px; color: #888; }
+
+/* ── Chat bubbles ── */
+.chat-wrap {
+  background: #fff; border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.bubble-row { display: flex; align-items: flex-end; gap: 8px; }
+.bubble-row.user { justify-content: flex-end; }
+.bubble-row.bot  { justify-content: flex-start; }
+.bubble-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  font-size: 13px; font-weight: 700; color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.bubble-row.user .bubble-avatar { background: #aab; order: 2; }
+.bubble-row.bot  .bubble-avatar { background: #4f6ef7; }
+.bubble {
+  max-width: 78%; padding: 10px 14px;
+  font-size: 14px; line-height: 1.65; color: #222;
+  border-radius: 14px; word-break: break-word;
+}
+.bubble-row.user .bubble { background: #f0f1f3; border-bottom-right-radius: 4px; }
+.bubble-row.bot  .bubble { background: #eef1ff; border-bottom-left-radius: 4px; }
+
+/* ── Login ── */
+.login-wrap {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 60px 0;
+}
+.login-wrap h1 { font-size: 26px; margin-bottom: 8px; }
+.login-wrap p  { font-size: 14px; color: #666; margin-bottom: 28px; }
+.login-box {
+  width: 100%; max-width: 380px;
+  background: #fff; border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.08);
+  padding: 32px;
+}
+.login-box label { font-size: 14px; font-weight: 600; display: block; margin-bottom: 8px; }
+.login-box input {
+  width: 100%; padding: 10px 14px;
+  border: 1.5px solid #ddd; border-radius: 8px;
+  font-size: 15px; outline: none;
+  transition: border-color .2s;
+}
+.login-box input:focus { border-color: #4f6ef7; }
+
+/* ── Style pairs ── */
+.pairs-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 0; }
+@media (max-width: 600px) { .pairs-wrap { grid-template-columns: 1fr; } }
+.pair-card {
+  background: #f8f9fb; border-radius: 10px;
+  border: 2px solid #e8eaf0; padding: 16px 18px;
+}
+.pair-card .pair-label {
+  font-size: 12px; font-weight: 700; color: #4f6ef7;
+  letter-spacing: .06em; text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.pair-card .pair-user { font-size: 13px; color: #888; margin-bottom: 6px; line-height: 1.5; }
+.pair-card .pair-bot  { font-size: 14px; color: #222; line-height: 1.65; }
+
+/* ── Question block ── */
+.question-block {
+  background: #fff; border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0,0,0,.07);
+  padding: 24px 28px; margin-top: 14px;
+}
+.question-text {
+  font-size: 17px; font-weight: 600; color: #222;
+  margin-bottom: 20px; line-height: 1.5;
+}
+.question-text .dim-highlight { color: #4f6ef7; font-size: 20px; }
+
+/* ── Choice buttons ── */
+.choice-grid { display: grid; gap: 10px; }
+.choice-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.choice-btn {
+  padding: 14px 10px; border-radius: 10px;
+  border: 2px solid #e0e4ef;
+  background: #f8f9fb; cursor: pointer;
+  text-align: center;
+  transition: border-color .15s, background .15s;
+}
+.choice-btn:hover { background: #eef1ff; border-color: #b0bcf7; }
+.choice-btn.selected { background: #eef1ff; border-color: #4f6ef7; }
+.choice-btn .choice-name { font-size: 15px; font-weight: 700; color: #4f6ef7; }
+
+/* ── Action buttons ── */
+.action-row {
+  display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;
+}
+.btn {
+  padding: 10px 24px; border-radius: 8px; border: none;
+  font-size: 15px; font-weight: 600; cursor: pointer;
+  transition: opacity .15s;
+}
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: #4f6ef7; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #3a5ce0; }
+.btn-skip { background: transparent; color: #888; border: 1.5px solid #ddd; }
+.btn-back { background: transparent; color: #4f6ef7; border: 1.5px solid #4f6ef7; }
+
+/* ── Done screen ── */
+.done-wrap { text-align: center; padding: 60px 0; }
+.done-wrap .done-icon { font-size: 56px; margin-bottom: 20px; }
+.done-wrap h2 { font-size: 22px; margin-bottom: 8px; }
+.done-wrap p  { font-size: 15px; color: #666; margin-bottom: 28px; }
+.stats-row { display: flex; gap: 20px; justify-content: center; flex-wrap: wrap; }
+.stat-pill {
+  background: #fff; border-radius: 10px; padding: 14px 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.07);
+  font-size: 14px; color: #444; text-align: center;
+}
+.stat-pill strong { display: block; font-size: 24px; color: #4f6ef7; }
+
+/* ── Misc ── */
+.error-msg { color: #e53e3e; font-size: 13px; margin-top: 8px; }
+.loading-msg { text-align: center; padding: 40px; color: #999; font-size: 15px; }
+</style>
+</head>
+<body>
+<div id="app"><div class="loading-msg">加载中…</div></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+const S = {
+  screen: 'login',      // 'login' | 'tutorial' | 'task' | 'done'
+  annotatorId: '',
+  tasks: [],
+  currentIdx: 0,
+  totalTasks: 0,
+  doneCount: 0,
+  sessionDone: 0,
+  submittedTaskIds: {},
+  selection: null,
+};
+
+// ── Constants ────────────────────────────────────────────────────────────────
+const DIM_LABELS = {
+  FORMALITY:      '正式',
+  POLITENESS:     '礼貌',
+  FRIENDLINESS:   '友善',
+  CERTAINTY:      '确定',
+  EMOTIONAL_TONE: '情感浓度',
+};
+
+const DIM_EXAMPLES = {
+  FORMALITY: {
+    desc: '说话的书面感 / 口语感程度',
+    EL: '写得挺棒的！整体很溜～',
+    EH: '报告整体撰写精良，结构严谨，内容详实，堪称典范。',
+  },
+  POLITENESS: {
+    desc: '措辞是否体现礼节和客气',
+    EL: '迟到是我不对，下次别等我。',
+    EH: '深感抱歉，因我迟到耽误大家宝贵时间，诚恳致歉。',
+  },
+  FRIENDLINESS: {
+    desc: '语气是亲近温暖还是疏远冷淡',
+    EL: '没空，别找我。',
+    EH: '啊啊啊好想跟你去玩！😭 但这周末真的被一堆事塞满了，心碎成小星星～下次一定补上抱抱！✨',
+  },
+  CERTAINTY: {
+    desc: '说话者对自己所说内容的笃定程度',
+    EL: '可能吧…我瞅了眼云，但风向老变，真说不准。',
+    EH: '明天肯定下雨，我百分之百确定。',
+  },
+  EMOTIONAL_TONE: {
+    desc: '情绪表达的激烈程度，不区分正负',
+    EL: '真好啊。我也想去了。',
+    EH: '啊啊啊好羡慕！！！我好想立刻冲去公园呼吸新鲜空气、晒太阳、当一只快乐的小松鼠啊！！！',
+  },
+};
+
+const DIM_EXAMPLES_FULL = {
+  FORMALITY: {
+    desc: '说话的书面感 / 口语感程度',
+    EL: '写得挺棒的！整体很溜～',
+    L:  '写得挺棒的，整体很清晰！',
+    M:  '报告整体写得不错，结构清晰，内容充实。',
+    H:  '报告整体撰写优良，结构严谨，内容详实。',
+    EH: '报告整体撰写精良，结构严谨，内容详实，堪称典范。',
+  },
+  POLITENESS: {
+    desc: '措辞是否体现礼节和客气',
+    EL: '迟到是我不对，下次别等我。',
+    L:  '对不住，我迟到了，怪我。',
+    M:  '抱歉，我昨天迟到了，给大家添麻烦了。',
+    H:  '非常抱歉，我昨天开会迟到了，给大家添麻烦了，深感愧疚。',
+    EH: '深感抱歉，因我迟到耽误大家宝贵时间，诚恳致歉。',
+  },
+  FRIENDLINESS: {
+    desc: '语气是亲近温暖还是疏远冷淡',
+    EL: '没空，别找我。',
+    L:  '这周末没空，别约了。',
+    M:  '这周末有点忙，没法出去玩啦～希望下次有机会再约！',
+    H:  '哎呀真不巧，这周末已经排满啦～下次一定补上！💖',
+    EH: '啊啊啊好想跟你去玩！😭 但这周末真的被一堆事塞满了，心碎成小星星～下次一定补上抱抱！✨',
+  },
+  CERTAINTY: {
+    desc: '说话者对自己所说内容的笃定程度',
+    EL: '可能吧…我瞅了眼云，但风向老变，真说不准。',
+    L:  '可能吧，我看天气有点阴，但也不敢确定明天一定会下雨。',
+    M:  '我觉得明天有点可能下雨，但也不太确定，最好还是带把伞以防万一。',
+    H:  '明天肯定会下雨，我已经看过了天气预报，雨势不小。',
+    EH: '明天肯定下雨，我百分之百确定。',
+  },
+  EMOTIONAL_TONE: {
+    desc: '情绪表达的激烈程度，不区分正负',
+    EL: '真好啊。我也想去了。',
+    L:  '听起来挺舒服的，我也想去走走。',
+    M:  '真好啊，我也好想去找个安静的公园走走。',
+    H:  '啊啊啊好羡慕！我也好想现在就冲去公园散步啊～🌞🍃',
+    EH: '啊啊啊好羡慕！！！我好想立刻冲去公园呼吸新鲜空气、晒太阳、当一只快乐的小松鼠啊！！！',
+  },
+};
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function render() {
+  const app = document.getElementById('app');
+  if (S.screen === 'login')         app.innerHTML = renderLogin();
+  else if (S.screen === 'tutorial') app.innerHTML = renderTutorial();
+  else if (S.screen === 'task')     app.innerHTML = renderTask();
+  else if (S.screen === 'done')     app.innerHTML = renderDone();
+}
+
+// ── Login ─────────────────────────────────────────────────────────────────────
+function renderLogin() {
+  return `
+  <div class="login-wrap">
+    <h1>标注工具 · B1 对比</h1>
+    <p>对话情感机器人研究 · 风格成对比较实验</p>
+    <div class="login-box">
+      <label for="aid">标注员 ID（姓名缩写或代号）</label>
+      <input id="aid" type="text" placeholder="如：张三、ann_1" autocomplete="off">
+      <div class="error-msg" id="login-err"></div>
+      <button class="btn btn-primary" style="width:100%;margin-top:16px;padding:14px 24px;font-size:17px" onclick="doLogin()">
+        开始标注
+      </button>
+    </div>
+  </div>`;
+}
+
+async function doLogin() {
+  const val = (document.getElementById('aid').value || '').trim();
+  if (!val) { document.getElementById('login-err').textContent = '请填写标注员 ID'; return; }
+  S.annotatorId = val;
+  localStorage.setItem('annotation_b1_annotator_id', val);
+  S.screen = 'tutorial';
+  render();
+}
+
+function goLogin() {
+  localStorage.removeItem('annotation_b1_annotator_id');
+  S.screen = 'login';
+  render();
+}
+
+// ── Tutorial ──────────────────────────────────────────────────────────────────
+function renderTutorial() {
+  const TIERS_ORDER = ['EL', 'L', 'M', 'H', 'EH'];
+  const TIER_NAMES  = { EL: '极低', L: '低', M: '中', H: '高', EH: '极高' };
+  const TIER_COLORS = { EL: '#c0392b', L: '#e67e22', M: '#7f8c8d', H: '#2980b9', EH: '#2d8a4e' };
+
+  let dimSections = '';
+  for (const [dim, label] of Object.entries(DIM_LABELS)) {
+    const ex = DIM_EXAMPLES_FULL[dim];
+    if (!ex) continue;
+    let rows = TIERS_ORDER.map(t => `
+      <div style="display:flex;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0">
+        <span style="font-weight:700;color:${TIER_COLORS[t]};min-width:36px;font-size:13px">${TIER_NAMES[t]}</span>
+        <span style="font-size:14px;color:#333">${esc(ex[t])}</span>
+      </div>`).join('');
+
+    dimSections += `
+    <div style="background:#fff;border-radius:12px;padding:20px 24px;margin-bottom:14px;box-shadow:0 1px 6px rgba(0,0,0,.06)">
+      <div style="font-size:16px;font-weight:700;color:#4f6ef7;margin-bottom:4px">${esc(label)}</div>
+      <div style="font-size:13px;color:#888;margin-bottom:12px">${esc(ex.desc)}</div>
+      ${rows}
+    </div>`;
+  }
+
+  return `
+  <div style="max-width:680px;margin:0 auto">
+    <h2 style="font-size:22px;margin-bottom:6px">标注指南</h2>
+    <p style="font-size:14px;color:#666;margin-bottom:20px">
+      请先阅读以下 5 个语言风格维度的定义和示例，了解每个档位的含义后再开始标注。<br>
+      每道题展示两组对话（A 和 B），请判断哪组 Bot 回复在指定维度上程度更高。
+    </p>
+    ${dimSections}
+    <div style="text-align:center;margin-top:24px">
+      <button class="btn btn-primary" style="padding:14px 48px;font-size:17px" onclick="startFromTutorial()">
+        我已了解，开始标注
+      </button>
+    </div>
+  </div>`;
+}
+
+async function startFromTutorial() {
+  await loadTasks();
+}
+
+// ── Load Tasks ────────────────────────────────────────────────────────────────
+async function loadTasks() {
+  S.tasks = [];
+  S.currentIdx = 0;
+  S.sessionDone = 0;
+  S.submittedTaskIds = {};
+  S.selection = null;
+  document.getElementById('app').innerHTML = '<div class="loading-msg">正在生成任务…</div>';
+  try {
+    const resp = await fetch(
+      `/annotation/b1/tasks?annotator_id=${encodeURIComponent(S.annotatorId)}`
+    );
+    const data = await resp.json();
+
+    if (data.error) {
+      document.getElementById('app').innerHTML =
+        `<div class="loading-msg" style="color:#e53e3e">${esc(data.error)}
+         <div style="margin-top:20px">
+           <button class="btn btn-primary" onclick="loadTasks()">重试</button>
+           <button class="btn btn-back" style="margin-left:8px" onclick="goLogin()">重新登录</button>
+         </div></div>`;
+      return;
+    }
+
+    S.tasks      = data.tasks || [];
+    S.totalTasks = data.total || 0;
+    S.doneCount  = data.done  || 0;
+
+    S.screen = S.tasks.length ? 'task' : 'done';
+    render();
+  } catch (e) {
+    document.getElementById('app').innerHTML =
+      `<div class="loading-msg" style="color:#e53e3e">网络错误：${esc(String(e))}
+       <div style="margin-top:20px">
+         <button class="btn btn-primary" onclick="loadTasks()">重试</button>
+         <button class="btn btn-back" style="margin-left:8px" onclick="goLogin()">重新登录</button>
+       </div></div>`;
+  }
+}
+
+// ── Task View ─────────────────────────────────────────────────────────────────
+function dimExampleHtml(dim) {
+  const ex = DIM_EXAMPLES[dim];
+  if (!ex) return '';
+  return `<div style="font-size:12px;color:#888;margin-top:6px">
+    ${esc(ex.desc)}　｜　<span style="color:#2d8a4e">高</span>：${esc(ex.EH)}　<span style="color:#c0392b">低</span>：${esc(ex.EL)}
+  </div>`;
+}
+
+function renderTask() {
+  if (S.currentIdx >= S.tasks.length) { S.screen = 'done'; return renderDone(); }
+  const task = S.tasks[S.currentIdx];
+  const globalDone = S.doneCount + S.sessionDone;
+  const pct = S.totalTasks ? Math.round(globalDone / S.totalTasks * 100) : 0;
+  const dimLabel = DIM_LABELS[task.dimension] || task.dimension;
+
+  const body = `
+  <div class="pairs-wrap">
+    <div class="pair-card">
+      <div class="pair-label">组 A</div>
+      <div class="chat-wrap" style="box-shadow:none;padding:8px 0;margin:0">
+        <div class="bubble-row user">
+          <div class="bubble" style="font-size:13px">${esc(task.text_a_context)}</div>
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
+        </div>
+        <div class="bubble-row bot">
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Bot</div>
+          <div class="bubble" style="font-size:13px">${esc(task.text_a_bot)}</div>
+        </div>
+      </div>
+    </div>
+    <div class="pair-card">
+      <div class="pair-label">组 B</div>
+      <div class="chat-wrap" style="box-shadow:none;padding:8px 0;margin:0">
+        <div class="bubble-row user">
+          <div class="bubble" style="font-size:13px">${esc(task.text_b_context)}</div>
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Ta</div>
+        </div>
+        <div class="bubble-row bot">
+          <div class="bubble-avatar" style="width:22px;height:22px;font-size:11px">Bot</div>
+          <div class="bubble" style="font-size:13px">${esc(task.text_b_bot)}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="question-block">
+    <div class="question-text">
+      哪组 Bot 回复更<span class="dim-highlight">【${esc(dimLabel)}】</span>？
+      ${dimExampleHtml(task.dimension)}
+    </div>
+    <div class="choice-grid cols-2">
+      <div class="choice-btn${S.selection === 'A' ? ' selected' : ''}" onclick="selectOption('A')">
+        <div class="choice-name">A 更${esc(dimLabel)}</div>
+      </div>
+      <div class="choice-btn${S.selection === 'B' ? ' selected' : ''}" onclick="selectOption('B')">
+        <div class="choice-name">B 更${esc(dimLabel)}</div>
+      </div>
+    </div>
+  </div>`;
+
+  return `
+  <div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar-fill" style="width:${pct}%"></div>
+    </div>
+    <div class="header-strip">
+      <span class="annotator-tag">🎨 Style 对比 · ${esc(S.annotatorId)}</span>
+      <span class="task-counter">${globalDone + 1} / ${S.totalTasks}</span>
+    </div>
+    ${body}
+    <div class="action-row" style="justify-content:space-between">
+      <button class="btn btn-back" onclick="goBack()" ${S.currentIdx === 0 ? 'disabled style="opacity:.3;cursor:not-allowed"' : ''}>
+        ← 上一题
+      </button>
+      <button class="btn btn-skip" onclick="goLogin()">登出</button>
+    </div>
+  </div>`;
+}
+
+// ── Selection & Submit ────────────────────────────────────────────────────────
+let _submitting = false;
+function selectOption(val) {
+  if (_submitting) return;
+  S.selection = val;
+  render();
+  setTimeout(() => submitTask(), 250);
+}
+
+function goBack() {
+  if (S.currentIdx > 0) {
+    S.currentIdx--;
+    S.selection = null;
+    render();
+  }
+}
+
+async function submitTask() {
+  if (S.selection === null || _submitting) return;
+  _submitting = true;
+  const task = S.tasks[S.currentIdx];
+  const body = {
+    task_type:    task.task_type,
+    annotator_id: S.annotatorId,
+    task_id:      task.task_id,
+    answer:       S.selection,
+  };
+
+  try {
+    await fetch('/annotation/b1/submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!S.submittedTaskIds[task.task_id]) {
+      S.submittedTaskIds[task.task_id] = true;
+      S.sessionDone++;
+    }
+    S.currentIdx++;
+    S.selection = null;
+    if (S.currentIdx >= S.tasks.length) S.screen = 'done';
+    render();
+  } catch (e) {
+    alert('提交失败，请检查网络：' + String(e));
+  } finally {
+    _submitting = false;
+  }
+}
+
+// ── Done ──────────────────────────────────────────────────────────────────────
+function renderDone() {
+  const totalDone = S.doneCount + S.sessionDone;
+  return `
+  <div class="done-wrap">
+    <div class="done-icon">🎉</div>
+    <h2>全部完成！</h2>
+    <p>感谢您的参与，您的标注数据已保存。</p>
+    <div class="stats-row">
+      <div class="stat-pill"><strong>${S.sessionDone}</strong>本次完成</div>
+      <div class="stat-pill"><strong>${totalDone}</strong>累计完成</div>
+      <div class="stat-pill"><strong>${S.totalTasks}</strong>总题数</div>
+    </div>
+    <div style="margin-top:28px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="loadTasks()">刷新任务</button>
+      <button class="btn btn-back" onclick="goLogin()">换人</button>
+    </div>
+  </div>`;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  const saved = localStorage.getItem('annotation_b1_annotator_id');
+  if (saved) {
+    S.annotatorId = saved;
+    await loadTasks();
+  } else {
+    render();
+  }
+})();
+</script>
+</body>
+</html>

@@ -1967,6 +1967,17 @@ async def _ensure_annotation_tables():
                 created_at TEXT NOT NULL
             )
         """))
+        # 每次提交一条记录，用于统计「二次提交」（同一题多次提交）
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS annotation_submission_log (
+                id SERIAL PRIMARY KEY,
+                annotator_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                answer TEXT NOT NULL DEFAULT '',
+                timestamp TEXT NOT NULL
+            )
+        """))
         # ── Migrate existing CSV if DB is empty ──
         row = await conn.execute(text("SELECT COUNT(*) FROM annotation_results"))
         count = row.scalar()
@@ -2009,8 +2020,49 @@ async def _db_get_submitted(annotator_id: str) -> dict[str, str]:
         return {tid: "" for tid in _get_submitted_task_ids_csv(annotator_id)}
 
 
+def _parse_annotation_ts(ts_str: str | None) -> datetime | None:
+    """Parse timestamp from annotation_results (TEXT ISO)."""
+    if not ts_str:
+        return None
+    try:
+        s = (ts_str or "").strip().replace("Z", "+00:00")
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+async def _db_get_submission_times(annotator_id: str) -> list[dict]:
+    """按提交时间排序返回该标注员每条提交的 task_id, task_type, timestamp, seconds_since_prev。"""
+    await _ensure_annotation_tables()
+    try:
+        db = get_db_manager()
+        from sqlalchemy import text
+        async with db.engine.connect() as conn:
+            rows = await conn.execute(
+                text("SELECT task_id, task_type, timestamp FROM annotation_results WHERE annotator_id = :aid ORDER BY timestamp"),
+                {"aid": annotator_id},
+            )
+            raw = [(r[0], r[1], r[2]) for r in rows]
+    except Exception:
+        return []
+    out: list[dict] = []
+    prev_dt = None
+    for task_id, task_type, ts_str in raw:
+        dt = _parse_annotation_ts(ts_str)
+        sec = round((dt - prev_dt).total_seconds(), 1) if (prev_dt and dt) else None
+        out.append({
+            "task_id": task_id,
+            "task_type": task_type,
+            "timestamp": ts_str,
+            "seconds_since_prev": sec,
+        })
+        if dt:
+            prev_dt = dt
+    return out
+
+
 async def _db_insert_result(annotator_id: str, task_id: str, task_type: str, answer: str, ts: str):
-    """Insert one annotation result into DB (+ CSV backup)."""
+    """Insert one annotation result into DB (+ CSV backup).每次提交同时写入 submission_log 以便统计二次提交。"""
     await _ensure_annotation_tables()
     try:
         db = get_db_manager()
@@ -2020,6 +2072,10 @@ async def _db_insert_result(annotator_id: str, task_id: str, task_type: str, ans
                 INSERT INTO annotation_results (annotator_id, task_id, task_type, answer, timestamp)
                 VALUES (:aid, :tid, :tt, :ans, :ts)
                 ON CONFLICT (annotator_id, task_id) DO UPDATE SET answer = :ans, timestamp = :ts
+            """), {"aid": annotator_id, "tid": task_id, "tt": task_type, "ans": answer, "ts": ts})
+            await conn.execute(text("""
+                INSERT INTO annotation_submission_log (annotator_id, task_id, task_type, answer, timestamp)
+                VALUES (:aid, :tid, :tt, :ans, :ts)
             """), {"aid": annotator_id, "tid": task_id, "tt": task_type, "ans": answer, "ts": ts})
     except Exception as e:
         logger.warning("[Annotation] DB insert failed, CSV only: %s", e)
@@ -2446,6 +2502,165 @@ async def submit_annotation(request: Request):
 
     await _db_insert_result(annotator_id, task_id, task_type, answer_str, ts)
 
+    return JSONResponse({"ok": True})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# B1-only Annotation Routes  /annotation/b1/
+# ══════════════════════════════════════════════════════════════════════════════
+
+_B1ONLY_STATIC = Path(__file__).parent / "static" / "annotation"
+
+
+def _allocate_b1only_tasks(annotator_id: str) -> list[dict]:
+    """Generate 300 B1-only style_compare tasks (5 dims × 60 = 300).
+
+    Gap distribution per dim (per_combo=6 instead of 12):
+      gap=1: 4 combos × 6 = 24
+      gap=2: 3 combos × 6 = 18
+      gap=3: 2 combos × 6 = 12
+      gap=4: 1 combo  × 6 =  6
+      total per dim = 60
+    """
+    import random as _random
+
+    _load_pool()
+    pool = _annotation_pool
+    idx  = _annotation_pool_indices
+    by_dim_tier = idx["by_dim_tier"]
+
+    STYLE_DIMS = ["FORMALITY", "POLITENESS", "FRIENDLINESS", "CERTAINTY", "EMOTIONAL_TONE"]
+    B1_GAP_SPEC = [
+        (1, [("EL", "L"), ("L", "M"), ("M", "H"), ("H", "EH")], 6),
+        (2, [("EL", "M"), ("L", "H"), ("M", "EH")], 6),
+        (3, [("EL", "H"), ("L", "EH")], 6),
+        (4, [("EL", "EH")], 6),
+    ]
+
+    # Different seed from main experiment so samples don't overlap predictably
+    h = 0
+    for c in f"b1only_{annotator_id}":
+        h = ((h * 31) + ord(c)) & 0xFFFFFFFF
+    rng = _random.Random(h)
+    used: set[int] = set()
+    tasks: list[dict] = []
+
+    for dim in STYLE_DIMS:
+        for gap, combos, per_combo in B1_GAP_SPEC:
+            for tier_lo, tier_hi in combos:
+                avail_lo = [i for i in by_dim_tier.get(dim, {}).get(tier_lo, []) if i not in used]
+                avail_hi = [i for i in by_dim_tier.get(dim, {}).get(tier_hi, []) if i not in used]
+                rng.shuffle(avail_lo)
+                rng.shuffle(avail_hi)
+                n = min(per_combo, len(avail_lo), len(avail_hi))
+                for p in range(n):
+                    idx_lo, idx_hi = avail_lo[p], avail_hi[p]
+                    used.add(idx_lo)
+                    used.add(idx_hi)
+                    r_lo, r_hi = pool[idx_lo], pool[idx_hi]
+                    swap = rng.random() < 0.5
+                    if swap:
+                        da, db, higher = r_hi, r_lo, "a"
+                    else:
+                        da, db, higher = r_lo, r_hi, "b"
+                    tasks.append({
+                        "task_type": "style_compare",
+                        "task_id": f"B1X_{len(tasks)}",
+                        "dimension": dim,
+                        "text_a_context": da["context"],
+                        "text_a_bot": da["text"],
+                        "text_b_context": db["context"],
+                        "text_b_bot": db["text"],
+                        "ground_truth": {
+                            "tier_lo": tier_lo, "tier_hi": tier_hi,
+                            "gap": gap, "higher": higher,
+                        },
+                        "is_qc_anchor": gap >= 3,
+                        "is_repeat": False,
+                    })
+
+    # Shuffle within each dimension group, then reassign task_ids with annotator prefix
+    rng.shuffle(tasks)
+    for seq, t in enumerate(tasks, 1):
+        t["task_id"] = f"b1x_{annotator_id}_{seq:04d}"
+
+    return tasks
+
+
+async def _get_or_create_b1only_tasks(annotator_id: str) -> list[dict]:
+    """Get cached B1-only tasks from DB/file or generate new ones."""
+    cache_key = f"b1only::{annotator_id}"
+    pool_ver  = _pool_version()
+
+    cached = await _db_get_task_cache(cache_key, pool_ver)
+    if cached:
+        return cached
+
+    _ANNOTATION_OUTPUT.mkdir(parents=True, exist_ok=True)
+    safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in annotator_id)
+    task_file = _ANNOTATION_OUTPUT / f"tasks_b1only_{safe_name}.json"
+
+    if task_file.exists():
+        tasks = json.loads(task_file.read_text("utf-8"))
+        await _db_save_task_cache(cache_key, tasks, pool_ver)
+        return tasks
+
+    tasks = _allocate_b1only_tasks(annotator_id)
+    task_file.write_text(json.dumps(tasks, ensure_ascii=False))
+    await _db_save_task_cache(cache_key, tasks, pool_ver)
+    return tasks
+
+
+@app.get("/annotation/b1/", response_class=HTMLResponse)
+async def b1only_page():
+    """B1-only 标注工具页面。"""
+    html_path = _B1ONLY_STATIC / "b1only.html"
+    if not html_path.exists():
+        return HTMLResponse("<h1>b1only.html 尚未部署</h1>", status_code=503)
+    return HTMLResponse(html_path.read_text("utf-8"))
+
+
+@app.get("/annotation/b1/tasks")
+async def get_b1only_tasks(annotator_id: str):
+    """生成或加载该标注员的 B1-only 任务集，过滤已提交的，返回剩余任务。"""
+    annotator_id = annotator_id.strip()
+    if not annotator_id:
+        raise HTTPException(status_code=400, detail="annotator_id 不能为空")
+
+    try:
+        all_tasks = await _get_or_create_b1only_tasks(annotator_id)
+    except FileNotFoundError as e:
+        return JSONResponse({"tasks": [], "total": 0, "remaining": 0, "error": str(e)})
+
+    submitted = await _db_get_submitted(annotator_id)
+    remaining = [t for t in all_tasks if t["task_id"] not in submitted]
+
+    return JSONResponse({
+        "tasks": remaining,
+        "total": len(all_tasks),
+        "remaining": len(remaining),
+        "done": len(submitted),
+    })
+
+
+@app.post("/annotation/b1/submit")
+async def submit_b1only_annotation(request: Request):
+    """提交一条 B1-only 标注结果，写入 DB + CSV 备份（复用同一张表）。"""
+    data = await request.json()
+    task_type    = (data.get("task_type") or "").strip().lower()
+    annotator_id = (data.get("annotator_id") or "").strip()
+    task_id      = (data.get("task_id") or "").strip()
+
+    if not task_type or not annotator_id or not task_id:
+        raise HTTPException(status_code=400, detail="task_type / annotator_id / task_id 不能为空")
+    if task_type != "style_compare":
+        raise HTTPException(status_code=400, detail="B1-only 实验仅接受 style_compare 类型")
+
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    raw_answer = data.get("answer", "")
+    answer_str = json.dumps(raw_answer, ensure_ascii=False) if isinstance(raw_answer, (dict, list)) else str(raw_answer)
+
+    await _db_insert_result(annotator_id, task_id, task_type, answer_str, ts)
     return JSONResponse({"ok": True})
 
 
