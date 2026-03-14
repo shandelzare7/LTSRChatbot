@@ -342,7 +342,7 @@ function renderTutorial() {
     <h2 style="font-size:22px;margin-bottom:6px">标注指南</h2>
     <p style="font-size:14px;color:#666;margin-bottom:20px">
       请先阅读以下 5 个语言风格维度的定义和示例，了解每个档位的含义后再开始标注。<br>
-      每道题展示两组对话（A 和 B），请判断哪组 Bot 回复在指定维度上程度更高。
+      每道题展示两组对话（A 和 B），请判断哪个 Bot 回复在指定维度上程度更高。
     </p>
     ${dimSections}
     <div style="text-align:center;margin-top:24px">
@@ -444,7 +444,7 @@ function renderTask() {
   </div>
   <div class="question-block">
     <div class="question-text">
-      哪组 Bot 回复<span class="dim-highlight">【${esc(DIM_COMPARE_LABELS[task.dimension] || ('更' + dimLabel))}】</span>？
+      哪个 Bot 回复<span class="dim-highlight">【${esc(DIM_COMPARE_LABELS[task.dimension] || ('更' + dimLabel))}】</span>？
       ${dimExampleHtml(task.dimension)}
     </div>
     <div class="choice-grid cols-2">
