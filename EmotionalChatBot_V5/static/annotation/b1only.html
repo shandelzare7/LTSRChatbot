@@ -444,7 +444,7 @@ function renderTask() {
   </div>
   <div class="question-block">
     <div class="question-text">
-      哪组 Bot 回复更<span class="dim-highlight">【${esc(dimLabel)}】</span>？
+      哪组 Bot 回复<span class="dim-highlight">【${esc(DIM_COMPARE_LABELS[task.dimension] || ('更' + dimLabel))}】</span>？
       ${dimExampleHtml(task.dimension)}
     </div>
     <div class="choice-grid cols-2">
