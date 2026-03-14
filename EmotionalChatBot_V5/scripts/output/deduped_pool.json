@@ -66,28 +66,6 @@
     }
   },
   {
-    "text": "真的假的？那换个如果，它睡醒发现世界都变了，会不会想当演员？",
-    "context": "告诉你一个冷知识——蜗牛可以睡三年。",
-    "route": "move_10",
-    "session": "smoke_test",
-    "round": 1,
-    "style": {
-      "FORMALITY": 0.5159292896115011,
-      "POLITENESS": 0.8117462522460323,
-      "FRIENDLINESS": 1.0,
-      "CERTAINTY": 0.5065265997867352,
-      "EMOTIONAL_TONE": 0.6192515534562614
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "EH",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "真没想到蜗牛能睡三年，那要是换成我，睡醒怕是连歌都忘词了。",
     "context": "告诉你一个冷知识——蜗牛可以睡三年。",
     "route": "move_10",
@@ -267,28 +245,6 @@
     "text": "真的啊？我刚在骑车回家，耳机里放着新写的歌，你拍片子都翻啥冷门资料呀？",
     "context": "真没听过，但挺有意思。我平时拍片子也爱翻这些冷门资料，说不定哪天用得上。",
     "route": "move_8",
-    "session": "smoke_test",
-    "round": 3,
-    "style": {
-      "FORMALITY": 0.5081928312111874,
-      "POLITENESS": 0.8002776943334144,
-      "FRIENDLINESS": 1.0,
-      "CERTAINTY": 0.5076231157152589,
-      "EMOTIONAL_TONE": 0.6198055053276991
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "EH",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，你要是没拍片子，会不会去演戏？我其实挺想试的，但一直没敢。",
-    "context": "真没听过，但挺有意思。我平时拍片子也爱翻这些冷门资料，说不定哪天用得上。",
-    "route": "move_10",
     "session": "smoke_test",
     "round": 3,
     "style": {
@@ -839,28 +795,6 @@
     "text": "我叫邓宇航，跟你一样怕冷笑话尬，但咱俩都挺能聊的，像我同事老李，嘴碎但不烦人。",
     "context": "嘿嘿，那就好，我真怕你心里嫌我啰嗦。你叫啥呀？",
     "route": "move_7",
-    "session": "10a_cooking_share",
-    "round": 4,
-    "style": {
-      "FORMALITY": 0.3719628632923832,
-      "POLITENESS": 0.7497417871919085,
-      "FRIENDLINESS": 0.8482967289473253,
-      "CERTAINTY": 0.4285271849371274,
-      "EMOTIONAL_TONE": 0.26042532254571993
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "我叫邓宇航，你呢？换个如果，咱俩一开始就不问名字，现在是不是还得绕一圈才聊到这儿？",
-    "context": "嘿嘿，那就好，我真怕你心里嫌我啰嗦。你叫啥呀？",
-    "route": "move_10",
     "session": "10a_cooking_share",
     "round": 4,
     "style": {
@@ -3256,28 +3190,6 @@
     }
   },
   {
-    "text": "换个如果，要是雨天能直接走进电影里，我就不回家了，就在那条街遛弯儿。",
-    "context": "我懂，那电影真像个人躲雨的角落，不吵，也不用解释啥。",
-    "route": "move_10",
-    "session": "10b_hiking_weekend",
-    "round": 17,
-    "style": {
-      "FORMALITY": 0.3283685928760931,
-      "POLITENESS": 0.5127497221191051,
-      "FRIENDLINESS": 0.8395057179498367,
-      "CERTAINTY": 0.5691089993456524,
-      "EMOTIONAL_TONE": 0.6165442499395324
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "对啊，雨天看它，连锅盖都不用盖，安静得刚好。",
     "context": "我懂，那电影真像个人躲雨的角落，不吵，也不用解释啥。",
     "route": "move_9",
@@ -3297,28 +3209,6 @@
       "FRIENDLINESS": "EH",
       "CERTAINTY": "M",
       "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，要是生活不吵，我可能还是想看那部电影。不是因为躲，就是喜欢那雨。",
-    "context": "你为啥总想躲那儿啊？是生活太吵了，还是你也不太会说心里话？",
-    "route": "move_10",
-    "session": "10b_hiking_weekend",
-    "round": 18,
-    "style": {
-      "FORMALITY": 0.33491608766071573,
-      "POLITENESS": 0.5758856767960767,
-      "FRIENDLINESS": 0.8204963930661586,
-      "CERTAINTY": 0.5450143315201362,
-      "EMOTIONAL_TONE": 0.5122892304601372
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
     }
   },
   {
@@ -4334,28 +4224,6 @@
     }
   },
   {
-    "text": "两种都玩，文明那种慢慢攒科技超上头，炉石突然翻盘也爽。换个如果，我要是有你那运动量，游戏早满级了。",
-    "context": "你玩啥策略游戏啊？我真好奇，是那种要算好几步的，还是快节奏打脸的？",
-    "route": "move_10",
-    "session": "10c_ghost_story",
-    "round": 14,
-    "style": {
-      "FORMALITY": 0.33262242726963626,
-      "POLITENESS": 0.5200907583046652,
-      "FRIENDLINESS": 0.8427963205941168,
-      "CERTAINTY": 0.48055590290485484,
-      "EMOTIONAL_TONE": 0.6924946372701685
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "我俩都上头啊，昨天凌晨在《文明》里算了一宿，差点没赶上早八。",
     "context": "你玩啥策略游戏啊？我真好奇，是那种要算好几步的，还是快节奏打脸的？",
     "route": "move_6",
@@ -5126,28 +4994,6 @@
     }
   },
   {
-    "text": "换个如果，你带个零食去，紧张劲儿就少一半了。",
-    "context": "我有点紧张，但听起来挺有意思，行吧，改天试试。",
-    "route": "move_10",
-    "session": "10b_salary_negotiate",
-    "round": 5,
-    "style": {
-      "FORMALITY": 0.5883665253443057,
-      "POLITENESS": 0.6283875187925503,
-      "FRIENDLINESS": 0.31839971291728386,
-      "CERTAINTY": 0.4844576991142707,
-      "EMOTIONAL_TONE": 0.48358293011846415
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "L",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "我刚把钓竿从车后座搬出来，你来的时候顺路带瓶水？",
     "context": "我有点紧张，但听起来挺有意思，行吧，改天试试。",
     "route": "move_8",
@@ -5269,28 +5115,6 @@
       "FRIENDLINESS": 0.31839971291728386,
       "CERTAINTY": 0.4844576991142707,
       "EMOTIONAL_TONE": 0.48358293011846415
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "L",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，你带我去钓鱼，我可能真敢试试，至少不一个人瞎琢磨。",
-    "context": "紧张很正常，我第一次也手抖，别怕，我带你。",
-    "route": "move_10",
-    "session": "10b_salary_negotiate",
-    "round": 6,
-    "style": {
-      "FORMALITY": 0.5768129604089278,
-      "POLITENESS": 0.6188254979312093,
-      "FRIENDLINESS": 0.2766488385313819,
-      "CERTAINTY": 0.4471262056967059,
-      "EMOTIONAL_TONE": 0.4649948804885902
     },
     "em": 0,
     "tiers": {
@@ -5555,28 +5379,6 @@
       "FRIENDLINESS": 0.32115486444696084,
       "CERTAINTY": 0.4835136679759803,
       "EMOTIONAL_TONE": 0.4935619062010371
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "L",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，我第一次做咖啡没手抖，可能现在早就不干这行了。",
-    "context": "行，你来我就多教点，反正我第一次也慌得不行。",
-    "route": "move_10",
-    "session": "10b_salary_negotiate",
-    "round": 10,
-    "style": {
-      "FORMALITY": 0.5700171463988004,
-      "POLITENESS": 0.6057644063310454,
-      "FRIENDLINESS": 0.2849259016962938,
-      "CERTAINTY": 0.44693326111709647,
-      "EMOTIONAL_TONE": 0.46476041668195
     },
     "em": 0,
     "tiers": {
@@ -6732,28 +6534,6 @@
     }
   },
   {
-    "text": "我最近老去巷子里那家日式咖啡馆，老板养了只三花猫，坐那儿发呆一下午，换个如果——要是猫不让我摸，我可能就换店了。",
-    "context": "唱老歌多点，Beyond张学友，偶尔来首晴天。你呢？探店都去啥地儿？",
-    "route": "move_10",
-    "session": "10b_kdrama_binge",
-    "round": 13,
-    "style": {
-      "FORMALITY": 0.3144657223777105,
-      "POLITENESS": 0.5872819107877398,
-      "FRIENDLINESS": 0.8884028644394087,
-      "CERTAINTY": 0.469756639250642,
-      "EMOTIONAL_TONE": 0.549664185577189
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "Beyond确实经典，三花猫都赖你腿上，你这人该多招猫喜欢啊。",
     "context": "我也爱听Beyond！探店就爱钻小巷子，有家咖啡店老板养了只三花猫，去了三次它都躺我腿上。",
     "route": "move_2",
@@ -7249,28 +7029,6 @@
       "FRIENDLINESS": 0.8934052814402915,
       "CERTAINTY": 0.5100243984310929,
       "EMOTIONAL_TONE": 0.6024269594542426
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，你要是不瞎操心，咱早约好去唱K了，三花猫都能当点歌员。",
-    "context": "我也老想太多，怕说错话怕帮不上忙  \n不过你这么说，我真挺开心的",
-    "route": "move_10",
-    "session": "10b_kdrama_binge",
-    "round": 20,
-    "style": {
-      "FORMALITY": 0.3079452199285237,
-      "POLITENESS": 0.5113282755437827,
-      "FRIENDLINESS": 0.9820355286896348,
-      "CERTAINTY": 0.5610526123016589,
-      "EMOTIONAL_TONE": 0.6342191094508658
     },
     "em": 0,
     "tiers": {
@@ -8272,28 +8030,6 @@
     }
   },
   {
-    "text": "换个如果，咱不练力量，先搞耐力，你觉得能撑住不？我倒是有点想法，但怕你嫌太野。",
-    "context": "我也没说你不对啊，就是觉得可以试试别的方案，你先说说你心里怎么想的？",
-    "route": "move_10",
-    "session": "10b_wedding_prep",
-    "round": 2,
-    "style": {
-      "FORMALITY": 0.35649926933561565,
-      "POLITENESS": 0.4182851396056086,
-      "FRIENDLINESS": 0.7832559618514879,
-      "CERTAINTY": 0.38694812796666256,
-      "EMOTIONAL_TONE": 0.3557175882737677
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
     "text": "你提到的别的方案，具体是哪种？我之前那套你哪块觉得不靠谱？",
     "context": "我也没说你不对啊，就是觉得可以试试别的方案，你先说说你心里怎么想的？",
     "route": "move_1",
@@ -8378,28 +8114,6 @@
       "POLITENESS": "M",
       "FRIENDLINESS": "H",
       "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "换个如果，咱们把主花换成紫色绣球，搭配白满天星，效果可能更出乎意料，你觉得呢？",
-    "context": "我其实觉得咱那套挺稳的，但你既然提了，我也想听听你那边有啥新花样。",
-    "route": "move_10",
-    "session": "10b_wedding_prep",
-    "round": 3,
-    "style": {
-      "FORMALITY": 0.3628907462974992,
-      "POLITENESS": 0.38746627919108545,
-      "FRIENDLINESS": 0.7461830164773258,
-      "CERTAINTY": 0.421279353141678,
-      "EMOTIONAL_TONE": 0.3451559141477827
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "L",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "M",
       "EMOTIONAL_TONE": "L"
     }
   },
@@ -8998,28 +8712,6 @@
     }
   },
   {
-    "text": "红绿先试行，要真觉得不够劲，咱们换个如果——直接上红蓝，客户骂完可能还得夸。",
-    "context": "我想试红配蓝，看着有劲儿，但怕客户觉得太跳，先拿红绿试试看。",
-    "route": "move_10",
-    "session": "10b_wedding_prep",
-    "round": 9,
-    "style": {
-      "FORMALITY": 0.4074591741066737,
-      "POLITENESS": 0.28039922154593355,
-      "FRIENDLINESS": 0.8057489622578382,
-      "CERTAINTY": 0.5891909883498334,
-      "EMOTIONAL_TONE": 0.5113828639819942
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "L",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "红绿确实安全，我其实挺想看红配蓝的，你敢试我就敢跟，反正先拿红绿探路也行。",
     "context": "我想试红配蓝，看着有劲儿，但怕客户觉得太跳，先拿红绿试试看。",
     "route": "move_4",
@@ -9395,28 +9087,6 @@
   },
   {
     "text": "冯宇航，你这人真逗，连我叫啥都不知道还敢请我吃火锅？换种如果，你早问这问题，咱现在都吃上辣锅了。",
-    "context": "红蓝真炸了我请你吃火锅，不过你叫啥啊？我居然到现在还不知道。",
-    "route": "move_10",
-    "session": "10b_wedding_prep",
-    "round": 14,
-    "style": {
-      "FORMALITY": 0.40791853056381516,
-      "POLITENESS": 0.3183969087523972,
-      "FRIENDLINESS": 0.8308801996197637,
-      "CERTAINTY": 0.5477111138513152,
-      "EMOTIONAL_TONE": 0.5014989409842696
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "L",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "冯宇航，健身教练，吃火锅挑锅底但不挑人。换个如果，红蓝炸了咱俩直接开练，不等明天了。",
     "context": "红蓝真炸了我请你吃火锅，不过你叫啥啊？我居然到现在还不知道。",
     "route": "move_10",
     "session": "10b_wedding_prep",
@@ -12672,28 +12342,6 @@
     }
   },
   {
-    "text": "换个如果，咱不约川菜改吃火锅，是不是更热闹？我认识一家超正宗的，明天去？",
-    "context": "我也超爱川菜！辣到冒汗才爽，尤其是和朋友一起吃，热闹得不行。",
-    "route": "move_10",
-    "session": "10a_pet_adoption",
-    "round": 15,
-    "style": {
-      "FORMALITY": 0.42061794665081964,
-      "POLITENESS": 0.6141143286547499,
-      "FRIENDLINESS": 0.8154030106099905,
-      "CERTAINTY": 0.5656207714907321,
-      "EMOTIONAL_TONE": 0.5799195321024415
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "太好了！那这周末去那家新开的麻辣火锅？听说辣得人直跺脚～",
     "context": "我也超爱川菜！辣到冒汗才爽，尤其是和朋友一起吃，热闹得不行。",
     "route": "free",
@@ -14498,28 +14146,6 @@
     }
   },
   {
-    "text": "换个如果，你后颈麻是因为我刚吃完了辣子鸡，嘴上还沾着辣椒粉，说话喷你了——那我现在得赶紧买瓶冰阔落赔罪。",
-    "context": "你这脑洞挺大啊，名字设计师？我后颈麻是因为你说话太突然了，不是因为魔法。  \n不过…你这么一说，我倒真有点想靠近你了。",
-    "route": "move_10",
-    "session": "10b_birthday_surprise",
-    "round": 6,
-    "style": {
-      "FORMALITY": 0.23253881934234172,
-      "POLITENESS": 0.5547811271510963,
-      "FRIENDLINESS": 1.0,
-      "CERTAINTY": 0.46972737631811556,
-      "EMOTIONAL_TONE": 0.5184682202571065
-    },
-    "em": 3,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "你再说一遍名字？我怕我记不住，手心又该出汗了。  \n冯月瑶……嗯，这次我念慢点。",
     "context": "你这脑洞挺大啊，名字设计师？我后颈麻是因为你说话太突然了，不是因为魔法。  \n不过…你这么一说，我倒真有点想靠近你了。",
     "route": "move_2",
@@ -15334,28 +14960,6 @@
     }
   },
   {
-    "text": "换个如果，你没说这句话，我估计现在正躲厕所里练心跳呢。",
-    "context": "我喉咙还紧着，但胸口突然暖了点，谢谢你在这儿。",
-    "route": "move_10",
-    "session": "10b_birthday_surprise",
-    "round": 16,
-    "style": {
-      "FORMALITY": 0.2504376959895572,
-      "POLITENESS": 0.556786731898343,
-      "FRIENDLINESS": 0.9895221620328826,
-      "CERTAINTY": 0.4627592375151028,
-      "EMOTIONAL_TONE": 0.4656544448744166
-    },
-    "em": 3,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "我刚在拼图，手心还潮着呢，你这暖意来得正好，差点把最后一块拼错了。",
     "context": "我听完那句谢谢，胸口也暖了，手心还潮着，但没那么慌了。",
     "route": "move_8",
@@ -15653,28 +15257,6 @@
       "FRIENDLINESS": 0.7613196701992806,
       "CERTAINTY": 0.24115446717621633,
       "EMOTIONAL_TONE": 0.3927500807295394
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "你播客讲啥的？我有点想听，但怕自己说不好评价。换个如果，你当初没做这个，我可能永远不知道你心里有这么多话。",
-    "context": "其实我也没想好怎么开口，但你这么说，我反而想多讲点。最近我做了个新播客，要不要听听看？",
-    "route": "move_10",
-    "session": "10c_funeral_support",
-    "round": 4,
-    "style": {
-      "FORMALITY": 0.30824097501247283,
-      "POLITENESS": 0.6917894646971496,
-      "FRIENDLINESS": 0.7252774535184695,
-      "CERTAINTY": 0.24629915377805378,
-      "EMOTIONAL_TONE": 0.34868018130481115
     },
     "em": 0,
     "tiers": {
@@ -16412,28 +15994,6 @@
     }
   },
   {
-    "text": "我啊，最近闲得发慌，天天做甜品刷短视频。  \n换个如果，我有你那忙劲儿，说不定真去写小说了。",
-    "context": "嗯，最近是有点这样，店里的事一堆，但又说不上哪没做好。  \n你呢，现在忙啥呢？",
-    "route": "move_10",
-    "session": "10a_rainy_mood",
-    "round": 3,
-    "style": {
-      "FORMALITY": 0.3716802270157835,
-      "POLITENESS": 0.6631757663529061,
-      "FRIENDLINESS": 0.4831494458283983,
-      "CERTAINTY": 0.28120404668407234,
-      "EMOTIONAL_TONE": 0.20705324611113
-    },
-    "em": 1,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
     "text": "最近做了布朗尼，烤箱还开着呢，糖霜没收拾。",
     "context": "你做啥甜品啊？我最近连刷短视频的时间都挤不出来，日子是挺散的。",
     "route": "move_8",
@@ -16591,28 +16151,6 @@
     "text": "我拖是因为店里的单子总在变，做完这个又来新的，根本停不下来。",
     "context": "我也总拖着，说好每周做一次，结果拖了两个月。  \n你连刷视频都嫌浪费，真忙啊。",
     "route": "move_9",
-    "session": "10a_rainy_mood",
-    "round": 8,
-    "style": {
-      "FORMALITY": 0.38320998938964335,
-      "POLITENESS": 0.68331720715467,
-      "FRIENDLINESS": 0.5016514599793762,
-      "CERTAINTY": 0.24961447606533077,
-      "EMOTIONAL_TONE": 0.21025247021696528
-    },
-    "em": 1,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "换个如果，我每天少干半小时店里的事，是不是也能做出布朗尼了？",
-    "context": "我也总拖着，说好每周做一次，结果拖了两个月。  \n你连刷视频都嫌浪费，真忙啊。",
-    "route": "move_10",
     "session": "10a_rainy_mood",
     "round": 8,
     "style": {
@@ -16870,28 +16408,6 @@
       "POLITENESS": "H",
       "FRIENDLINESS": "M",
       "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "那换个如果，你做出来我先试，要是好吃，我就把你的配方写进菜单里。",
-    "context": "我知道了，老书店旁边，你店。布朗尼我真做，不拖了。",
-    "route": "move_10",
-    "session": "10a_rainy_mood",
-    "round": 16,
-    "style": {
-      "FORMALITY": 0.4372629027621974,
-      "POLITENESS": 0.5704486786032943,
-      "FRIENDLINESS": 0.6733537878237641,
-      "CERTAINTY": 0.40466718915828326,
-      "EMOTIONAL_TONE": 0.5728631012767813
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "M",
       "EMOTIONAL_TONE": "M"
     }
   },
@@ -17468,28 +16984,6 @@
     }
   },
   {
-    "text": "哈哈，换个如果，你要是带错的是瑜伽课，是不是得在垫子上转圈找人？",
-    "context": "你真愿意听？那我说个糗事，上次在健身房，我带团课居然迷路了，找了十分钟才找到教室。",
-    "route": "move_10",
-    "session": "10c_cafe_work",
-    "round": 11,
-    "style": {
-      "FORMALITY": 0.5127673282708742,
-      "POLITENESS": 0.7756281974608912,
-      "FRIENDLINESS": 0.4823641093711211,
-      "CERTAINTY": 0.3988436799722356,
-      "EMOTIONAL_TONE": 0.2072266460054684
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
     "text": "哈哈你这情况，要是健身房有指示牌，估计早找到了。",
     "context": "你真愿意听？那我说个糗事，上次在健身房，我带团课居然迷路了，找了十分钟才找到教室。",
     "route": "move_10",
@@ -17603,28 +17097,6 @@
     "text": "哈哈，我确实慌了，但只能硬撑，不然学员更懵。",
     "context": "你这迷路还能变探险，真厉害，我肯定慌得不行。",
     "route": "move_2",
-    "session": "10c_cafe_work",
-    "round": 14,
-    "style": {
-      "FORMALITY": 0.5303916420106178,
-      "POLITENESS": 0.6332483253503729,
-      "FRIENDLINESS": 0.508109465631477,
-      "CERTAINTY": 0.5269460632892082,
-      "EMOTIONAL_TONE": 0.49063215911127817
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，我当初直接说“新课程叫迷宫燃脂”，说不定现在课都爆满了。",
-    "context": "你这迷路还能变探险，真厉害，我肯定慌得不行。",
-    "route": "move_10",
     "session": "10c_cafe_work",
     "round": 14,
     "style": {
@@ -19030,50 +18502,6 @@
     }
   },
   {
-    "text": "换个如果，你半夜打来，我跳起来接的那刻，心跳快是因为你。",
-    "context": "你心跳快是怕我真打，还是怕我打完你没接啊？",
-    "route": "move_10",
-    "session": "10a_gaming_night",
-    "round": 18,
-    "style": {
-      "FORMALITY": 0.2341281929788535,
-      "POLITENESS": 0.44605975549151317,
-      "FRIENDLINESS": 0.8910762763485198,
-      "CERTAINTY": 0.46214964328760993,
-      "EMOTIONAL_TONE": 0.5366671865900856
-    },
-    "em": 3,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "你再说一句，我真现在就拨过去。",
-    "context": "换个如果，你半夜打来，我跳起来接的那刻，心跳快是因为你。",
-    "route": "move_2",
-    "session": "10a_gaming_night",
-    "round": 19,
-    "style": {
-      "FORMALITY": 0.2493438420740803,
-      "POLITENESS": 0.3952999383187588,
-      "FRIENDLINESS": 0.9054144384810598,
-      "CERTAINTY": 0.5266207774958515,
-      "EMOTIONAL_TONE": 0.6269400109953123
-    },
-    "em": 3,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "L",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "你这问题跟问我养猫是图它乖还是图它半夜跑我床上一样——两样我都认了。",
     "context": "那你呢？你半夜打过来，是真想听我接，还是就想听我心跳啊？",
     "route": "move_7",
@@ -19250,28 +18678,6 @@
     }
   },
   {
-    "text": "我其实更想开家实体店，换个如果，线上先试水，说不定能攒点经验。",
-    "context": "我还没想开线上店，你呢？是自己也在考虑吗？",
-    "route": "move_10",
-    "session": "10c_cultural_shock",
-    "round": 4,
-    "style": {
-      "FORMALITY": 0.4786410455774297,
-      "POLITENESS": 0.7610124169071368,
-      "FRIENDLINESS": 0.5627185255471459,
-      "CERTAINTY": 0.43479651528626867,
-      "EMOTIONAL_TONE": 0.5076005868196101
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "我懂，心动又怕搞砸，我之前也这样。",
     "context": "我也没真打算，就是有点心动，但怕搞不好。",
     "route": "move_2",
@@ -19297,50 +18703,6 @@
     "text": "我懂，一听就心跳加速，腿还忍不住抖。",
     "context": "我也没真打算，就是有点心动，但怕搞不好。",
     "route": "move_5",
-    "session": "10c_cultural_shock",
-    "round": 5,
-    "style": {
-      "FORMALITY": 0.495441812341033,
-      "POLITENESS": 0.7475073659722966,
-      "FRIENDLINESS": 0.5002442368325783,
-      "CERTAINTY": 0.4081064612118797,
-      "EMOTIONAL_TONE": 0.4915308505549964
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，你先做个迷你试水版？小成本试试，真不行也没损失。",
-    "context": "我也没真打算，就是有点心动，但怕搞不好。",
-    "route": "move_10",
-    "session": "10c_cultural_shock",
-    "round": 5,
-    "style": {
-      "FORMALITY": 0.495441812341033,
-      "POLITENESS": 0.7475073659722966,
-      "FRIENDLINESS": 0.5002442368325783,
-      "CERTAINTY": 0.4081064612118797,
-      "EMOTIONAL_TONE": 0.4915308505549964
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，真开了呢？说不定比想的简单。",
-    "context": "我也没真打算，就是有点心动，但怕搞不好。",
-    "route": "move_10",
     "session": "10c_cultural_shock",
     "round": 5,
     "style": {
@@ -19993,28 +19355,6 @@
       "FORMALITY": "M",
       "POLITENESS": "H",
       "FRIENDLINESS": "H",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，北方的虫鸣换成浙南的蛙声，你还会觉得一样安静吗？",
-    "context": "没去过浙南，但小时候在北方乡下待过，也是那种一到晚上就安静得能听见虫子叫。",
-    "route": "move_10",
-    "session": "10c_cultural_shock",
-    "round": 17,
-    "style": {
-      "FORMALITY": 0.5028768726072348,
-      "POLITENESS": 0.6918816196638369,
-      "FRIENDLINESS": 0.5838537211875806,
-      "CERTAINTY": 0.4702612997502081,
-      "EMOTIONAL_TONE": 0.5643574362335212
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "M",
       "CERTAINTY": "M",
       "EMOTIONAL_TONE": "M"
     }
@@ -21255,28 +20595,6 @@
     "text": "其实我不太天天联系朋友，但每次聊起来都像没分开过，可能人少但真心就够了。",
     "context": "你觉得朋友之间需要天天联系吗？",
     "route": "move_9",
-    "session": "10c_nostalgia_90s",
-    "round": 1,
-    "style": {
-      "FORMALITY": 0.26747579337787025,
-      "POLITENESS": 0.651923233490713,
-      "FRIENDLINESS": 0.8723686509532979,
-      "CERTAINTY": 0.36529877137175,
-      "EMOTIONAL_TONE": 0.32710318484160333
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "换个如果啊，要是天天联系反而累呢？我跟老朋友一个月见一次，但聊起来跟昨天刚见过一样。",
-    "context": "你觉得朋友之间需要天天联系吗？",
-    "route": "move_10",
     "session": "10c_nostalgia_90s",
     "round": 1,
     "style": {
@@ -22550,28 +21868,6 @@
     }
   },
   {
-    "text": "我打算挂厨房窗边，要是长太长就改挂衣架上，反正换个如果也能活。",
-    "context": "行，等你拍，我好奇你挂哪儿，气根能长多长",
-    "route": "move_10",
-    "session": "10c_prenatal_worry",
-    "round": 13,
-    "style": {
-      "FORMALITY": 0.3997404645645917,
-      "POLITENESS": 0.37284826055969333,
-      "FRIENDLINESS": 0.8364793414986169,
-      "CERTAINTY": 0.5242151254772657,
-      "EMOTIONAL_TONE": 0.5455403120830282
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "L",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "我打算挂我店门口的挂钩上，你猜气根能长多长？",
     "context": "行，等你拍，我好奇你挂哪儿，气根能长多长",
     "route": "move_3",
@@ -22619,28 +21915,6 @@
     "text": "咖啡机边上确实合适，气根长到五厘米你真拍啊，我等着。",
     "context": "我打算挂咖啡机边上，气根长到五厘米我就拍给你，真有点痒痒的。",
     "route": "move_2",
-    "session": "10c_prenatal_worry",
-    "round": 14,
-    "style": {
-      "FORMALITY": 0.381414142367123,
-      "POLITENESS": 0.43563409471002945,
-      "FRIENDLINESS": 0.7281737044328804,
-      "CERTAINTY": 0.35683000699513634,
-      "EMOTIONAL_TONE": 0.4847629824255947
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，你挂冰箱上，气根可能长更慢，但咖啡机边确实最对。",
-    "context": "我打算挂咖啡机边上，气根长到五厘米我就拍给你，真有点痒痒的。",
-    "route": "move_10",
     "session": "10c_prenatal_worry",
     "round": 14,
     "style": {
@@ -23694,28 +22968,6 @@
     }
   },
   {
-    "text": "换个如果，你松一点，学员反而练得更稳。我试过，真管用。",
-    "context": "你这方法听着挺靠谱，试错摸门道，我是不是也该少盯点动作细节？",
-    "route": "move_10",
-    "session": "10c_drifting_apart",
-    "round": 19,
-    "style": {
-      "FORMALITY": 0.5563709889674725,
-      "POLITENESS": 0.4739142869353683,
-      "FRIENDLINESS": 0.4369331077333285,
-      "CERTAINTY": 0.5106494887655477,
-      "EMOTIONAL_TONE": 0.5187281247678703
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "谁说非得松？有时候较真才是护住人的本事。",
     "context": "你这方法听着挺靠谱，试错摸门道，我是不是也该少盯点动作细节？",
     "route": "move_13",
@@ -23749,28 +23001,6 @@
       "FRIENDLINESS": 0.4369331077333285,
       "CERTAINTY": 0.5106494887655477,
       "EMOTIONAL_TONE": 0.5187281247678703
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "M",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，我先让学员自己练错一次，再教修正，看看会不会更轻松。",
-    "context": "你也试试看？反正练错了还能改，总比一直紧绷着强吧",
-    "route": "move_10",
-    "session": "10c_drifting_apart",
-    "round": 20,
-    "style": {
-      "FORMALITY": 0.5513445953635678,
-      "POLITENESS": 0.4600620322426584,
-      "FRIENDLINESS": 0.46534183072331625,
-      "CERTAINTY": 0.5232934383828731,
-      "EMOTIONAL_TONE": 0.5214899503732893
     },
     "em": 0,
     "tiers": {
@@ -25036,50 +24266,6 @@
     }
   },
   {
-    "text": "换个如果，咱俩第一天就互删了，现在肯定后悔得想哭。",
-    "context": "我也是，这样聊着真舒服，不累。",
-    "route": "move_10",
-    "session": "10b_volunteer_event",
-    "round": 15,
-    "style": {
-      "FORMALITY": 0.48680434083545127,
-      "POLITENESS": 0.7122980882730768,
-      "FRIENDLINESS": 0.8281478857384941,
-      "CERTAINTY": 0.5636792902911567,
-      "EMOTIONAL_TONE": 0.5151036739749537
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "换个如果，要是我们一开始就聊得很紧绷，可能现在也不会这么自在了。",
-    "context": "我也是，可能因为我们都不强求说啥，才这么轻松吧",
-    "route": "move_10",
-    "session": "10b_volunteer_event",
-    "round": 16,
-    "style": {
-      "FORMALITY": 0.46890941335465536,
-      "POLITENESS": 0.7151638873108587,
-      "FRIENDLINESS": 0.8419161432505207,
-      "CERTAINTY": 0.564091787248187,
-      "EMOTIONAL_TONE": 0.5138278543519661
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "M",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "对啊，这样刚好。我刚做完泳池的拉伸，身上还带着点氯味儿。",
     "context": "我也是，可能因为我们都不强求说啥，才这么轻松吧",
     "route": "move_8",
@@ -25721,28 +24907,6 @@
     "text": "真的假的？你居然觉得一个人刷剧看小说比约人还爽？我周末刚和朋友玩桌游，吵到快吵翻了，但真挺过瘾的。",
     "context": "挺重要的，我周末就自己刷短视频+看悬疑小说，比约人还爽，你呢？",
     "route": "move_2",
-    "session": "10a_concert_hype",
-    "round": 2,
-    "style": {
-      "FORMALITY": 0.2377457774765219,
-      "POLITENESS": 0.5682941469946741,
-      "FRIENDLINESS": 0.9702742571801718,
-      "CERTAINTY": 0.4716104133471427,
-      "EMOTIONAL_TONE": 0.6430094664724897
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "我周末也爱刷剧，但换个如果——要是有人约我打桌游，我肯定丢下手机冲出去。",
-    "context": "挺重要的，我周末就自己刷短视频+看悬疑小说，比约人还爽，你呢？",
-    "route": "move_10",
     "session": "10a_concert_hype",
     "round": 2,
     "style": {
@@ -26576,28 +25740,6 @@
     }
   },
   {
-    "text": "换个如果，它要是写成温馨治愈版，我估计睡得比谁都香，但你这描述……我今晚真不敢关灯了。",
-    "context": "对对对！就是那种醒过来还觉得屋里有人！  \n我等你消息，看完咱们立马聊，我真好奇你啥反应。",
-    "route": "move_10",
-    "session": "10a_concert_hype",
-    "round": 11,
-    "style": {
-      "FORMALITY": 0.26698402854588527,
-      "POLITENESS": 0.5168955806568157,
-      "FRIENDLINESS": 0.9355410086917014,
-      "CERTAINTY": 0.5324196537534285,
-      "EMOTIONAL_TONE": 0.6378897582269231
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "我懂我懂，昨晚看一半去上厕所，灯一关心跳都停了半拍，真不是吓人是真毛。",
     "context": "对对对！就是那种醒过来还觉得屋里有人！  \n我等你消息，看完咱们立马聊，我真好奇你啥反应。",
     "route": "move_5",
@@ -26950,50 +26092,6 @@
     }
   },
   {
-    "text": "换个如果，要是她根本没失踪呢？那句“她不在”就是个陷阱，我看完后半夜还盯着门缝，怕她真从外面探头进来。",
-    "context": "对对对，就是那句“她不在”把我整破防了，我也觉得不是我胆小，是书太阴了。",
-    "route": "move_10",
-    "session": "10a_concert_hype",
-    "round": 17,
-    "style": {
-      "FORMALITY": 0.2719642593732255,
-      "POLITENESS": 0.47650803171660266,
-      "FRIENDLINESS": 0.9414075571558519,
-      "CERTAINTY": 0.5739678335351706,
-      "EMOTIONAL_TONE": 0.6657648064036311
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，她根本没失踪，只是不想被找到，那我们半夜开灯刷手机，是不是都白害怕了？",
-    "context": "对对对，就是那句“她不在”把我整破防了，我也觉得不是我胆小，是书太阴了。",
-    "route": "move_10",
-    "session": "10a_concert_hype",
-    "round": 17,
-    "style": {
-      "FORMALITY": 0.2719642593732255,
-      "POLITENESS": 0.47650803171660266,
-      "FRIENDLINESS": 0.9414075571558519,
-      "CERTAINTY": 0.5739678335351706,
-      "EMOTIONAL_TONE": 0.6657648064036311
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "邓宇航你多大啊？我25，看完这书真想再翻一遍，但又怕半夜惊醒…",
     "context": "对对对，就是那句“她不在”把我整破防了，我也觉得不是我胆小，是书太阴了。",
     "route": "free",
@@ -27082,28 +26180,6 @@
     }
   },
   {
-    "text": "行啊，不过我迟到惯了，别等我啊。  \n换个如果，要是桌游馆没开，咱会不会改去超市逛半夜货架？",
-    "context": "我懂我懂，明天要不要一起看个喜剧缓一缓？我刚发现楼下新开家桌游馆，听说特别上头。",
-    "route": "move_10",
-    "session": "10a_concert_hype",
-    "round": 19,
-    "style": {
-      "FORMALITY": 0.2716485715343497,
-      "POLITENESS": 0.4743017985521079,
-      "FRIENDLINESS": 0.9416706909031471,
-      "CERTAINTY": 0.573659177985701,
-      "EMOTIONAL_TONE": 0.6637578558975108
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "换种说法，要不咱明天直接去桌游馆？看完喜剧再玩，我怕笑完没劲儿动。  \n反正我迟到了也不认，你等我就行。",
     "context": "我懂我懂，明天要不要一起看个喜剧缓一缓？我刚发现楼下新开家桌游馆，听说特别上头。",
     "route": "move_10",
@@ -27166,50 +26242,6 @@
       "POLITENESS": "M",
       "FRIENDLINESS": "EH",
       "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "咱明天下午四点去？那会儿人不多，玩起来不吵。换个如果，要是晚上七点去，估计得排队到门口。",
-    "context": "行啊，我反正最近刷短视频刷腻了，桌游馆我还没去过呢，明天几点？",
-    "route": "move_10",
-    "session": "10a_concert_hype",
-    "round": 20,
-    "style": {
-      "FORMALITY": 0.27077573582625475,
-      "POLITENESS": 0.4390727171007733,
-      "FRIENDLINESS": 0.9634698280940264,
-      "CERTAINTY": 0.6194715467836417,
-      "EMOTIONAL_TONE": 0.7266487936454071
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "H",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "我一般十点后有空，你呢？要是嫌晚咱可以改到八点，换个如果，八点开玩，看完书的阴气正好散一散。",
-    "context": "行啊，我反正最近刷短视频刷腻了，桌游馆我还没去过呢，明天几点？",
-    "route": "move_10",
-    "session": "10a_concert_hype",
-    "round": 20,
-    "style": {
-      "FORMALITY": 0.27077573582625475,
-      "POLITENESS": 0.4390727171007733,
-      "FRIENDLINESS": 0.9634698280940264,
-      "CERTAINTY": 0.6194715467836417,
-      "EMOTIONAL_TONE": 0.7266487936454071
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "H",
       "EMOTIONAL_TONE": "H"
     }
   },
@@ -27721,28 +26753,6 @@
   },
   {
     "text": "冯瑾萱？这名字真巧，咱都姓冯。  \n记笔记这事儿，咱俩算同道中人了。  \n要是面糊少打一分钟，你那蛋糕会不会不塌？",
-    "context": "我叫冯瑾萱，瑾是玉字旁那个瑾。  \n你记笔记这习惯，我太懂了，我工作也老记，怕下次再翻车。",
-    "route": "move_10",
-    "session": "10c_camping_adventure",
-    "round": 8,
-    "style": {
-      "FORMALITY": 0.2957694426890514,
-      "POLITENESS": 0.5465405793201608,
-      "FRIENDLINESS": 0.9040960983635887,
-      "CERTAINTY": 0.5627640550593369,
-      "EMOTIONAL_TONE": 0.5959813395656894
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
-    "text": "冯瑾萱？这名字真好听。换个如果，咱俩要是早点认识，估计现在能合伙开个翻车蛋糕店了。",
     "context": "我叫冯瑾萱，瑾是玉字旁那个瑾。  \n你记笔记这习惯，我太懂了，我工作也老记，怕下次再翻车。",
     "route": "move_10",
     "session": "10c_camping_adventure",
@@ -28491,28 +27501,6 @@
   },
   {
     "text": "换种如果，你带骰子我带烤串，扔之前先吃一口，气都消一半了。",
-    "context": "你这提议太绝了，我真带骰子去，你可别反悔啊。",
-    "route": "move_10",
-    "session": "10c_camping_adventure",
-    "round": 20,
-    "style": {
-      "FORMALITY": 0.2998337958488865,
-      "POLITENESS": 0.5014836913976446,
-      "FRIENDLINESS": 0.8905696468161093,
-      "CERTAINTY": 0.6006036254785361,
-      "EMOTIONAL_TONE": 0.6356756129097817
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "H",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "绝不反悔，不过换个如果——你扔骰子，我就把桌游卡全撒湖里，看谁更疯。",
     "context": "你这提议太绝了，我真带骰子去，你可别反悔啊。",
     "route": "move_10",
     "session": "10c_camping_adventure",
@@ -30580,28 +29568,6 @@
     }
   },
   {
-    "text": "换个如果，要是梦里那人其实你见过，只是忘了呢？我刚翻完一本悬疑小说，突然这么想。",
-    "context": "我最近老是做同一个梦，梦里的人我根本不认识。",
-    "route": "move_10",
-    "session": "10c_blind_date_debrief",
-    "round": 1,
-    "style": {
-      "FORMALITY": 0.2547786017228468,
-      "POLITENESS": 0.6302445956384173,
-      "FRIENDLINESS": 0.841540306272002,
-      "CERTAINTY": 0.405691968587366,
-      "EMOTIONAL_TONE": 0.5098103505431741
-    },
-    "em": 1,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "梦里那人有脸吗？还是就是个影子？  \n我其实也老做重复的梦，但一直没敢细想…  \n你查的这个，挺准的。",
     "context": "重复做同一个梦啊…梦里那人长什么样？我刚查到，这种梦 usually 和没处理的情绪有关。",
     "route": "move_2",
@@ -31551,28 +30517,6 @@
     "text": "我总想着安排好时间再找灵感，结果啥也没找到。  \n要不明天你带我乱逛一回？",
     "context": "我啊，灵感全靠乱逛，走着走着就撞见了，有时候连自己都不知道为啥突然想写点啥。",
     "route": "move_11",
-    "session": "10c_blind_date_debrief",
-    "round": 19,
-    "style": {
-      "FORMALITY": 0.30792013336691115,
-      "POLITENESS": 0.4800534720846298,
-      "FRIENDLINESS": 0.8931410578276215,
-      "CERTAINTY": 0.5653240070988848,
-      "EMOTIONAL_TONE": 0.6375379734657934
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，你要是天天打卡上班，灵感还会自己撞上来吗？我反正不敢想，怕一想就忘了带钥匙。",
-    "context": "我啊，灵感全靠乱逛，走着走着就撞见了，有时候连自己都不知道为啥突然想写点啥。",
-    "route": "move_10",
     "session": "10c_blind_date_debrief",
     "round": 19,
     "style": {
@@ -33528,53 +32472,9 @@
     }
   },
   {
-    "text": "换个如果，咱俩都不偷瞄，直接一人加两个蛋，看谁先吃完？  \n……我真不敢躲，你别逼我。",
-    "context": "我手心也冒汗了，嘴上说不怕，其实怕你真生气。  \n下次我盯着你盘子，你别躲，我也不敢躲。",
-    "route": "move_10",
-    "session": "10b_anxiety_share",
-    "round": 15,
-    "style": {
-      "FORMALITY": 0.35955634222910343,
-      "POLITENESS": 0.5495130516144187,
-      "FRIENDLINESS": 0.8517210279215862,
-      "CERTAINTY": 0.5110603954318607,
-      "EMOTIONAL_TONE": 0.5865955170713436
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "我手心现在还黏糊糊的，真怕你看出我紧张。  \n下次你抖筷子，我就假装看天花板。",
     "context": "我也是，嘴上硬气，其实手心全是汗。  \n下次你盯着我盘子，我连筷子都不敢抖。",
     "route": "move_5",
-    "session": "10b_anxiety_share",
-    "round": 16,
-    "style": {
-      "FORMALITY": 0.3663785149925191,
-      "POLITENESS": 0.5409285981323371,
-      "FRIENDLINESS": 0.7468760781555189,
-      "CERTAINTY": 0.3398363480377762,
-      "EMOTIONAL_TONE": 0.6996176901062598
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，你盘子没蛋，我盯着看半天，结果你突然加俩，我是不是得慌到把筷子捏断？",
-    "context": "我也是，嘴上硬气，其实手心全是汗。  \n下次你盯着我盘子，我连筷子都不敢抖。",
-    "route": "move_10",
     "session": "10b_anxiety_share",
     "round": 16,
     "style": {
@@ -34232,50 +33132,6 @@
     }
   },
   {
-    "text": "改到两点半，跟你一样。换个如果，要是咖啡机没坏，我俩现在能一起喝杯真的拿铁。",
-    "context": "谁说不是，热乎的速溶都能喝出幸福感。  \n你那方案改到几点？我猜也没早到哪去。",
-    "route": "move_10",
-    "session": "10c_diet_fail",
-    "round": 10,
-    "style": {
-      "FORMALITY": 0.3076002332397545,
-      "POLITENESS": 0.4749548906227774,
-      "FRIENDLINESS": 0.8165055578509852,
-      "CERTAINTY": 0.4842213601612761,
-      "EMOTIONAL_TONE": 0.6250807904655105
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "改到两点，边改边吃自己做的提拉米苏，甜得我差点忘了自己怕高。换个如果，要是没这甜品，我可能直接躺地上了。",
-    "context": "谁说不是，热乎的速溶都能喝出幸福感。  \n你那方案改到几点？我猜也没早到哪去。",
-    "route": "move_10",
-    "session": "10c_diet_fail",
-    "round": 10,
-    "style": {
-      "FORMALITY": 0.3076002332397545,
-      "POLITENESS": 0.4749548906227774,
-      "FRIENDLINESS": 0.8165055578509852,
-      "CERTAINTY": 0.4842213601612761,
-      "EMOTIONAL_TONE": 0.6250807904655105
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "凌晨两点多，差点在图纸上睡着了。  \n你这速溶幸福感，我下次也试试，反正咖啡机也快报废了。",
     "context": "谁说不是，热乎的速溶都能喝出幸福感。  \n你那方案改到几点？我猜也没早到哪去。",
     "route": "move_11",
@@ -34565,28 +33421,6 @@
     "text": "我懂，改方案时手心烫，心里才真踏实，咱俩这熬夜，值了。",
     "context": "我手心还烫着，但心里松了一点，至少咱俩没白熬。",
     "route": "move_9",
-    "session": "10c_diet_fail",
-    "round": 16,
-    "style": {
-      "FORMALITY": 0.3145791946307828,
-      "POLITENESS": 0.4770621634095652,
-      "FRIENDLINESS": 0.8085877470454574,
-      "CERTAINTY": 0.48157181327639725,
-      "EMOTIONAL_TONE": 0.6075943520751321
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
-    "text": "换个如果，咱俩没熬夜，那现在应该在吃甜品，而不是手心发烫。",
-    "context": "我手心还烫着，但心里松了一点，至少咱俩没白熬。",
-    "route": "move_10",
     "session": "10c_diet_fail",
     "round": 16,
     "style": {
@@ -40480,28 +39314,6 @@
     }
   },
   {
-    "text": "换个如果，咱俩骑车不摔，去吃那家新出的芒果糯米饭？",
-    "context": "行吧，摔一块不亏，但咱真别摔，我拉着你。",
-    "route": "move_10",
-    "session": "10b_festival_food",
-    "round": 20,
-    "style": {
-      "FORMALITY": 0.3667772961605046,
-      "POLITENESS": 0.5015968222253555,
-      "FRIENDLINESS": 0.8788553480332016,
-      "CERTAINTY": 0.5996428854465795,
-      "EMOTIONAL_TONE": 0.6224889586740383
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "H"
-    }
-  },
-  {
     "text": "我上周在咖啡馆啃了块芝士蛋糕，吃得满手奶油，还迟到了会。",
     "context": "我不嫌烦，你接着说，我刚吃了一块蛋糕，现在特别有劲听。",
     "route": "move_6",
@@ -41537,28 +40349,6 @@
   },
   {
     "text": "太好了！要不我们周末约在咖啡馆？我带个蓝牙音箱，边喝边听，换种方式感受也挺有意思。",
-    "context": "真的吗？我正好这周末有空，你发我链接吧。听完我可能说不太出专业的话，但肯定能感受到不一样，我耳朵会舒服很多。",
-    "route": "move_10",
-    "session": "10a_sick_day",
-    "round": 3,
-    "style": {
-      "FORMALITY": 0.28589050984748826,
-      "POLITENESS": 0.6993276499184995,
-      "FRIENDLINESS": 0.7657474850947082,
-      "CERTAINTY": 0.37008245298631703,
-      "EMOTIONAL_TONE": 0.23918199727366335
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "H",
-      "FRIENDLINESS": "H",
-      "CERTAINTY": "L",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "太好了！要不我们换个如果，你直接来我家听？我刚烤了饼干，边吃边聊，可能更自在一点。",
     "context": "真的吗？我正好这周末有空，你发我链接吧。听完我可能说不太出专业的话，但肯定能感受到不一样，我耳朵会舒服很多。",
     "route": "move_10",
     "session": "10a_sick_day",
@@ -45540,28 +44330,6 @@
     }
   },
   {
-    "text": "换个如果，你写的不是“没人注意”，而是“只有你注意到了”呢？我觉着这反而特别珍贵。",
-    "context": "写城市里那些没人注意的小变化，人怎么走路啊、便利店晚上谁在买东西，写了十几遍还是觉得干巴巴的。",
-    "route": "move_10",
-    "session": "10a_road_trip_plan",
-    "round": 5,
-    "style": {
-      "FORMALITY": 0.28638927904548944,
-      "POLITENESS": 0.5946700530262716,
-      "FRIENDLINESS": 0.8724391915191315,
-      "CERTAINTY": 0.43598960928650515,
-      "EMOTIONAL_TONE": 0.4295956436924391
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "M"
-    }
-  },
-  {
     "text": "你写便利店晚上谁买东西？具体是哪个店啊？我昨天路过幸福里24小时，看到个穿蓝大衣的阿姨，买了三盒牛奶。",
     "context": "写城市里那些没人注意的小变化，人怎么走路啊、便利店晚上谁在买东西，写了十几遍还是觉得干巴巴的。",
     "route": "move_1",
@@ -46333,28 +45101,6 @@
   },
   {
     "text": "行啊你发吧，不过要是换成比赛在花店办，我可能更迷糊——毕竟我连咖啡豆长啥样都没认真看过。",
-    "context": "行，我发你啊，看完咱俩可以聊聊，我猜你也会被那个拉花环节整迷糊了",
-    "route": "move_10",
-    "session": "10c_farewell_party",
-    "round": 7,
-    "style": {
-      "FORMALITY": 0.31227407843039423,
-      "POLITENESS": 0.5734295786976245,
-      "FRIENDLINESS": 0.8502642417437714,
-      "CERTAINTY": 0.42010036695880626,
-      "EMOTIONAL_TONE": 0.3633768978711474
-    },
-    "em": 0,
-    "tiers": {
-      "FORMALITY": "L",
-      "POLITENESS": "M",
-      "FRIENDLINESS": "EH",
-      "CERTAINTY": "M",
-      "EMOTIONAL_TONE": "L"
-    }
-  },
-  {
-    "text": "行啊你发吧，我看完要是真迷糊了，咱换个如果——我拿花束当咖啡杯，看看能不能拉出玫瑰花来。",
     "context": "行，我发你啊，看完咱俩可以聊聊，我猜你也会被那个拉花环节整迷糊了",
     "route": "move_10",
     "session": "10c_farewell_party",
